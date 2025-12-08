@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 # Function to cleanup background processes on exit
 cleanup() {
     echo "Stopping services..."
@@ -10,7 +13,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "Building Verifier..."
-cd /Users/ankan-macbook/Desktop/Code/MicroAI-Paygate/verifier && cargo build --quiet
+cd "$SCRIPT_DIR/verifier" && cargo build --quiet
 if [ $? -ne 0 ]; then
     echo "Verifier build failed"
     exit 1
@@ -20,7 +23,7 @@ cargo run --quiet &
 VERIFIER_PID=$!
 
 echo "Starting Gateway..."
-cd /Users/ankan-macbook/Desktop/Code/MicroAI-Paygate/gateway
+cd "$SCRIPT_DIR/gateway"
 go run main.go &
 GATEWAY_PID=$!
 
@@ -29,5 +32,5 @@ echo "Waiting for services to initialize (10s)..."
 sleep 10
 
 echo "Running E2E Tests..."
-cd /Users/ankan-macbook/Desktop/Code/MicroAI-Paygate
+cd "$SCRIPT_DIR"
 bun test tests/e2e.test.ts
