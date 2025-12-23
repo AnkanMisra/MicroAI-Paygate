@@ -15,6 +15,7 @@ async fn main() {
     // build our application with a route
     let app = Router::new()
         .route("/health", get(health))
+        .route("/healthz", get(healthz))
         .route("/verify", post(verify_signature));
 
     // run it
@@ -26,6 +27,19 @@ async fn main() {
 
 async fn health() -> &'static str {
     "Rust Verifier OK"
+}
+
+#[derive(Serialize, Debug, PartialEq, Eq)]
+struct HealthResponse {
+    status: &'static str,
+    service: &'static str,
+}
+
+async fn healthz() -> Json<HealthResponse> {
+    Json(HealthResponse {
+        status: "ok",
+        service: "verifier",
+    })
 }
 
 #[derive(Deserialize, Debug)]
@@ -234,5 +248,12 @@ mod tests {
 
         let (status, _) = verify_signature(Json(req)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_healthz_ok() {
+        let Json(resp) = healthz().await;
+        assert_eq!(resp.status, "ok");
+        assert_eq!(resp.service, "verifier");
     }
 }
