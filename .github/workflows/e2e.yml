@@ -7,7 +7,7 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    if: ${{ secrets.OPENROUTER_API_KEY != '' }}
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'z-ai/glm-4.5-air:free' }}
