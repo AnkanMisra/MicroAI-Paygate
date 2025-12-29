@@ -86,9 +86,9 @@ func handleSummarize(c *gin.Context) {
 	context := PaymentContext{
 		Recipient: getRecipientAddress(),
 		Token:     "USDC",
-		Amount:    "0.001",
+		Amount:    getPaymentAmount(),
 		Nonce:     nonce,
-		ChainID:   8453,
+		ChainID:   getChainID(),
 	}
 
 	verifyReq := VerifyRequest{
