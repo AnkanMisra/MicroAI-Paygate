@@ -36,12 +36,14 @@ paths:
           description: EIP-712 signature authorizing payment
           schema:
             type: string
+
         - name: X-402-Nonce
           in: header
           required: false
           description: Nonce from 402 response
           schema:
             type: string
+
       requestBody:
         required: true
         content:
@@ -54,6 +56,7 @@ paths:
                 text:
                   type: string
                   example: "Artificial intelligence is transforming software development."
+
       responses:
         "200":
           description: Summary generated
@@ -65,30 +68,54 @@ paths:
                   result:
                     type: string
                     example: "AI is changing how software is built."
+
         "402":
           description: Payment required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Payment Required"
+                  message:
+                    type: string
+                    example: "Please sign the payment context"
+                  paymentContext:
+                    type: object
+                    properties:
+                      recipient:
+                        type: string
+                      token:
+                        type: string
+                      amount:
+                        type: string
+                      nonce:
+                        type: string
+                      chainId:
+                        type: integer
+
         "403":
           description: Invalid signature
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  details:
+                    type: string
+
         "500":
           description: Server error
-
-  /verify:
-    post:
-      summary: Verify signature (internal)
-      description: Internal endpoint for EIP-712 verification
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                context:
-                  type: object
-                signature:
-                  type: string
-      responses:
-        "200":
-          description: Valid signature
-        "403":
-          description: Invalid signature
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  details:
+                    type: string
