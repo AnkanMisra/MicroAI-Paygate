@@ -42,10 +42,58 @@ type SummarizeRequest struct {
 	Text string `json:"text"`
 }
 
+func validateConfig() error {
+	required := []string{
+		"OPENROUTER_API_KEY",
+	}
+	var missing []string
+	for _, key := range required {
+		if os.Getenv(key) == "" {
+			missing = append(missing, key)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required environment variables: %v", missing)
+	}
+	return nil
+}
 func main() {
 	err := godotenv.Load("../.env")
 	if err != nil {
 		log.Println("Warning: Error loading .env file")
+	}
+	if err := validateConfig(); err != nil {
+		fmt.Println("[Error] Missing required environment variables:")
+		fmt.Println("  -", err.Error())
+		fmt.Println()
+		fmt.Println("Copy .env.example to .env and fill in the required values.")
+		fmt.Println("See README.md for more configuration details.")
+		os.Exit(1)
+	}
+	fmt.Println("[OK] Configuration validated")
+	if port := os.Getenv("PORT"); port != "" {
+		fmt.Printf("    - Port: %s\n", port)
+	}
+	if model := os.Getenv("MODEL"); model != "" {
+		fmt.Printf("    - Model: %s\n", model)
+	}
+	if verifier := os.Getenv("VERIFIER_URL"); verifier != "" {
+		fmt.Printf("    - Verifier: %s\n", verifier)
+	}
+	if chainID := os.Getenv("CHAIN_ID"); chainID != "" {
+		fmt.Printf("    - Chain ID: %s\n", chainID)
+	}
+	if os.Getenv("PORT") == "" {
+		fmt.Println("[WARN] PORT not set, using default: 3000")
+	}
+	if os.Getenv("MODEL") == "" {
+		fmt.Println("[WARN] MODEL not set, using default model")
+	}
+	if os.Getenv("VERIFIER_URL") == "" {
+		fmt.Println("[WARN] VERIFIER_URL not set, using default verifier")
+	}
+    if os.Getenv("CHAIN_ID") == "" {
+		fmt.Println("[WARN] CHAIN_ID not set, using default: 8453(base)")
 	}
 
 	r := gin.Default()
