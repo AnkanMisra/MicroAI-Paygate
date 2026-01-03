@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -75,9 +77,16 @@ func main() {
 		AllowOrigins:     []string{"http://localhost:3001"},
 		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "X-402-Signature", "X-402-Nonce"},
-		ExposeHeaders:    []string{"Content-Length"},
+		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After"},
 		AllowCredentials: true,
 	}))
+
+	// Initialize rate limiters if enabled
+	if getRateLimitEnabled() {
+		limiters := initRateLimiters()
+		r.Use(RateLimitMiddleware(limiters))
+		log.Println("Rate limiting enabled")
+	}
 
 	r.GET("/healthz", handleHealth)
 	r.POST("/api/ai/summarize", handleSummarize)
@@ -268,4 +277,140 @@ func callOpenRouter(text string) (string, error) {
 
 func handleHealth(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "gateway"})
+}
+
+// Rate Limiting Functions
+
+// initRateLimiters creates rate limiters for each tier
+func initRateLimiters() map[string]RateLimiter {
+	cleanupInterval := getEnvAsInt("RATE_LIMIT_CLEANUP_INTERVAL", 300)
+	cleanupTTL := time.Duration(cleanupInterval) * time.Second
+
+	return map[string]RateLimiter{
+		"anonymous": NewTokenBucket(
+			getEnvAsInt("RATE_LIMIT_ANONYMOUS_RPM", 10),
+			getEnvAsInt("RATE_LIMIT_ANONYMOUS_BURST", 5),
+			cleanupTTL,
+		),
+		"standard": NewTokenBucket(
+			getEnvAsInt("RATE_LIMIT_STANDARD_RPM", 60),
+			getEnvAsInt("RATE_LIMIT_STANDARD_BURST", 20),
+			cleanupTTL,
+		),
+		"verified": NewTokenBucket(
+			getEnvAsInt("RATE_LIMIT_VERIFIED_RPM", 120),
+			getEnvAsInt("RATE_LIMIT_VERIFIED_BURST", 50),
+			cleanupTTL,
+		),
+	}
+}
+
+// RateLimitMiddleware applies rate limiting to requests
+func RateLimitMiddleware(limiters map[string]RateLimiter) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Determine rate limit key and tier
+		key := getRateLimitKey(c)
+		tier := selectRateLimitTier(c)
+		limiter := limiters[tier]
+
+		// Check if request is allowed
+		if !limiter.Allow(key) {
+			retryAfter := calculateRetryAfter(limiter, key)
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+			c.Header("X-RateLimit-Limit", strconv.Itoa(getLimitForTier(tier)))
+			c.Header("X-RateLimit-Remaining", "0")
+			c.Header("X-RateLimit-Reset", strconv.FormatInt(limiter.GetResetTime(key), 10))
+			c.JSON(429, gin.H{
+				"error":       "Too Many Requests",
+				"message":     "Rate limit exceeded. Please retry later.",
+				"retry_after": retryAfter,
+			})
+			c.Abort()
+			return
+		}
+
+		// Add rate limit headers to successful responses
+		c.Header("X-RateLimit-Limit", strconv.Itoa(getLimitForTier(tier)))
+		c.Header("X-RateLimit-Remaining", strconv.Itoa(limiter.GetRemaining(key)))
+		c.Header("X-RateLimit-Reset", strconv.FormatInt(limiter.GetResetTime(key), 10))
+
+		c.Next()
+	}
+}
+
+// getRateLimitKey determines the key for rate limiting (nonce/wallet > IP)
+func getRateLimitKey(c *gin.Context) string {
+	// Priority: Use nonce from header if present (identifies wallet)
+	nonce := c.GetHeader("X-402-Nonce")
+	if nonce != "" {
+		// Use first 8 chars of nonce as key
+		if len(nonce) > 8 {
+			return "nonce:" + nonce[:8]
+		}
+		return "nonce:" + nonce
+	}
+
+	// Fallback to IP address
+	return "ip:" + c.ClientIP()
+}
+
+// selectRateLimitTier determines which tier to apply based on request
+func selectRateLimitTier(c *gin.Context) string {
+	// Check if request has signature (authenticated)
+	signature := c.GetHeader("X-402-Signature")
+	nonce := c.GetHeader("X-402-Nonce")
+
+	if signature != "" && nonce != "" {
+		// Future: Check if user is verified/premium
+		// For now, all signed requests get standard tier
+		return "standard"
+	}
+
+	// Unsigned requests get anonymous tier
+	return "anonymous"
+}
+
+// calculateRetryAfter calculates seconds until rate limit resets
+func calculateRetryAfter(limiter RateLimiter, key string) int {
+	resetTime := limiter.GetResetTime(key)
+	now := time.Now().Unix()
+	retryAfter := int(resetTime - now)
+	if retryAfter < 1 {
+		return 1
+	}
+	return retryAfter
+}
+
+// getLimitForTier returns the RPM limit for a given tier
+func getLimitForTier(tier string) int {
+	switch tier {
+	case "anonymous":
+		return getEnvAsInt("RATE_LIMIT_ANONYMOUS_RPM", 10)
+	case "standard":
+		return getEnvAsInt("RATE_LIMIT_STANDARD_RPM", 60)
+	case "verified":
+		return getEnvAsInt("RATE_LIMIT_VERIFIED_RPM", 120)
+	default:
+		return 10
+	}
+}
+
+// getRateLimitEnabled checks if rate limiting is enabled
+func getRateLimitEnabled() bool {
+	enabled := strings.ToLower(os.Getenv("RATE_LIMIT_ENABLED"))
+	return enabled == "true" || enabled == "1"
+}
+
+// getEnvAsInt retrieves an environment variable as an integer with a default value
+func getEnvAsInt(key string, defaultValue int) int {
+	valStr := os.Getenv(key)
+	if valStr == "" {
+		return defaultValue
+	}
+	val, err := strconv.Atoi(valStr)
+	if err != nil {
+		log.Printf("Warning: Invalid value for %s: %s, using default %d", key, valStr, defaultValue)
+		return defaultValue
+	}
+	return val
 }
