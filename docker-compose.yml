@@ -8,8 +8,12 @@ services:
     environment:
       - PORT=3000
       - VERIFIER_URL=http://verifier:3002
+      - CACHE_ENABLED=true
+      - REDIS_URL=redis:6379
+      - CACHE_TTL_SECONDS=3600
     depends_on:
       - verifier
+      - redis
     networks:
       - microai-net
 
@@ -17,6 +21,21 @@ services:
     build: ./verifier
     ports:
       - "3002:3002"
+    networks:
+      - microai-net
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     networks:
       - microai-net
 
@@ -34,3 +53,6 @@ services:
 networks:
   microai-net:
     driver: bridge
+
+volumes:
+  redis-data:

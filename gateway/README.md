@@ -18,6 +18,11 @@ The Gateway is the high-performance entry point for the MicroAI Paygate architec
 ## Key Files
 
 - `main.go`: Contains the server initialization, route definitions, and the core `handleSummarize` logic.
+- `middleware.go`: Request timeout middleware with buffered response handling.
+- `ratelimit.go`: Token bucket rate limiting implementation.
+- `cache.go`: Redis client initialization and cache operations.
+- `cache_middleware.go`: Cache-aside pattern middleware for AI responses.
+- `config.go`: Configuration helpers and timeout management.
 - `Dockerfile`: Multi-stage build configuration for creating a lightweight Alpine Linux container.
 
 ## Development
@@ -54,10 +59,40 @@ Environment variables (via `.env`):
 - `VERIFIER_TIMEOUT_SECONDS` — verifier timeout (default: 2)
 - `HEALTH_CHECK_TIMEOUT_SECONDS` — health check timeout (default: 2)
 
+**Response Caching:**
+- `CACHE_ENABLED` — enable Redis caching (default: false)
+- `REDIS_URL` — Redis server address (default: localhost:6379)
+- `REDIS_PASSWORD` — Redis password (required in production)
+- `REDIS_DB` — Redis database number (default: 0)
+- `CACHE_TTL_SECONDS` — cache entry lifetime (default: 3600)
+
 Ports: Gateway listens on `3000` by default.
 
 ## Testing
 
+Run unit tests:
 ```bash
 go test ./...
+```
+
+Run specific test:
+```bash
+go test -v -run TestCacheKey
+```
+
+Run with Redis integration tests (requires Redis running):
+```bash
+# Start Redis
+docker run -d -p 6379:6379 redis:7-alpine
+
+# Run all tests
+go test -v
+
+# Run only cache tests
+go test -v -run TestCache
+```
+
+Run benchmarks:
+```bash
+go test -bench=. -benchmem
 ```

@@ -81,6 +81,10 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("[OK] Configuration validated")
+
+	// Initialize Redis for caching
+	initRedis()
+	defer closeRedis()
 	if port := os.Getenv("PORT"); port != "" {
 		fmt.Printf("    - Port: %s\n", port)
 	}
@@ -157,9 +161,10 @@ func main() {
 	// Health check with shorter timeout (2s)
 	r.GET("/healthz", RequestTimeoutMiddleware(getHealthCheckTimeout()), handleHealth)
 
-	// AI endpoints with AI-specific timeout (30s)
+	// AI endpoints with AI-specific timeout (30s) and caching
 	aiGroup := r.Group("/api/ai")
 	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
+	aiGroup.Use(CacheMiddleware()) // Add cache middleware after timeout
 	aiGroup.POST("/summarize", handleSummarize)
 
 	port := os.Getenv("PORT")

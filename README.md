@@ -294,6 +294,106 @@ VERIFIER_TIMEOUT_SECONDS=2
 HEALTH_CHECK_TIMEOUT_SECONDS=2
 ```
 
+### Response Caching with Redis
+
+MicroAI Paygate implements an intelligent caching layer to reduce OpenRouter API costs and improve response times for frequently requested content.
+
+**Benefits:**
+- **Cost Savings**: Cache hits avoid expensive API calls ($0.01+ per request)
+- **Faster Responses**: <10ms cache hits vs 500-2000ms API calls
+- **Multi-Instance Support**: Shared Redis cache across multiple gateway instances
+- **Payment Still Required**: Cached responses still enforce signature verification
+
+**How It Works:**
+1. Request arrives with valid payment signature
+2. System generates SHA256-based cache key from request content
+3. Check Redis cache for existing response
+4. On cache miss: Call OpenRouter API and store result with TTL
+5. On cache hit: Return cached response immediately
+
+**Configuration:**
+Add to your `.env` file:
+```bash
+# Redis Caching
+CACHE_ENABLED=true                # Enable/disable caching (default: false)
+REDIS_URL=localhost:6379          # Redis server address (use rediss:// for TLS)
+REDIS_PASSWORD=                   # Redis password (if required)
+REDIS_DB=0                        # Redis database number
+CACHE_TTL_SECONDS=3600           # Cache entry lifetime (1 hour default)
+```
+
+**Docker Setup:**
+Redis is automatically included in `docker-compose.yml`:
+```bash
+docker-compose up -d  # Starts gateway, verifier, web, and Redis
+```
+
+**Cache Key Design:**
+- Content-addressable: SHA256 hash of request text
+- Deterministic: Same content = same key = cache hit
+- Privacy-preserving: Original text not stored in key
+- Format: `ai:summary:<16-hex-chars>`
+
+**Graceful Fallback:**
+- If Redis is unavailable, system continues without caching
+- No fatal errors - logs warning and disables cache
+- Automatic reconnection on next request
+
+**Testing Cache:**
+```bash
+# First request (cache miss)
+curl -X POST http://localhost:3000/api/ai/summarize \
+  -H "X-402-Signature: 0x..." \
+  -H "X-402-Nonce: nonce123" \
+  -d '{"text": "Same text"}'
+# Response time: ~1000ms
+
+# Second request (cache hit)
+curl -X POST http://localhost:3000/api/ai/summarize \
+  -H "X-402-Signature: 0x..." \
+  -H "X-402-Nonce: nonce456" \
+  -d '{"text": "Same text"}'
+# Response time: <10ms, includes "cached": true
+```
+
+**Response Format (Cache Hit):**
+```json
+{
+  "result": "Your cached summary...",
+  "cached": true,
+  "cached_at": 1704470400,
+  "cache_key": "ai:summary:a1b2c3"
+}
+```
+
+**Production Security:**
+⚠️ **Critical for Production Deployments**
+```bash
+# REQUIRED: Set a strong Redis password
+REDIS_PASSWORD=your_secure_random_password_here
+
+# RECOMMENDED: Use Redis with TLS
+# If your Redis server supports TLS, use rediss:// protocol:
+REDIS_URL=rediss://your-redis-host:6380
+
+# RECOMMENDED: Limit Redis network access
+# - Use firewall rules to allow only gateway instances
+# - Use private networks in cloud environments
+# - Enable Redis AUTH (via REDIS_PASSWORD)
+```
+
+**Cache Key Security:**
+- Uses SHA256 hashing (cryptographically secure)
+- 16-character hex prefix (64 bits of entropy)
+- Prevents exposing original text in Redis keys
+- Collision-resistant for production scale
+
+**Cache Invalidation:**
+- Automatic TTL-based expiry (default: 1 hour)
+- Manual flush: `docker exec redis redis-cli FLUSHDB` (dev only!)
+- Production: Monitor cache size and adjust TTL if needed
+- No user-specific data cached (content-addressable only)
+
 ### Docker Deployment (Production)
 
 For production environments, we provide a containerized setup using Docker Compose. This orchestrates all three services in an isolated network.
