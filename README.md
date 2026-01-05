@@ -190,19 +190,27 @@ bun run stack
 ```
 
 **Run Tests**
-- E2E: `bun run test:e2e`
-- Gateway: `cd gateway && go test -v`
-- Verifier: `cd verifier && cargo test`
+```bash
+bun run test:unit   # Go + Rust unit tests
+bun run test:go     # Gateway tests only
+bun run test:rust   # Verifier tests only
+bun run test:e2e    # E2E (starts services automatically)
+bun run test:all    # Full test suite with E2E
+```
+
+> **Note:** Do NOT use `bun test` directly - it triggers bun's native test runner without starting services.
 
 ### Environment
 
 Create a `.env` (or use `.env.example`) with at least:
 
-- `OPENROUTER_API_KEY` — API key for OpenRouter
+- `OPENROUTER_API_KEY` — API key for OpenRouter **(required - validated at startup)**
 - `OPENROUTER_MODEL` — model name (default: `z-ai/glm-4.5-air:free`)
 - `SERVER_WALLET_PRIVATE_KEY` — private key for the server wallet (recipient of payments)
 - `RECIPIENT_ADDRESS` — wallet address for receiving payments
 - `CHAIN_ID` — chain used in signatures (default: `8453` for Base)
+
+> **Note:** The gateway validates required environment variables at startup. If `OPENROUTER_API_KEY` is missing, the server will exit with a helpful error message.
 
 **Optional Configuration:**
 - `USDC_TOKEN_ADDRESS` — USDC contract address (default: Base USDC)
@@ -256,6 +264,35 @@ RATE_LIMIT_CLEANUP_INTERVAL=300
 - `X-RateLimit-Remaining`: Requests remaining
 - `X-RateLimit-Reset`: Unix timestamp when limit resets
 - `Retry-After`: Seconds until reset (on 429 response)
+
+### Request Timeouts
+
+The gateway implements context-based request timeouts to prevent slow/hanging requests from consuming resources.
+
+**Features:**
+- Global request timeout (default: 60s)
+- Per-endpoint configurable timeouts
+- Context cancellation for downstream calls
+- Buffered response to prevent race conditions
+- Returns `504 Gateway Timeout` when exceeded
+
+**Default Timeouts:**
+
+| Endpoint | Timeout | Purpose |
+|----------|---------|---------|
+| Global | 60s | Maximum request duration |
+| AI endpoints | 30s | OpenRouter calls |
+| Verifier | 2s | Signature verification |
+| Health check | 2s | `/healthz` endpoint |
+
+**Configuration:**
+```bash
+# Request Timeouts
+REQUEST_TIMEOUT_SECONDS=60
+AI_REQUEST_TIMEOUT_SECONDS=30
+VERIFIER_TIMEOUT_SECONDS=2
+HEALTH_CHECK_TIMEOUT_SECONDS=2
+```
 
 ### Docker Deployment (Production)
 

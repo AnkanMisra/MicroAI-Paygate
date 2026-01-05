@@ -27,7 +27,7 @@ VERIFIER_PID=$!
 
 echo "Starting Gateway..."
 cd "$SCRIPT_DIR/gateway"
-go run main.go &
+go run . &
 GATEWAY_PID=$!
 
 # Wait for services to be ready

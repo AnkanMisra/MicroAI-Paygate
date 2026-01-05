@@ -39,14 +39,21 @@ Notes:
 Unit tests for the Go Gateway are located in `gateway/`.
 Run them with:
 ```bash
-cd gateway
-go test -v
+bun run test:go
+# or: cd gateway && go test ./...
 ```
 
 ### Verifier (Rust)
 Unit tests for the Rust Verifier are located in `verifier/src/main.rs`.
 Run them with:
 ```bash
-cd verifier
-cargo test
+bun run test:rust
+# or: cd verifier && cargo test
 ```
+
+### All Unit Tests
+```bash
+bun run test:unit
+```
+
+> **Note:** Do NOT use `bun test` directly - it triggers bun's native test runner without starting services.
