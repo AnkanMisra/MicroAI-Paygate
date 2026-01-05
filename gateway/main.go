@@ -152,25 +152,20 @@ func main() {
 		log.Println("Rate limiting enabled")
 	}
 
-	// Global request timeout middleware (default: 60s).
-	// Note: route-specific timeouts (e.g. for AI endpoints) may shorten this
-	// deadline; the middleware implementation always uses the earliest
-	// deadline when nested timeouts are present to avoid surprising behavior.
-	r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
+// Global request timeout middleware (default: 60s).
+// Note: route-specific timeouts (e.g. for AI endpoints) may shorten this
+// deadline; the middleware implementation always uses the earliest
+// deadline when nested timeouts are present to avoid surprising behavior.
+r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
 
-	// Health check with shorter timeout (2s)
-	r.GET("/healthz", RequestTimeoutMiddleware(getHealthCheckTimeout()), handleHealth)
+// Health check with shorter timeout (2s)
+r.GET("/healthz", RequestTimeoutMiddleware(getHealthCheckTimeout()), handleHealth)
 
-	// AI endpoints with AI-specific timeout (30s) and caching
-	aiGroup := r.Group("/api/ai")
-	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
-	aiGroup.Use(CacheMiddleware()) // Add cache middleware after timeout
-	aiGroup.POST("/summarize", handleSummarize)
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "3000"
-	}
+// AI endpoints with AI-specific timeout (30s) and caching
+aiGroup := r.Group("/api/ai")
+aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
+aiGroup.Use(CacheMiddleware()) // Add cache middleware after timeout
+aiGroup.POST("/summarize", handleSummarize)
 
 	log.Printf("Go Gateway running on port %s", port)
 	r.Run(":" + port)

@@ -47,12 +47,12 @@ func TestGetCacheKey(t *testing.T) {
 			key2 := getCacheKey(tt.text2)
 
 			if (key1 == key2) != tt.expected {
-				t.Errorf("getCacheKey() got equal=%v, want equal=%v for '%s' vs '%s'", 
+				t.Errorf("getCacheKey() got equal=%v, want equal=%v for '%s' vs '%s'",
 					key1 == key2, tt.expected, tt.text1, tt.text2)
 			}
 
 			// Verify key format
-			if len(key1) != len("ai:summary:") + 16 {
+			if len(key1) != len("ai:summary:")+16 {
 				t.Errorf("getCacheKey() produced wrong length key: %s (length %d)", key1, len(key1))
 			}
 
@@ -66,7 +66,7 @@ func TestGetCacheKey(t *testing.T) {
 // TestGetCacheKeyDeterministic ensures the same input always produces the same key
 func TestGetCacheKeyDeterministic(t *testing.T) {
 	text := "This is a test message for deterministic cache key generation"
-	
+
 	keys := make(map[string]int)
 	for i := 0; i < 100; i++ {
 		key := getCacheKey(text)
@@ -284,7 +284,7 @@ func TestStoreInCacheWithNilClient(t *testing.T) {
 	redisClient = nil
 
 	ctx := context.Background()
-	
+
 	// This should not panic
 	storeInCache(ctx, "test:key", "test value")
 }
@@ -299,7 +299,7 @@ func TestGetFromCacheWithNilClient(t *testing.T) {
 	redisClient = nil
 
 	ctx := context.Background()
-	
+
 	cached, err := getFromCache(ctx, "test:key")
 	if err == nil {
 		t.Error("getFromCache() should return error when Redis is nil")
@@ -313,7 +313,7 @@ func TestGetFromCacheWithNilClient(t *testing.T) {
 // BenchmarkGetCacheKey benchmarks cache key generation
 func BenchmarkGetCacheKey(b *testing.B) {
 	text := "This is a sample text that needs to be summarized for benchmarking purposes"
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		getCacheKey(text)

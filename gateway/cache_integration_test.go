@@ -17,7 +17,7 @@ func TestCacheMiddlewareIntegration(t *testing.T) {
 	// Set up test environment
 	t.Setenv("CACHE_ENABLED", "true")
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
-	
+
 	// Initialize Redis for testing
 	initRedis()
 	if redisClient == nil {
@@ -175,7 +175,7 @@ func TestCacheMiddlewareWithRedisDown(t *testing.T) {
 // TestCacheKeyConsistency ensures cache keys are consistent across requests
 func TestCacheKeyConsistency(t *testing.T) {
 	text := "Consistent cache key test"
-	
+
 	key1 := getCacheKey(text)
 	key2 := getCacheKey(text)
 	key3 := getCacheKey(text)
@@ -188,7 +188,7 @@ func TestCacheKeyConsistency(t *testing.T) {
 // TestCacheWithDifferentNonces tests that different nonces still hit the same cache
 func TestCacheWithDifferentNonces(t *testing.T) {
 	t.Setenv("CACHE_ENABLED", "true")
-	
+
 	initRedis()
 	if redisClient == nil {
 		t.Skip("Redis not available for integration test")
@@ -241,7 +241,7 @@ func TestCachePersistenceAcrossRequests(t *testing.T) {
 	if redisClient == nil {
 		initRedis()
 	}
-	
+
 	if redisClient == nil {
 		t.Skip("Redis not available")
 	}
