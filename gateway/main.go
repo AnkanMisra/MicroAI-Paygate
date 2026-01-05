@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+    "os/signal"
+    "syscall"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -167,8 +169,36 @@ func main() {
 		port = "3000"
 	}
 
-	log.Printf("Go Gateway running on port %s", port)
-	r.Run(":" + port)
+		addr := ":" + port
+
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: r,
+	}
+
+	go func() {
+		log.Printf("[INFO] Gateway listening on %s", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("[FATAL] listen error: %v", err)
+		}
+	}()
+
+	// ---- Graceful shutdown ----
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	<-quit
+	log.Println("[INFO] Shutdown signal received, draining connections...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("[ERROR] Server forced to shutdown: %v", err)
+	} else {
+		log.Println("[OK] Server shutdown completed")
+	}
+
 }
 
 // handleSummarize handles POST /api/ai/summarize requests. It validates
