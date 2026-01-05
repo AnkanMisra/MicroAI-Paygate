@@ -6,7 +6,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,11 +16,12 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -138,7 +141,7 @@ func main() {
 		AllowOrigins:     []string{"http://localhost:3001"},
 		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "X-402-Signature", "X-402-Nonce"},
-		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After"},
+		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After", "X-402-Receipt"},
 		AllowCredentials: true,
 	}))
 
@@ -160,10 +163,20 @@ func main() {
 
 	// Readiness check for dependencies
 	r.GET("/readyz",handleReadyz)
+
 	// AI endpoints with AI-specific timeout (30s)
 	aiGroup := r.Group("/api/ai")
 	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
 	aiGroup.POST("/summarize", handleSummarize)
+
+	// Receipt lookup endpoint
+	r.GET("/api/receipts/:id", handleGetReceipt)
+
+	// Initialize receipt cleanup goroutine
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
+	defer cleanupCancel()
+	go startReceiptCleanup(cleanupCtx)
+	log.Println("Receipt cleanup goroutine started")
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -193,6 +206,16 @@ func handleSummarize(c *gin.Context) {
 		})
 		return
 	}
+
+	// Capture request body for receipt generation
+	requestBody, err := c.GetRawData()
+	if err != nil {
+		log.Printf("error reading request body: %v", err)
+		c.JSON(500, gin.H{"error": "Failed to read request body"})
+		return
+	}
+	// Restore body for BindJSON later
+	c.Request.Body = http.NoBody // We'll unmarshal from requestBody directly
 
 	// 2. Verify Payment (Call Rust Service)
 	paymentCtx := PaymentContext{
@@ -254,13 +277,14 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
-	// 3. Call AI Service
+	// 3. Parse request body
 	var req SummarizeRequest
-	if err := c.BindJSON(&req); err != nil {
+	if err := json.Unmarshal(requestBody, &req); err != nil {
 		c.JSON(400, gin.H{"error": "Invalid request body"})
 		return
 	}
 
+	// 4. Call AI Service
 	summary, err := callOpenRouter(c.Request.Context(), req.Text)
 	if err != nil {
 		// If the error was due to a timeout, return 504
@@ -272,7 +296,33 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{"result": summary})
+	// 5. Generate cryptographic receipt
+	responseBody := []byte(summary) // Response body for hashing
+	receipt, err := GenerateReceipt(paymentCtx, verifyResp.RecoveredAddress, c.Request.URL.Path, requestBody, responseBody)
+	if err != nil {
+		log.Printf("error generating receipt: %v", err)
+		c.JSON(500, gin.H{"error": "Failed to generate receipt", "details": err.Error()})
+		return
+	}
+
+	// 6. Store receipt with TTL
+	storeReceipt(receipt, getReceiptTTL())
+
+	// 7. Encode receipt for header
+	receiptJSON, err := json.Marshal(receipt)
+	if err != nil {
+		log.Printf("error marshaling receipt: %v", err)
+		c.JSON(500, gin.H{"error": "Failed to encode receipt"})
+		return
+	}
+	receiptBase64 := base64.StdEncoding.EncodeToString(receiptJSON)
+
+	// 8. Add receipt to response
+	c.Header("X-402-Receipt", receiptBase64)
+	c.JSON(200, gin.H{
+		"result":  summary,
+		"receipt": receipt,
+	})
 }
 
 // createPaymentContext constructs a PaymentContext prefilled with the recipient address (from RECIPIENT_ADDRESS or a fallback), the USDC token, amount "0.001", a newly generated UUID nonce, and chain ID 8453.
@@ -530,11 +580,151 @@ func getEnvAsInt(key string, defaultValue int) int {
 	}
 	return val
 }
-//handleHealthz provides a basic liveness check
-func handleHealthz(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "gateway", "timestamp": time.Now().Unix(),})
+
+// Receipt Management Functions
+
+var (
+	receiptStoreMu         sync.RWMutex
+	receiptStore           = make(map[string]*receiptEntry)
+	receiptCleanupInterval = 5 * time.Minute
+)
+
+type receiptEntry struct {
+	receipt   *SignedReceipt
+	expiresAt time.Time
 }
-//handleReadyz provides a readiness check
+
+// startReceiptCleanup runs periodic cleanup in a single goroutine
+// This prevents goroutine leaks by using a single background worker
+// instead of spawning one goroutine per receipt
+func startReceiptCleanup(ctx context.Context) {
+	ticker := time.NewTicker(receiptCleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Receipt cleanup goroutine stopped")
+			return
+		case <-ticker.C:
+			cleanupExpiredReceipts()
+		}
+	}
+}
+
+// cleanupExpiredReceipts removes expired receipts from the store
+func cleanupExpiredReceipts() {
+	now := time.Now()
+	receiptStoreMu.Lock()
+	defer receiptStoreMu.Unlock()
+
+	count := 0
+	for id, entry := range receiptStore {
+		if now.After(entry.expiresAt) {
+			delete(receiptStore, id)
+			count++
+		}
+	}
+
+	if count > 0 {
+		log.Printf("Cleaned up %d expired receipts", count)
+	}
+}
+
+// storeReceipt stores a receipt with TTL
+func storeReceipt(receipt *SignedReceipt, ttl time.Duration) {
+	receiptStoreMu.Lock()
+	defer receiptStoreMu.Unlock()
+
+	receiptStore[receipt.Receipt.ID] = &receiptEntry{
+		receipt:   receipt,
+		expiresAt: time.Now().Add(ttl),
+	}
+}
+
+// getReceipt retrieves a receipt by ID
+func getReceipt(id string) (*SignedReceipt, bool) {
+	receiptStoreMu.RLock()
+	defer receiptStoreMu.RUnlock()
+
+	entry, exists := receiptStore[id]
+	if !exists {
+		return nil, false
+	}
+
+	// Check if expired
+	if time.Now().After(entry.expiresAt) {
+		return nil, false
+	}
+
+	return entry.receipt, true
+}
+
+// getReceiptTTL returns configured TTL or default 24h
+func getReceiptTTL() time.Duration {
+	ttlSeconds := getEnvAsInt("RECEIPT_TTL", 86400)
+	return time.Duration(ttlSeconds) * time.Second
+}
+
+// handleGetReceipt handles GET /api/receipts/:id
+func handleGetReceipt(c *gin.Context) {
+	id := c.Param("id")
+
+	receipt, exists := getReceipt(id)
+	if !exists {
+		c.JSON(404, gin.H{
+			"error":   "Receipt not found",
+			"message": "Receipt may have expired or never existed",
+		})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"receipt":           receipt.Receipt,
+		"signature":         receipt.Signature,
+		"server_public_key": receipt.ServerPublicKey,
+		"status":            "valid",
+	})
+}
+
+// Server private key management
+var (
+	serverPrivateKey     *ecdsa.PrivateKey
+	serverPrivateKeyOnce sync.Once
+	serverPrivateKeyErr  error
+)
+
+// getServerPrivateKey loads the server's private key (cached with sync.Once)
+// This prevents race conditions and ensures the key is loaded only once
+func getServerPrivateKey() (*ecdsa.PrivateKey, error) {
+	serverPrivateKeyOnce.Do(func() {
+		keyHex := os.Getenv("SERVER_WALLET_PRIVATE_KEY")
+		if keyHex == "" {
+			serverPrivateKeyErr = fmt.Errorf("SERVER_WALLET_PRIVATE_KEY not set")
+			return
+		}
+
+		// Remove 0x prefix if present
+		keyHex = strings.TrimPrefix(keyHex, "0x")
+
+		keyBytes, err := hex.DecodeString(keyHex)
+		if err != nil {
+			serverPrivateKeyErr = fmt.Errorf("invalid private key format: %w", err)
+			return
+		}
+
+		privateKey, err := crypto.ToECDSA(keyBytes)
+		if err != nil {
+			serverPrivateKeyErr = fmt.Errorf("failed to parse private key: %w", err)
+			return
+		}
+
+		serverPrivateKey = privateKey
+		log.Println("Server private key loaded successfully")
+	})
+
+	return serverPrivateKey, serverPrivateKeyErr
+}
 func handleReadyz(c *gin.Context) {
 	checks := make(map[string]interface{})
 
