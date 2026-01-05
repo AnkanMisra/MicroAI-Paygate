@@ -46,14 +46,31 @@ type SummarizeRequest struct {
 	Text string `json:"text"`
 }
 
+// receiptEntry wraps a receipt with its expiration time
+type receiptEntry struct {
+	receipt   *SignedReceipt
+	expiresAt time.Time
+}
+
 // Receipt storage
 var (
-	receiptStore         = make(map[string]*SignedReceipt)
+	receiptStore         = make(map[string]*receiptEntry)
 	receiptMutex         sync.RWMutex
 	serverPrivateKey     *ecdsa.PrivateKey
 	serverPrivateKeyOnce sync.Once
 	serverPrivateKeyErr  error
 )
+
+// init starts the single cleanup goroutine for all receipts
+func init() {
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			cleanupExpiredReceipts()
+		}
+	}()
+}
 
 func validateConfig() error {
 	required := []string{
@@ -398,22 +415,29 @@ func getServerPrivateKey() (*ecdsa.PrivateKey, error) {
 	return serverPrivateKey, serverPrivateKeyErr
 }
 
-// storeReceipt stores a receipt in memory with TTL
+// storeReceipt stores a receipt in memory with expiration time
 func storeReceipt(receipt *SignedReceipt) {
 	receiptMutex.Lock()
 	defer receiptMutex.Unlock()
 
-	receiptStore[receipt.Receipt.ID] = receipt
+	ttl := time.Duration(getReceiptTTL()) * time.Second
+	receiptStore[receipt.Receipt.ID] = &receiptEntry{
+		receipt:   receipt,
+		expiresAt: time.Now().Add(ttl),
+	}
+}
 
-	// Start TTL cleanup goroutine
-	go func(id string) {
-		ttl := time.Duration(getReceiptTTL()) * time.Second
-		time.Sleep(ttl)
+// cleanupExpiredReceipts removes all expired receipts (called periodically)
+func cleanupExpiredReceipts() {
+	receiptMutex.Lock()
+	defer receiptMutex.Unlock()
 
-		receiptMutex.Lock()
-		defer receiptMutex.Unlock()
-		delete(receiptStore, id)
-	}(receipt.Receipt.ID)
+	now := time.Now()
+	for id, entry := range receiptStore {
+		if now.After(entry.expiresAt) {
+			delete(receiptStore, id)
+		}
+	}
 }
 
 // getReceipt retrieves a receipt by ID
@@ -421,8 +445,17 @@ func getReceipt(id string) (*SignedReceipt, bool) {
 	receiptMutex.RLock()
 	defer receiptMutex.RUnlock()
 
-	receipt, exists := receiptStore[id]
-	return receipt, exists
+	entry, exists := receiptStore[id]
+	if !exists {
+		return nil, false
+	}
+
+	// Check if expired
+	if time.Now().After(entry.expiresAt) {
+		return nil, false
+	}
+
+	return entry.receipt, true
 }
 
 // getReceiptTTL returns the receipt TTL from environment (default 24h)
