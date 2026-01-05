@@ -256,7 +256,19 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
-	// 3. Call AI Service
+	// 3. Check Cache (AFTER payment verification for security)
+	if cacheKey, exists := c.Get("cache_key"); exists {
+		if cached, hit := tryGetCachedResponse(c.Request.Context(), cacheKey.(string)); hit {
+			c.JSON(200, gin.H{
+				"result":    cached.Result,
+				"cached":    true,
+				"cached_at": cached.CachedAt,
+			})
+			return
+		}
+	}
+
+	// 4. Call AI Service
 	var req SummarizeRequest
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "Invalid request body"})

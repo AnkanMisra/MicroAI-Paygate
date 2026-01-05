@@ -69,6 +69,22 @@ func getCacheKey(text string) string {
 	return "ai:summary:" + hex.EncodeToString(hash[:])[:16]
 }
 
+// tryGetCachedResponse checks cache and returns cached response if available
+// This should only be called AFTER payment verification
+func tryGetCachedResponse(ctx context.Context, cacheKey string) (*CachedResponse, bool) {
+	if redisClient == nil {
+		return nil, false
+	}
+
+	if cached, err := getFromCache(ctx, cacheKey); err == nil {
+		log.Printf("Cache HIT: %s (saved API call)", cacheKey[:16])
+		return cached, true
+	}
+
+	log.Printf("Cache MISS: %s (will call API)", cacheKey[:16])
+	return nil, false
+}
+
 // getFromCache retrieves a cached response from Redis
 func getFromCache(ctx context.Context, key string) (*CachedResponse, error) {
 	if redisClient == nil {

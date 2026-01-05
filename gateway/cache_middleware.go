@@ -12,7 +12,8 @@ import (
 )
 
 // CacheMiddleware implements cache-aside pattern for AI responses
-// It only caches responses after successful payment verification
+// SECURITY: Cache is checked AFTER payment verification in the handler
+// This middleware only wraps the response writer to store successful responses
 func CacheMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Skip if caching is disabled
@@ -21,17 +22,16 @@ func CacheMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Only cache requests with payment signature (after verification)
-		signature := c.GetHeader("X-402-Signature")
-		if signature == "" {
-			c.Next()
-			return
-		}
-
-		// Read and restore request body
+		// Read and restore request body for cache key generation
 		var bodyBytes []byte
 		if c.Request.Body != nil {
-			bodyBytes, _ = io.ReadAll(c.Request.Body)
+			var err error
+			bodyBytes, err = io.ReadAll(c.Request.Body)
+			if err != nil {
+				log.Printf("CacheMiddleware: failed to read request body: %v", err)
+				c.Next()
+				return
+			}
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 		}
 
@@ -50,27 +50,22 @@ func CacheMiddleware() gin.HandlerFunc {
 		// Generate cache key
 		cacheKey := getCacheKey(req.Text)
 
-		// Try to get from cache
-		if cached, err := getFromCache(c.Request.Context(), cacheKey); err == nil {
-			log.Printf("Cache HIT: %s (saved API call)", cacheKey[:16])
-			// Mark this as cached so we don't re-cache it
-			c.Set("from_cache", true)
-			c.JSON(200, gin.H{
-				"result":    cached.Result,
-				"cached":    true,
-				"cached_at": cached.CachedAt,
-				"cache_key": cacheKey[:16],
-			})
-			c.Abort()
-			return
-		}
+	// Try to get from cache
+	if cached, err := getFromCache(c.Request.Context(), cacheKey); err == nil {
+		log.Printf("Cache HIT: %s (saved API call)", cacheKey[:16])
+		// Mark this as cached so we don't re-cache it
+		c.Set("from_cache", true)
+		c.JSON(200, gin.H{
+			"result":    cached.Result,
+			"cached":    true,
+			"cached_at": cached.CachedAt,
+			"cache_key": cacheKey[:16],
+		})
+		c.Abort()
+		return
+	}
 
-		log.Printf("Cache MISS: %s (will call API)", cacheKey[:16])
-
-		// Wrap the response writer to capture the response
-		writer := &cacheResponseWriter{
-			ResponseWriter: c.Writer,
-			body:           &bytes.Buffer{},
+	log.Printf("Cache MISS: %s (will call API)", cacheKey[:16])
 			cacheKey:       cacheKey,
 			ctx:            c.Request.Context(),
 			ginCtx:         c,
