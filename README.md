@@ -24,6 +24,8 @@ MicroAI Paygate demonstrates a decentralized payment layer for AI services. Inst
 - **Micropayments**: Low-cost transactions (0.001 USDC) on the Base L2 network.
 - **High Concurrency**: Go-based gateway for handling thousands of simultaneous connections.
 - **Memory Safety**: Rust-based verification service for secure cryptographic operations.
+- **Token Bucket Rate Limiting**: Configurable per-IP and per-wallet rate limits with tiered access control.
+
 
 ## How MicroAI Paygate is Different
 
@@ -188,19 +190,27 @@ bun run stack
 ```
 
 **Run Tests**
-- E2E: `bun run test:e2e`
-- Gateway: `cd gateway && go test -v`
-- Verifier: `cd verifier && cargo test`
+```bash
+bun run test:unit   # Go + Rust unit tests
+bun run test:go     # Gateway tests only
+bun run test:rust   # Verifier tests only
+bun run test:e2e    # E2E (starts services automatically)
+bun run test:all    # Full test suite with E2E
+```
+
+> **Note:** Do NOT use `bun test` directly - it triggers bun's native test runner without starting services.
 
 ### Environment
 
 Create a `.env` (or use `.env.example`) with at least:
 
-- `OPENROUTER_API_KEY` — API key for OpenRouter
+- `OPENROUTER_API_KEY` — API key for OpenRouter **(required - validated at startup)**
 - `OPENROUTER_MODEL` — model name (default: `z-ai/glm-4.5-air:free`)
 - `SERVER_WALLET_PRIVATE_KEY` — private key for the server wallet (recipient of payments)
 - `RECIPIENT_ADDRESS` — wallet address for receiving payments
 - `CHAIN_ID` — chain used in signatures (default: `8453` for Base)
+
+> **Note:** The gateway validates required environment variables at startup. If `OPENROUTER_API_KEY` is missing, the server will exit with a helpful error message.
 
 **Optional Configuration:**
 - `USDC_TOKEN_ADDRESS` — USDC contract address (default: Base USDC)
@@ -208,6 +218,81 @@ Create a `.env` (or use `.env.example`) with at least:
 - `VERIFIER_URL` — URL of verifier service (default: `http://127.0.0.1:3002`)
 
 Ensure ports `3000` (gateway), `3001` (web), and `3002` (verifier) are free.
+
+### Rate Limiting Configuration
+
+MicroAI Paygate implements token bucket rate limiting to prevent abuse and protect API quotas.
+
+**Features:**
+- Token bucket algorithm with burst support
+- Tiered limits (anonymous, authenticated, verified)
+- Per-IP and per-wallet tracking
+- Standard `X-RateLimit-*` headers
+
+**Default Limits:**
+
+| Tier | Requests/Minute | Burst | Identification |
+|------|----------------|-------|----------------|
+| Anonymous | 10 | 5 | IP address |
+| Standard | 60 | 20 | Signed requests (wallet nonce) |
+| Verified | 120 | 50 | Premium users (future) |
+
+**Configuration:**
+Add to your `.env` file:
+```bash
+# Rate Limiting
+RATE_LIMIT_ENABLED=true
+
+# Anonymous users (IP-based, no signature)
+RATE_LIMIT_ANONYMOUS_RPM=10
+RATE_LIMIT_ANONYMOUS_BURST=5
+
+# Standard users (signed requests)
+RATE_LIMIT_STANDARD_RPM=60
+RATE_LIMIT_STANDARD_BURST=20
+
+# Verified users (future: premium tier)
+RATE_LIMIT_VERIFIED_RPM=120
+RATE_LIMIT_VERIFIED_BURST=50
+
+# Cleanup interval for stale buckets (seconds)
+RATE_LIMIT_CLEANUP_INTERVAL=300
+```
+
+**Response Headers:**
+- `X-RateLimit-Limit`: Max requests per minute for your tier
+- `X-RateLimit-Remaining`: Requests remaining
+- `X-RateLimit-Reset`: Unix timestamp when limit resets
+- `Retry-After`: Seconds until reset (on 429 response)
+
+### Request Timeouts
+
+The gateway implements context-based request timeouts to prevent slow/hanging requests from consuming resources.
+
+**Features:**
+- Global request timeout (default: 60s)
+- Per-endpoint configurable timeouts
+- Context cancellation for downstream calls
+- Buffered response to prevent race conditions
+- Returns `504 Gateway Timeout` when exceeded
+
+**Default Timeouts:**
+
+| Endpoint | Timeout | Purpose |
+|----------|---------|---------|
+| Global | 60s | Maximum request duration |
+| AI endpoints | 30s | OpenRouter calls |
+| Verifier | 2s | Signature verification |
+| Health check | 2s | `/healthz` endpoint |
+
+**Configuration:**
+```bash
+# Request Timeouts
+REQUEST_TIMEOUT_SECONDS=60
+AI_REQUEST_TIMEOUT_SECONDS=30
+VERIFIER_TIMEOUT_SECONDS=2
+HEALTH_CHECK_TIMEOUT_SECONDS=2
+```
 
 ### Docker Deployment (Production)
 

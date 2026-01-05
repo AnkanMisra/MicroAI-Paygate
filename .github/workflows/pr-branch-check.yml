@@ -1,0 +1,82 @@
+name: PR Branch Status Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check-branch-status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      
+      - name: Fetch base branch
+        run: |
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+      
+      - name: Check if PR is behind base
+        id: check
+        run: |
+          # Get base and head refs
+          BASE="${{ github.event.pull_request.base.ref }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          
+          # Count commits behind and ahead
+          COUNTS=$(git rev-list --left-right --count origin/$BASE...$HEAD)
+          BEHIND=$(echo $COUNTS | cut -d' ' -f1)
+          AHEAD=$(echo $COUNTS | cut -d' ' -f2)
+          
+          echo "behind=$BEHIND" >> $GITHUB_OUTPUT
+          echo "ahead=$AHEAD" >> $GITHUB_OUTPUT
+          
+          # Log the status
+          echo "Branch Status:"
+          echo "  - $BEHIND commits behind $BASE"
+          echo "  - $AHEAD commits ahead of $BASE"
+          
+          # Fail if behind
+          if [ "$BEHIND" -gt 0 ]; then
+            echo "::error::This PR is $BEHIND commits behind $BASE. Please rebase or merge $BASE into your branch."
+            exit 1
+          else
+            echo "::notice::Branch is up to date with $BASE ($AHEAD commits ahead)"
+          fi
+      
+      - name: Add PR comment
+        if: ${{ failure() }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const behind = '${{ steps.check.outputs.behind }}';
+            const ahead = '${{ steps.check.outputs.ahead }}';
+            const base = '${{ github.event.pull_request.base.ref }}';
+            const headRef = '${{ github.event.pull_request.head.ref }}';
+            
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Branch Out of Date
+
+This PR is **${behind} commits behind** \`${base}\`.
+
+**Status:**
+- ${behind} commits behind \`${base}\`
+- ${ahead} commits ahead of \`${base}\`
+
+**Action Required:**
+Please update your branch to include the latest changes from \`${base}\`:
+
+\`\`\`bash
+git checkout ${headRef}
+git merge origin/${base}
+# Or for a cleaner history:
+git rebase origin/${base}
+\`\`\`
+
+Once updated, this check will pass automatically.`
+            });

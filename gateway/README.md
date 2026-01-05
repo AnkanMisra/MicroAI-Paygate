@@ -34,16 +34,30 @@ Ensure the Verifier service is running on port 3002 before starting the Gateway.
 
 Environment variables (via `.env`):
 
-- `OPENROUTER_API_KEY` (required) — API key for OpenRouter
-- `OPENROUTER_MODEL` (optional) — model name, default `z-ai/glm-4.5-air:free`
-- `VERIFIER_URL` (optional) — override verifier endpoint, default `http://127.0.0.1:3002/verify`
-- `RECIPIENT_ADDRESS` (optional) — payment recipient; falls back to hardcoded value if unset
-- `CHAIN_ID` (optional) — chain id used in EIP-712 domain; default `8453`
+**Required:**
+- `OPENROUTER_API_KEY` — API key for OpenRouter (validated at startup)
 
-Ports: Gateway listens on `3000` by default. Update configs if you must avoid conflicts.
+**Optional:**
+- `OPENROUTER_MODEL` — model name, default `z-ai/glm-4.5-air:free`
+- `VERIFIER_URL` — override verifier endpoint, default `http://127.0.0.1:3002`
+- `RECIPIENT_ADDRESS` — payment recipient; falls back to default if unset
+- `CHAIN_ID` — chain id used in EIP-712 domain; default `8453`
+
+**Rate Limiting:**
+- `RATE_LIMIT_ENABLED` — enable/disable rate limiting (default: true)
+- `RATE_LIMIT_ANONYMOUS_RPM` / `RATE_LIMIT_ANONYMOUS_BURST`
+- `RATE_LIMIT_STANDARD_RPM` / `RATE_LIMIT_STANDARD_BURST`
+
+**Request Timeouts:**
+- `REQUEST_TIMEOUT_SECONDS` — global timeout (default: 60)
+- `AI_REQUEST_TIMEOUT_SECONDS` — AI endpoint timeout (default: 30)
+- `VERIFIER_TIMEOUT_SECONDS` — verifier timeout (default: 2)
+- `HEALTH_CHECK_TIMEOUT_SECONDS` — health check timeout (default: 2)
+
+Ports: Gateway listens on `3000` by default.
 
 ## Testing
 
 ```bash
-go test -v
+go test ./...
 ```
