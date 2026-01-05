@@ -45,16 +45,16 @@ func NewTokenBucket(rpm int, burst int, cleanupTTL time.Duration) *TokenBucket {
 	if burst <= 0 {
 		burst = 1
 	}
-	
+
 	tb := &TokenBucket{
 		rate:       float64(rpm) / 60.0,
 		burst:      burst,
 		cleanupTTL: cleanupTTL,
 		stopCh:     make(chan struct{}),
 	}
-	
+
 	go tb.cleanup()
-	
+
 	return tb
 }
 
@@ -66,7 +66,7 @@ func (tb *TokenBucket) getBucket(key string) *bucket {
 		tokens:    float64(tb.burst),
 		lastCheck: time.Now(),
 	}
-	
+
 	val, _ := tb.buckets.LoadOrStore(key, newBucket)
 	return val.(*bucket)
 }
@@ -104,7 +104,7 @@ func (tb *TokenBucket) GetRemaining(key string) int {
 	if !ok {
 		return tb.burst
 	}
-	
+
 	b := val.(*bucket)
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -122,7 +122,7 @@ func (tb *TokenBucket) GetResetTime(key string) int64 {
 	if !ok {
 		return time.Now().Unix()
 	}
-	
+
 	b := val.(*bucket)
 	b.mu.Lock()
 	defer b.mu.Unlock()

@@ -20,6 +20,8 @@ verifier/target/
 # Go Build
 gateway/gateway
 gateway/main
+# Windows build artifacts
+gateway/*.exe
 
 # Logs
 npm-debug.log*

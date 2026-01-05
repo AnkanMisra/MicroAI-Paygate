@@ -177,7 +177,7 @@ func TestRateLimitMiddleware_DifferentKeys(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		req, _ := http.NewRequest("GET", "/test", nil)
 		req.Header.Set("X-402-Signature", "sig1")
-		req.Header.Set("X-402-Nonce", "user1-11111111")  // Different first 8 chars
+		req.Header.Set("X-402-Nonce", "user1-11111111") // Different first 8 chars
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		if w.Code != 200 {
@@ -198,7 +198,7 @@ func TestRateLimitMiddleware_DifferentKeys(t *testing.T) {
 	// User 2 should still be allowed (different bucket)
 	req2, _ := http.NewRequest("GET", "/test", nil)
 	req2.Header.Set("X-402-Signature", "sig2")
-	req2.Header.Set("X-402-Nonce", "user2-22222222")  // Different first 8 chars
+	req2.Header.Set("X-402-Nonce", "user2-22222222") // Different first 8 chars
 	w2 := httptest.NewRecorder()
 	r.ServeHTTP(w2, req2)
 	if w2.Code != 200 {
@@ -256,7 +256,7 @@ func TestGetRateLimitKey(t *testing.T) {
 			r := gin.Default()
 			r.GET("/test", func(c *gin.Context) {
 				key := getRateLimitKey(c)
-				
+
 				if strings.HasPrefix(tt.expectedKey, "nonce:") {
 					if !strings.HasPrefix(key, "nonce:") {
 						t.Errorf("Expected nonce-based key, got '%s'", key)
@@ -290,10 +290,10 @@ func TestSelectRateLimitTier(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name          string
-		signature     string
-		nonce         string
-		expectedTier  string
+		name         string
+		signature    string
+		nonce        string
+		expectedTier string
 	}{
 		{"Anonymous (no headers)", "", "", "anonymous"},
 		{"Anonymous (only signature)", "sig", "", "anonymous"},

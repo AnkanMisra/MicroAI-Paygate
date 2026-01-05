@@ -1,10 +1,15 @@
+// Package main implements the gateway HTTP server used by MicroAI-Paygate.
+// It provides request handlers, middleware, and configuration helpers
+// for timeouts and rate limiting.
 package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -58,9 +63,14 @@ func validateConfig() error {
 	return nil
 }
 func main() {
-	err := godotenv.Load("../.env")
+	// Try loading .env from current directory first, then fallback to parent
+	err := godotenv.Load(".env")
 	if err != nil {
-		log.Println("Warning: Error loading .env file")
+		// fallback to parent
+		err = godotenv.Load("../.env")
+		if err != nil {
+			log.Println("Warning: Error loading .env file")
+		}
 	}
 	if err := validateConfig(); err != nil {
 		fmt.Println("[Error] Missing required environment variables:")
@@ -92,7 +102,7 @@ func main() {
 	if os.Getenv("VERIFIER_URL") == "" {
 		fmt.Println("[WARN] VERIFIER_URL not set, using default verifier")
 	}
-    if os.Getenv("CHAIN_ID") == "" {
+	if os.Getenv("CHAIN_ID") == "" {
 		fmt.Println("[WARN] CHAIN_ID not set, using default: 8453(base)")
 	}
 
@@ -138,8 +148,19 @@ func main() {
 		log.Println("Rate limiting enabled")
 	}
 
-	r.GET("/healthz", handleHealth)
-	r.POST("/api/ai/summarize", handleSummarize)
+	// Global request timeout middleware (default: 60s).
+	// Note: route-specific timeouts (e.g. for AI endpoints) may shorten this
+	// deadline; the middleware implementation always uses the earliest
+	// deadline when nested timeouts are present to avoid surprising behavior.
+	r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
+
+	// Health check with shorter timeout (2s)
+	r.GET("/healthz", RequestTimeoutMiddleware(getHealthCheckTimeout()), handleHealth)
+
+	// AI endpoints with AI-specific timeout (30s)
+	aiGroup := r.Group("/api/ai")
+	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
+	aiGroup.POST("/summarize", handleSummarize)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -150,24 +171,28 @@ func main() {
 	r.Run(":" + port)
 }
 
-// - 500: Verifier or AI service failure (includes error details)
+// handleSummarize handles POST /api/ai/summarize requests. It validates
+// payment headers, calls the verifier service to validate the signature, and
+// forwards the text to the AI service. The handler respects context timeouts
+// applied by middleware and returns appropriate HTTP errors (402, 403, 504,
+// 500) to the client.
 func handleSummarize(c *gin.Context) {
 	signature := c.GetHeader("X-402-Signature")
 	nonce := c.GetHeader("X-402-Nonce")
 
 	// 1. Payment Required
 	if signature == "" || nonce == "" {
-		context := createPaymentContext()
+		paymentContext := createPaymentContext()
 		c.JSON(402, gin.H{
 			"error":          "Payment Required",
 			"message":        "Please sign the payment context",
-			"paymentContext": context,
+			"paymentContext": paymentContext,
 		})
 		return
 	}
 
 	// 2. Verify Payment (Call Rust Service)
-	context := PaymentContext{
+	paymentCtx := PaymentContext{
 		Recipient: getRecipientAddress(),
 		Token:     "USDC",
 		Amount:    getPaymentAmount(),
@@ -176,17 +201,40 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	verifyReq := VerifyRequest{
-		Context:   context,
+		Context:   paymentCtx,
 		Signature: signature,
 	}
 
-	verifyBody, _ := json.Marshal(verifyReq)
+	verifyBody, err := json.Marshal(verifyReq)
+	if err != nil {
+		log.Printf("error marshaling verification request: %v", err)
+		c.JSON(500, gin.H{"error": "Failed to create verification request"})
+		return
+	}
 	verifierURL := os.Getenv("VERIFIER_URL")
 	if verifierURL == "" {
 		verifierURL = "http://127.0.0.1:3002"
 	}
-	resp, err := http.Post(verifierURL+"/verify", "application/json", bytes.NewBuffer(verifyBody))
+	// Call verifier with its own timeout
+	verifierCtx, verifierCancel := context.WithTimeout(c.Request.Context(), getVerifierTimeout())
+	defer verifierCancel()
+
+	vreq, err := http.NewRequestWithContext(verifierCtx, "POST", verifierURL+"/verify", bytes.NewBuffer(verifyBody))
 	if err != nil {
+		// If the request cannot be created, return 500
+		c.JSON(500, gin.H{"error": "Invalid verifier request", "details": err.Error()})
+		return
+	}
+	vreq.Header.Set("Content-Type", "application/json")
+
+	// Use http.DefaultClient and rely on verifierCtx for timeouts/cancellation.
+	resp, err := http.DefaultClient.Do(vreq)
+	if err != nil {
+		// If the verifier or parent context timed out, return Gateway Timeout
+		if errors.Is(err, context.DeadlineExceeded) || verifierCtx.Err() == context.DeadlineExceeded || c.Request.Context().Err() == context.DeadlineExceeded {
+			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "Verifier request timed out"})
+			return
+		}
 		c.JSON(500, gin.H{"error": "Verification service unavailable"})
 		return
 	}
@@ -210,8 +258,13 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
-	summary, err := callOpenRouter(req.Text)
+	summary, err := callOpenRouter(c.Request.Context(), req.Text)
 	if err != nil {
+		// If the error was due to a timeout, return 504
+		if errors.Is(err, context.DeadlineExceeded) || c.Request.Context().Err() == context.DeadlineExceeded {
+			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "AI request timed out"})
+			return
+		}
 		c.JSON(500, gin.H{"error": "AI Service Failed", "details": err.Error()})
 		return
 	}
@@ -270,7 +323,7 @@ func getChainID() int {
 // requesting a two-sentence summary and returns the generated summary.
 // It reads OPENROUTER_API_KEY for authorization and OPENROUTER_MODEL to select
 // the model (defaults to "z-ai/glm-4.5-air:free" if unset).
-func callOpenRouter(text string) (string, error) {
+func callOpenRouter(ctx context.Context, text string) (string, error) {
 	apiKey := os.Getenv("OPENROUTER_API_KEY")
 	model := os.Getenv("OPENROUTER_MODEL")
 	if model == "" {
@@ -286,13 +339,23 @@ func callOpenRouter(text string) (string, error) {
 		},
 	})
 
-	req, _ := http.NewRequest("POST", "https://openrouter.ai/api/v1/chat/completions", bytes.NewBuffer(reqBody))
+	openRouterURL := os.Getenv("OPENROUTER_URL")
+	if openRouterURL == "" {
+		openRouterURL = "https://openrouter.ai/api/v1/chat/completions"
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", openRouterURL, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return "", fmt.Errorf("failed to create OpenRouter request: %w", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	// Use http.DefaultClient and rely on ctx for cancellation/timeouts.
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
+			return "", context.DeadlineExceeded
+		}
 		return "", err
 	}
 	defer resp.Body.Close()
@@ -392,7 +455,7 @@ func RateLimitMiddleware(limiters map[string]RateLimiter) gin.HandlerFunc {
 func getRateLimitKey(c *gin.Context) string {
 	signature := c.GetHeader("X-402-Signature")
 	nonce := c.GetHeader("X-402-Nonce")
-	
+
 	// Only use nonce-based key if BOTH signature and nonce are present
 	// This prevents attackers from bypassing IP rate limits with fake nonces
 	if signature != "" && nonce != "" {
