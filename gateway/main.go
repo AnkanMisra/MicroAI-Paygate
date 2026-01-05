@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -11,8 +13,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -41,6 +45,15 @@ type VerifyResponse struct {
 type SummarizeRequest struct {
 	Text string `json:"text"`
 }
+
+// Receipt storage
+var (
+	receiptStore         = make(map[string]*SignedReceipt)
+	receiptMutex         sync.RWMutex
+	serverPrivateKey     *ecdsa.PrivateKey
+	serverPrivateKeyOnce sync.Once
+	serverPrivateKeyErr  error
+)
 
 func validateConfig() error {
 	required := []string{
@@ -127,7 +140,7 @@ func main() {
 		AllowOrigins:     []string{"http://localhost:3001"},
 		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "X-402-Signature", "X-402-Nonce"},
-		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After"},
+		ExposeHeaders:    []string{"Content-Length", "X-402-Receipt", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After"},
 		AllowCredentials: true,
 	}))
 
@@ -140,6 +153,7 @@ func main() {
 
 	r.GET("/healthz", handleHealth)
 	r.POST("/api/ai/summarize", handleSummarize)
+	r.GET("/api/receipts/:id", handleGetReceipt)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -213,6 +227,37 @@ func handleSummarize(c *gin.Context) {
 	summary, err := callOpenRouter(req.Text)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "AI Service Failed", "details": err.Error()})
+		return
+	}
+
+	// 4. Generate Receipt
+	reqBody, _ := json.Marshal(req)
+	respBody := []byte(summary)
+	
+	receipt, err := GenerateReceipt(
+		context,
+		verifyResp.RecoveredAddress,
+		c.Request.URL.Path,
+		reqBody,
+		respBody,
+	)
+	
+	if err != nil {
+		log.Printf("Failed to generate receipt: %v", err)
+		// Don't fail the request if receipt generation fails
+	} else {
+		// Store receipt
+		storeReceipt(receipt)
+		
+		// Add receipt to headers (base64 encoded)
+		receiptJSON, _ := json.Marshal(receipt)
+		c.Header("X-402-Receipt", base64.StdEncoding.EncodeToString(receiptJSON))
+		
+		// Include receipt in response
+		c.JSON(200, gin.H{
+			"result":  summary,
+			"receipt": receipt,
+		})
 		return
 	}
 
@@ -327,6 +372,91 @@ func callOpenRouter(text string) (string, error) {
 
 func handleHealth(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "gateway"})
+}
+
+// Receipt Management Functions
+
+// getServerPrivateKey loads the server's private key from environment
+// Thread-safe singleton pattern using sync.Once
+func getServerPrivateKey() (*ecdsa.PrivateKey, error) {
+	serverPrivateKeyOnce.Do(func() {
+		privateKeyHex := os.Getenv("SERVER_WALLET_PRIVATE_KEY")
+		if privateKeyHex == "" {
+			serverPrivateKeyErr = fmt.Errorf("SERVER_WALLET_PRIVATE_KEY not set in environment")
+			return
+		}
+
+		privateKey, err := crypto.HexToECDSA(privateKeyHex)
+		if err != nil {
+			serverPrivateKeyErr = fmt.Errorf("failed to parse private key: %w", err)
+			return
+		}
+
+		serverPrivateKey = privateKey
+	})
+
+	return serverPrivateKey, serverPrivateKeyErr
+}
+
+// storeReceipt stores a receipt in memory with TTL
+func storeReceipt(receipt *SignedReceipt) {
+	receiptMutex.Lock()
+	defer receiptMutex.Unlock()
+
+	receiptStore[receipt.Receipt.ID] = receipt
+
+	// Start TTL cleanup goroutine
+	go func(id string) {
+		ttl := time.Duration(getReceiptTTL()) * time.Second
+		time.Sleep(ttl)
+
+		receiptMutex.Lock()
+		defer receiptMutex.Unlock()
+		delete(receiptStore, id)
+	}(receipt.Receipt.ID)
+}
+
+// getReceipt retrieves a receipt by ID
+func getReceipt(id string) (*SignedReceipt, bool) {
+	receiptMutex.RLock()
+	defer receiptMutex.RUnlock()
+
+	receipt, exists := receiptStore[id]
+	return receipt, exists
+}
+
+// getReceiptTTL returns the receipt TTL from environment (default 24h)
+func getReceiptTTL() int {
+	ttlStr := os.Getenv("RECEIPT_TTL")
+	if ttlStr == "" {
+		return 86400 // 24 hours
+	}
+	ttl, err := strconv.Atoi(ttlStr)
+	if err != nil {
+		return 86400
+	}
+	return ttl
+}
+
+// handleGetReceipt handles GET /api/receipts/:id
+func handleGetReceipt(c *gin.Context) {
+	receiptID := c.Param("id")
+
+	receipt, exists := getReceipt(receiptID)
+	if !exists {
+		c.JSON(404, gin.H{
+			"error":   "Receipt not found",
+			"message": "Receipt may have expired or never existed",
+		})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"receipt":           receipt.Receipt,
+		"signature":         receipt.Signature,
+		"server_public_key": receipt.ServerPublicKey,
+		"status":            "valid",
+	})
 }
 
 // Rate Limiting Functions
