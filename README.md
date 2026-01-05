@@ -372,9 +372,9 @@ curl -X POST http://localhost:3000/api/ai/summarize \
 # REQUIRED: Set a strong Redis password
 REDIS_PASSWORD=your_secure_random_password_here
 
-# RECOMMENDED: Use Redis with TLS
-# If your Redis server supports TLS, use rediss:// protocol:
-REDIS_URL=rediss://your-redis-host:6380
+# RECOMMENDED: Use TLS for Redis connections
+REDIS_TLS=true
+REDIS_URL=rediss://your-redis-host:6380  # Note: rediss:// for TLS
 
 # RECOMMENDED: Limit Redis network access
 # - Use firewall rules to allow only gateway instances

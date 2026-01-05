@@ -75,6 +75,10 @@ func getFromCache(ctx context.Context, key string) (*CachedResponse, error) {
 		return nil, fmt.Errorf("redis not available")
 	}
 
+	// Add timeout to prevent slow Redis operations from blocking requests
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
 	val, err := redisClient.Get(ctx, key).Result()
 	if err != nil {
 		return nil, err

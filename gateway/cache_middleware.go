@@ -99,7 +99,9 @@ type cacheResponseWriter struct {
 // Write captures the response body while also writing to the underlying writer
 func (w *cacheResponseWriter) Write(data []byte) (int, error) {
 	w.mu.Lock()
-	w.body.Write(data) // Capture response
+	if _, err := w.body.Write(data); err != nil {
+		log.Printf("Failed to buffer response for caching: %v", err)
+	}
 	w.mu.Unlock()
 	return w.ResponseWriter.Write(data)
 }
@@ -107,7 +109,9 @@ func (w *cacheResponseWriter) Write(data []byte) (int, error) {
 // WriteString captures string responses
 func (w *cacheResponseWriter) WriteString(s string) (int, error) {
 	w.mu.Lock()
-	w.body.WriteString(s)
+	if _, err := w.body.WriteString(s); err != nil {
+		log.Printf("Failed to buffer response string for caching: %v", err)
+	}
 	w.mu.Unlock()
 	return w.ResponseWriter.WriteString(s)
 }
