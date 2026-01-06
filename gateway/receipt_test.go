@@ -151,7 +151,9 @@ func TestReceiptJSONSerialization(t *testing.T) {
 
 	// Verify all fields are present
 	var decoded map[string]interface{}
-	json.Unmarshal(json1, &decoded)
+	if err := json.Unmarshal(json1, &decoded); err != nil {
+		t.Fatalf("Failed to unmarshal JSON for field verification: %v", err)
+	}
 
 	requiredFields := []string{"id", "version", "timestamp", "payment", "service"}
 	for _, field := range requiredFields {
@@ -234,7 +236,8 @@ func hashHex(data []byte) string {
 func TestVerifyReceiptSignature(t *testing.T) {
 	// This test verifies that signature verification works correctly
 	// Skip if private key not available
-	if serverPrivateKey == nil {
+	privateKey, err := getServerPrivateKey()
+	if err != nil || privateKey == nil {
 		t.Skip("Skipping verification test: SERVER_WALLET_PRIVATE_KEY not set")
 	}
 
@@ -293,7 +296,8 @@ func TestReceiptFullFlowIntegration(t *testing.T) {
 	// 5. Verify expiration
 
 	// Skip if private key not available
-	if serverPrivateKey == nil {
+	privateKey, err := getServerPrivateKey()
+	if err != nil || privateKey == nil {
 		t.Skip("Skipping integration test: SERVER_WALLET_PRIVATE_KEY not set")
 	}
 
