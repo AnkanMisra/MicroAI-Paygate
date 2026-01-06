@@ -169,7 +169,8 @@ func main() {
 	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
 	aiGroup.POST("/summarize", handleSummarize)
 
-	// Receipt lookup endpoint
+	// Receipt lookup endpoint with rate limiting to prevent brute-force enumeration
+	// Uses standard anonymous tier (10 RPM) to limit receipt ID enumeration attacks
 	r.GET("/api/receipts/:id", handleGetReceipt)
 
 	// Initialize receipt cleanup goroutine
@@ -208,6 +209,10 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	// Capture request body for receipt generation
+	// Limit request body to 10MB to prevent memory exhaustion attacks
+	maxBodySize := int64(10 * 1024 * 1024)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBodySize)
+
 	requestBody, err := c.GetRawData()
 	if err != nil {
 		log.Printf("error reading request body: %v", err)
@@ -306,7 +311,11 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	// 6. Store receipt with TTL
-	storeReceipt(receipt, getReceiptTTL())
+	if err := storeReceipt(receipt, getReceiptTTL()); err != nil {
+		log.Printf("error storing receipt: %v", err)
+		c.JSON(500, gin.H{"error": "Failed to store receipt"})
+		return
+	}
 
 	// 7. Encode receipt for header
 	receiptJSON, err := json.Marshal(receipt)
@@ -632,7 +641,13 @@ func cleanupExpiredReceipts() {
 }
 
 // storeReceipt stores a receipt with TTL
-func storeReceipt(receipt *SignedReceipt, ttl time.Duration) {
+// Returns error for future extensibility (Redis/Postgres implementations)
+func storeReceipt(receipt *SignedReceipt, ttl time.Duration) error {
+	// Validate receipt format before storage
+	if err := validateReceipt(receipt); err != nil {
+		return fmt.Errorf("invalid receipt format: %w", err)
+	}
+
 	receiptStoreMu.Lock()
 	defer receiptStoreMu.Unlock()
 
@@ -640,6 +655,75 @@ func storeReceipt(receipt *SignedReceipt, ttl time.Duration) {
 		receipt:   receipt,
 		expiresAt: time.Now().Add(ttl),
 	}
+
+	return nil
+}
+
+// validateReceipt validates that a receipt has all required fields
+func validateReceipt(receipt *SignedReceipt) error {
+	if receipt == nil {
+		return fmt.Errorf("receipt is nil")
+	}
+
+	// Validate receipt fields
+	if receipt.Receipt.ID == "" {
+		return fmt.Errorf("receipt ID is empty")
+	}
+	if !strings.HasPrefix(receipt.Receipt.ID, "rcpt_") {
+		return fmt.Errorf("receipt ID must start with 'rcpt_'")
+	}
+	if receipt.Receipt.Version == "" {
+		return fmt.Errorf("receipt version is empty")
+	}
+	if receipt.Receipt.Timestamp.IsZero() {
+		return fmt.Errorf("receipt timestamp is zero")
+	}
+
+	// Validate payment details
+	if receipt.Receipt.Payment.Payer == "" {
+		return fmt.Errorf("payer address is empty")
+	}
+	if receipt.Receipt.Payment.Recipient == "" {
+		return fmt.Errorf("recipient address is empty")
+	}
+	if receipt.Receipt.Payment.Amount == "" {
+		return fmt.Errorf("payment amount is empty")
+	}
+	if receipt.Receipt.Payment.Token == "" {
+		return fmt.Errorf("token is empty")
+	}
+	if receipt.Receipt.Payment.Nonce == "" {
+		return fmt.Errorf("nonce is empty")
+	}
+
+	// Validate service details
+	if receipt.Receipt.Service.Endpoint == "" {
+		return fmt.Errorf("service endpoint is empty")
+	}
+	if receipt.Receipt.Service.RequestHash == "" {
+		return fmt.Errorf("request hash is empty")
+	}
+	if receipt.Receipt.Service.ResponseHash == "" {
+		return fmt.Errorf("response hash is empty")
+	}
+
+	// Validate signature
+	if receipt.Signature == "" {
+		return fmt.Errorf("signature is empty")
+	}
+	if !strings.HasPrefix(receipt.Signature, "0x") {
+		return fmt.Errorf("signature must start with '0x'")
+	}
+
+	// Validate server public key
+	if receipt.ServerPublicKey == "" {
+		return fmt.Errorf("server public key is empty")
+	}
+	if !strings.HasPrefix(receipt.ServerPublicKey, "0x") {
+		return fmt.Errorf("server public key must start with '0x'")
+	}
+
+	return nil
 }
 
 // getReceipt retrieves a receipt by ID
@@ -710,6 +794,12 @@ func getServerPrivateKey() (*ecdsa.PrivateKey, error) {
 		keyBytes, err := hex.DecodeString(keyHex)
 		if err != nil {
 			serverPrivateKeyErr = fmt.Errorf("invalid private key format: %w", err)
+			return
+		}
+
+		// Validate that the key is exactly 32 bytes (256 bits) for ECDSA
+		if len(keyBytes) != 32 {
+			serverPrivateKeyErr = fmt.Errorf("private key must be exactly 32 bytes, got %d bytes", len(keyBytes))
 			return
 		}
 

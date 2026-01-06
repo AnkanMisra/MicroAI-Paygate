@@ -186,7 +186,9 @@ func TestStoreAndRetrieveReceipt(t *testing.T) {
 	}
 
 	// Store receipt
-	storeReceipt(signedReceipt, 24*time.Hour)
+	if err := storeReceipt(signedReceipt, 24*time.Hour); err != nil {
+		t.Fatalf("Failed to store receipt: %v", err)
+	}
 
 	// Retrieve receipt
 	retrieved, exists := getReceipt(signedReceipt.Receipt.ID)
@@ -260,25 +262,178 @@ func TestVerifyReceiptSignature(t *testing.T) {
 		t.Fatalf("Failed to sign receipt: %v", err)
 	}
 
-	// Manually verify the signature
+	// Manually verify the signature using crypto.VerifySignature
+	// This is more robust than SigToPub as it doesn't rely on recovery ID
 	receiptBytes, _ := json.Marshal(signedReceipt.Receipt)
 	hash := crypto.Keccak256Hash(receiptBytes)
 
 	// Remove "0x" prefix from signature
 	sigHex := signedReceipt.Signature[2:]
-	sigBytes, _ := hex.DecodeString(sigHex)
-
-	// Recover public key
-	pubKey, err := crypto.SigToPub(hash.Bytes(), sigBytes)
+	sigBytes, err := hex.DecodeString(sigHex)
 	if err != nil {
-		t.Fatalf("Failed to recover public key: %v", err)
+		t.Fatalf("Failed to decode signature: %v", err)
 	}
 
-	// Compare with server's public key
+	// Get server's public key bytes
 	serverPubBytes := crypto.FromECDSAPub(&serverPrivateKey.PublicKey)
-	recoveredPubBytes := crypto.FromECDSAPub(pubKey)
 
-	if hex.EncodeToString(serverPubBytes) != hex.EncodeToString(recoveredPubBytes) {
-		t.Error("Recovered public key doesn't match server's public key")
+	// Verify signature without recovery ID (remove last byte which is the recovery ID)
+	if !crypto.VerifySignature(serverPubBytes, hash.Bytes(), sigBytes[:64]) {
+		t.Error("Signature verification failed")
 	}
+}
+
+func TestReceiptFullFlowIntegration(t *testing.T) {
+	// Integration test for complete receipt lifecycle:
+	// 1. Generate receipt
+	// 2. Store with TTL
+	// 3. Retrieve by ID
+	// 4. Verify signature
+	// 5. Verify expiration
+
+	// Skip if private key not available
+	if serverPrivateKey == nil {
+		t.Skip("Skipping integration test: SERVER_WALLET_PRIVATE_KEY not set")
+	}
+
+	// Step 1: Create mock payment context and data
+	paymentCtx := PaymentContext{
+		Recipient: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219",
+		Token:     "USDC",
+		Amount:    "0.001",
+		Nonce:     "integration-test-nonce",
+		ChainID:   8453,
+	}
+
+	payer := "0x742d35Cc6634C0532925a3b844Bc9e7595f8fE21"
+	endpoint := "/api/ai/summarize"
+	requestBody := []byte(`{"text":"Test input for summarization"}`)
+	responseBody := []byte(`This is a test AI response summary.`)
+
+	// Step 2: Generate receipt (simulates what happens in handleSummarize)
+	receipt, err := GenerateReceipt(paymentCtx, payer, endpoint, requestBody, responseBody)
+	if err != nil {
+		t.Fatalf("Failed to generate receipt: %v", err)
+	}
+
+	// Verify receipt structure
+	if receipt.Receipt.ID == "" || !strings.HasPrefix(receipt.Receipt.ID, "rcpt_") {
+		t.Errorf("Invalid receipt ID: %s", receipt.Receipt.ID)
+	}
+	if receipt.Receipt.Payment.Payer != payer {
+		t.Errorf("Payer mismatch: got %s, want %s", receipt.Receipt.Payment.Payer, payer)
+	}
+	if receipt.Receipt.Payment.Amount != "0.001" {
+		t.Errorf("Amount mismatch: got %s, want 0.001", receipt.Receipt.Payment.Amount)
+	}
+	if receipt.Signature == "" {
+		t.Error("Receipt signature is empty")
+	}
+	if receipt.ServerPublicKey == "" {
+		t.Error("Server public key is empty")
+	}
+
+	// Verify hashes are present
+	if !strings.HasPrefix(receipt.Receipt.Service.RequestHash, "sha256:") {
+		t.Errorf("Invalid request hash format: %s", receipt.Receipt.Service.RequestHash)
+	}
+	if !strings.HasPrefix(receipt.Receipt.Service.ResponseHash, "sha256:") {
+		t.Errorf("Invalid response hash format: %s", receipt.Receipt.Service.ResponseHash)
+	}
+
+	// Step 3: Store receipt with TTL
+	ttl := 1 * time.Hour
+	receiptID := receipt.Receipt.ID
+
+	if err := storeReceipt(receipt, ttl); err != nil {
+		t.Fatalf("Failed to store receipt: %v", err)
+	}
+
+	// Step 4: Retrieve receipt by ID (simulates GET /api/receipts/:id)
+	retrievedReceipt, exists := getReceipt(receiptID)
+	if !exists {
+		t.Fatal("Receipt not found after storage")
+	}
+
+	// Verify retrieved receipt matches original
+	if retrievedReceipt.Receipt.ID != receipt.Receipt.ID {
+		t.Errorf("Receipt ID mismatch: got %s, want %s", retrievedReceipt.Receipt.ID, receipt.Receipt.ID)
+	}
+	if retrievedReceipt.Signature != receipt.Signature {
+		t.Error("Signature mismatch after retrieval")
+	}
+	if retrievedReceipt.Receipt.Payment.Nonce != paymentCtx.Nonce {
+		t.Errorf("Nonce mismatch: got %s, want %s", retrievedReceipt.Receipt.Payment.Nonce, paymentCtx.Nonce)
+	}
+
+	// Step 5: Verify signature (simulates client-side verification)
+	receiptBytes, err := json.Marshal(retrievedReceipt.Receipt)
+	if err != nil {
+		t.Fatalf("Failed to marshal retrieved receipt: %v", err)
+	}
+
+	hash := crypto.Keccak256Hash(receiptBytes)
+
+	// Decode signature
+	sigHex := retrievedReceipt.Signature[2:] // Remove 0x prefix
+	sigBytes, err := hex.DecodeString(sigHex)
+	if err != nil {
+		t.Fatalf("Failed to decode signature: %v", err)
+	}
+
+	// Verify signature
+	serverPubBytes := crypto.FromECDSAPub(&serverPrivateKey.PublicKey)
+	if !crypto.VerifySignature(serverPubBytes, hash.Bytes(), sigBytes[:64]) {
+		t.Error("Signature verification failed for retrieved receipt")
+	}
+
+	// Step 6: Verify expiration behavior
+	// Store a receipt with very short TTL
+	shortTTLReceipt, err := GenerateReceipt(paymentCtx, payer, endpoint, requestBody, responseBody)
+	if err != nil {
+		t.Fatalf("Failed to generate short TTL receipt: %v", err)
+	}
+
+	shortTTL := 100 * time.Millisecond
+	if err := storeReceipt(shortTTLReceipt, shortTTL); err != nil {
+		t.Fatalf("Failed to store short TTL receipt: %v", err)
+	}
+
+	shortTTLID := shortTTLReceipt.Receipt.ID
+
+	// Verify it exists immediately
+	if _, exists := getReceipt(shortTTLID); !exists {
+		t.Error("Short TTL receipt should exist immediately after storage")
+	}
+
+	// Wait for expiration
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify it's expired
+	if _, exists := getReceipt(shortTTLID); exists {
+		t.Error("Short TTL receipt should be expired after waiting")
+	}
+
+	// Step 7: Test validation
+	// Create an invalid receipt (missing required field)
+	invalidReceipt := &SignedReceipt{
+		Receipt: Receipt{
+			ID:      "", // Invalid: empty ID
+			Version: "1.0",
+		},
+		Signature:       "0x1234",
+		ServerPublicKey: "0x5678",
+	}
+
+	// Should fail validation
+	if err := storeReceipt(invalidReceipt, ttl); err == nil {
+		t.Error("Expected error when storing invalid receipt, got nil")
+	}
+
+	t.Log("Integration test completed successfully:")
+	t.Logf("  - Generated receipt with ID: %s", receiptID)
+	t.Logf("  - Stored and retrieved successfully")
+	t.Logf("  - Signature verified")
+	t.Logf("  - Expiration working correctly")
+	t.Logf("  - Validation working correctly")
 }

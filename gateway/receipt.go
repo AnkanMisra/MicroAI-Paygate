@@ -12,14 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// ReceiptStore defines the interface for receipt storage implementations
-// This allows for easy swapping between in-memory, Redis, PostgreSQL, etc.
-type ReceiptStore interface {
-	Store(receipt *SignedReceipt, ttl time.Duration) error
-	Get(id string) (*SignedReceipt, error)
-	Delete(id string) error
-}
-
 // Receipt represents a cryptographic payment receipt
 type Receipt struct {
 	ID        string          `json:"id"`
@@ -35,7 +27,7 @@ type PaymentDetails struct {
 	Recipient string `json:"recipient"`
 	Amount    string `json:"amount"`
 	Token     string `json:"token"`
-	ChainID   int    `json:"chain_id"`
+	ChainID   int    `json:"chainId"`
 	Nonce     string `json:"nonce"`
 }
 
@@ -101,7 +93,7 @@ func hashData(data []byte) string {
 
 // signReceipt signs a receipt using the server's private key
 // NOTE: Go's json.Marshal is deterministic for structs - fields are always
-// serialized in declaration order (the order they appear in the struct definition).
+// serialized in alphabetical order by their JSON tag names.
 // This ensures consistent signatures. Non-determinism only affects map types.
 func signReceipt(receipt Receipt) (*SignedReceipt, error) {
 	// Get server's private key
@@ -111,7 +103,7 @@ func signReceipt(receipt Receipt) (*SignedReceipt, error) {
 	}
 
 	// Serialize receipt deterministically
-	// For structs, json.Marshal always outputs fields in declaration order
+	// For structs, json.Marshal always outputs fields in alphabetical order by JSON tag
 	receiptBytes, err := json.Marshal(receipt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal receipt: %w", err)
