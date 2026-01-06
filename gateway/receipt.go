@@ -112,7 +112,9 @@ func signReceipt(receipt Receipt) (*SignedReceipt, error) {
 	// Hash the receipt using Keccak256 (Ethereum-compatible)
 	hash := crypto.Keccak256Hash(receiptBytes)
 
-	// Sign the hash
+	// Sign the hash using ECDSA
+	// SECURITY: crypto.Sign uses constant-time operations from go-ethereum's secp256k1 implementation
+	// This prevents timing attacks that could leak private key information
 	signature, err := crypto.Sign(hash.Bytes(), privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign receipt: %w", err)

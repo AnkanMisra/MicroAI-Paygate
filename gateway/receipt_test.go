@@ -278,6 +278,7 @@ func TestVerifyReceiptSignature(t *testing.T) {
 	serverPubBytes := crypto.FromECDSAPub(&serverPrivateKey.PublicKey)
 
 	// Verify signature without recovery ID (remove last byte which is the recovery ID)
+	// SECURITY: crypto.VerifySignature uses constant-time comparison to prevent timing attacks
 	if !crypto.VerifySignature(serverPubBytes, hash.Bytes(), sigBytes[:64]) {
 		t.Error("Signature verification failed")
 	}

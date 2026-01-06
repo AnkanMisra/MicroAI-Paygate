@@ -169,8 +169,9 @@ func main() {
 	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
 	aiGroup.POST("/summarize", handleSummarize)
 
-	// Receipt lookup endpoint with rate limiting to prevent brute-force enumeration
-	// Uses standard anonymous tier (10 RPM) to limit receipt ID enumeration attacks
+	// Receipt lookup endpoint
+	// Note: Rate limiting applies only if enabled globally via RATE_LIMIT_ENABLED=true
+	// Random 12-char receipt IDs (2^48 space) make brute-force enumeration impractical
 	r.GET("/api/receipts/:id", handleGetReceipt)
 
 	// Initialize receipt cleanup goroutine
@@ -216,11 +217,17 @@ func handleSummarize(c *gin.Context) {
 	requestBody, err := c.GetRawData()
 	if err != nil {
 		log.Printf("error reading request body: %v", err)
-		c.JSON(500, gin.H{"error": "Failed to read request body"})
+		// Return 413 if body exceeds size limit, 500 for other errors
+		if err.Error() == "http: request body too large" {
+			c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
+		} else {
+			c.JSON(500, gin.H{"error": "Failed to read request body"})
+		}
 		return
 	}
-	// Restore body for BindJSON later
-	c.Request.Body = http.NoBody // We'll unmarshal from requestBody directly
+	// Set body to NoBody since we've already read it into requestBody
+	// We'll use json.Unmarshal(requestBody, &req) later instead of c.BindJSON
+	c.Request.Body = http.NoBody
 
 	// 2. Verify Payment (Call Rust Service)
 	paymentCtx := PaymentContext{
@@ -797,9 +804,14 @@ func getServerPrivateKey() (*ecdsa.PrivateKey, error) {
 			return
 		}
 
-		// Validate that the key is exactly 32 bytes (256 bits) for ECDSA
-		if len(keyBytes) != 32 {
-			serverPrivateKeyErr = fmt.Errorf("private key must be exactly 32 bytes, got %d bytes", len(keyBytes))
+		// Left-pad to 32 bytes if necessary (handles keys with leading zeros like 0x0001...)
+		// Keys shorter than 32 bytes after hex decode are valid but need padding
+		if len(keyBytes) < 32 {
+			padded := make([]byte, 32)
+			copy(padded[32-len(keyBytes):], keyBytes)
+			keyBytes = padded
+		} else if len(keyBytes) > 32 {
+			serverPrivateKeyErr = fmt.Errorf("private key must be at most 32 bytes, got %d bytes", len(keyBytes))
 			return
 		}
 
