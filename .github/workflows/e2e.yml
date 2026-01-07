@@ -23,7 +23,7 @@ jobs:
 
       - name: Set up Go
         if: env.OPENROUTER_API_KEY != ''
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24.x'
 
