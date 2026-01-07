@@ -109,7 +109,8 @@ func getFromCache(ctx context.Context, key string) (*CachedResponse, error) {
 
 // storeInCache stores a response in Redis with TTL asynchronously
 // Cache writes happen in a background goroutine to avoid blocking the response
-func storeInCache(_ context.Context, key string, result string) {
+// Uses independent background context to ensure writes complete even if request is cancelled
+func storeInCache(key string, result string) {
 	if redisClient == nil {
 		return
 	}

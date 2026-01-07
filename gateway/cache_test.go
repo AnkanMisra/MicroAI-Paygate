@@ -95,7 +95,7 @@ func TestCacheOperations(t *testing.T) {
 	}()
 
 	// Test storing in cache
-	storeInCache(ctx, testKey, testResult)
+	storeInCache(testKey, testResult)
 
 	// Give it a moment to complete (it's async)
 	time.Sleep(100 * time.Millisecond)
@@ -283,10 +283,8 @@ func TestStoreInCacheWithNilClient(t *testing.T) {
 	// Set to nil to simulate Redis unavailable
 	redisClient = nil
 
-	ctx := context.Background()
-
 	// This should not panic
-	storeInCache(ctx, "test:key", "test value")
+	storeInCache("test:key", "test value")
 }
 
 // TestGetFromCacheWithNilClient tests error handling when Redis is unavailable
@@ -336,8 +334,7 @@ func BenchmarkCacheOperations(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		storeInCache(ctx, cacheKey, result)
-		time.Sleep(10 * time.Millisecond) // Small delay for async store
+		storeInCache(cacheKey, result)
 		getFromCache(ctx, cacheKey)
 	}
 }

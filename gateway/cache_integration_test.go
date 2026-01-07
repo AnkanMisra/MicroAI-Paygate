@@ -56,7 +56,9 @@ func TestCacheMiddlewareIntegration(t *testing.T) {
 		}
 
 		var response map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &response)
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+			t.Fatalf("Failed to unmarshal response: %v", err)
+		}
 
 		if cached, ok := response["cached"].(bool); ok && cached {
 			t.Error("First request should not be from cache")
@@ -80,7 +82,9 @@ func TestCacheMiddlewareIntegration(t *testing.T) {
 		}
 
 		var response map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &response)
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+			t.Fatalf("Failed to unmarshal response: %v", err)
+		}
 
 		if cached, ok := response["cached"].(bool); !ok || !cached {
 			t.Error("Second request should be from cache")
@@ -106,7 +110,9 @@ func TestCacheMiddlewareIntegration(t *testing.T) {
 		// Should proceed to handler without caching
 		if w.Code == 200 {
 			var response map[string]interface{}
-			json.Unmarshal(w.Body.Bytes(), &response)
+			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+				t.Fatalf("Failed to unmarshal response: %v", err)
+			}
 
 			if _, ok := response["cached"]; ok {
 				t.Error("Request without signature should not use cache")
@@ -161,7 +167,9 @@ func TestCacheMiddlewareWithRedisDown(t *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &response)
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
 
 	if _, ok := response["result"]; !ok {
 		t.Error("Response should still contain result even with Redis down")
@@ -229,7 +237,9 @@ func TestCacheWithDifferentNonces(t *testing.T) {
 	router.ServeHTTP(w2, req2)
 
 	var response2 map[string]interface{}
-	json.Unmarshal(w2.Body.Bytes(), &response2)
+	if err := json.Unmarshal(w2.Body.Bytes(), &response2); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
 
 	if cached, ok := response2["cached"].(bool); !ok || !cached {
 		t.Error("Same text with different nonce should hit cache")
@@ -252,7 +262,7 @@ func TestCachePersistenceAcrossRequests(t *testing.T) {
 	ctx := context.Background()
 
 	// Store in cache
-	storeInCache(ctx, cacheKey, result)
+	storeInCache(cacheKey, result)
 	time.Sleep(100 * time.Millisecond)
 
 	// Retrieve in different context

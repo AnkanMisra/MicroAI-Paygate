@@ -152,28 +152,28 @@ func main() {
 		log.Println("Rate limiting enabled")
 	}
 
-// Global request timeout middleware (default: 60s).
-// Note: route-specific timeouts (e.g. for AI endpoints) may shorten this
-// deadline; the middleware implementation always uses the earliest
-// deadline when nested timeouts are present to avoid surprising behavior.
-r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
+	// Global request timeout middleware (default: 60s).
+	// Note: route-specific timeouts (e.g. for AI endpoints) may shorten this
+	// deadline; the middleware implementation always uses the earliest
+	// deadline when nested timeouts are present to avoid surprising behavior.
+	r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
 
-// Health check with shorter timeout (2s)
-r.GET("/healthz", RequestTimeoutMiddleware(getHealthCheckTimeout()), handleHealth)
+	// Health check with shorter timeout (2s)
+	r.GET("/healthz", RequestTimeoutMiddleware(getHealthCheckTimeout()), handleHealth)
 
-// AI endpoints with AI-specific timeout (30s) and caching
-aiGroup := r.Group("/api/ai")
-aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
-aiGroup.Use(CacheMiddleware()) // Add cache middleware after timeout
-aiGroup.POST("/summarize", handleSummarize)
+	// AI endpoints with AI-specific timeout (30s) and caching
+	aiGroup := r.Group("/api/ai")
+	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
+	aiGroup.Use(CacheMiddleware()) // Add cache middleware after timeout
+	aiGroup.POST("/summarize", handleSummarize)
 
-port := os.Getenv("PORT")
-if port == "" {
-	port = "3000"
-}
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3000"
+	}
 
-log.Printf("Go Gateway running on port %s", port)
-r.Run(":" + port)
+	log.Printf("Go Gateway running on port %s", port)
+	r.Run(":" + port)
 }
 
 // handleSummarize handles POST /api/ai/summarize requests. It validates
@@ -256,26 +256,14 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
-	// 3. Check Cache (AFTER payment verification for security)
-	if cacheKey, exists := c.Get("cache_key"); exists {
-		if cached, hit := tryGetCachedResponse(c.Request.Context(), cacheKey.(string)); hit {
-			c.JSON(200, gin.H{
-				"result":    cached.Result,
-				"cached":    true,
-				"cached_at": cached.CachedAt,
-				"cache_key": cacheKey.(string)[:16],
-			})
-			return
-		}
-	}
-
-	// 4. Call AI Service
+	// 3. Parse Request Body
 	var req SummarizeRequest
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "Invalid request body"})
+			c.JSON(400, gin.H{"error": "Invalid request body"})
 		return
 	}
 
+	// 5. Call AI Service
 	summary, err := callOpenRouter(c.Request.Context(), req.Text)
 	if err != nil {
 		// If the error was due to a timeout, return 504
