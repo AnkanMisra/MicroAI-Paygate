@@ -258,6 +258,7 @@ func handleSummarize(c *gin.Context) {
 				"result":    cached.Result,
 				"cached":    true,
 				"cached_at": cached.CachedAt,
+				"cache_key": cacheKey.(string)[:16],
 			})
 			return
 		}

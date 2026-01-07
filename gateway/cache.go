@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -185,18 +184,4 @@ func closeRedis() {
 			log.Printf("Error closing Redis connection: %v", err)
 		}
 	}
-}
-
-// Helper function to convert string to int with default
-func getEnvAsIntForCache(key string, defaultValue int) int {
-	valStr := os.Getenv(key)
-	if valStr == "" {
-		return defaultValue
-	}
-	val, err := strconv.Atoi(valStr)
-	if err != nil {
-		log.Printf("Warning: Invalid value for %s: %s, using default %d", key, valStr, defaultValue)
-		return defaultValue
-	}
-	return val
 }
