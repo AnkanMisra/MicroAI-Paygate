@@ -47,8 +47,13 @@ type SignedReceipt struct {
 
 // GenerateReceipt creates a new receipt for a successful payment
 func GenerateReceipt(payment PaymentContext, payer string, endpoint string, reqBody, respBody []byte) (*SignedReceipt, error) {
+	receiptID, err := generateReceiptID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate receipt ID: %w", err)
+	}
+
 	receipt := Receipt{
-		ID:        generateReceiptID(),
+		ID:        receiptID,
 		Version:   "1.0",
 		Timestamp: time.Now().UTC(),
 		Payment: PaymentDetails{
@@ -70,16 +75,14 @@ func GenerateReceipt(payment PaymentContext, payer string, endpoint string, reqB
 }
 
 // generateReceiptID generates a unique receipt ID with "rcpt_" prefix
-func generateReceiptID() string {
+// Returns error if random generation fails to prevent predictable IDs
+func generateReceiptID() (string, error) {
 	// Generate 6 random bytes (12 hex characters)
 	bytes := make([]byte, 6)
 	if _, err := rand.Read(bytes); err != nil {
-		// Fallback to timestamp-based ID if random fails
-		// This maintains uniqueness even if entropy is exhausted
-		timestamp := time.Now().UnixNano()
-		return fmt.Sprintf("rcpt_%012x", timestamp)
+		return "", fmt.Errorf("failed to generate random receipt ID: %w", err)
 	}
-	return "rcpt_" + hex.EncodeToString(bytes)
+	return "rcpt_" + hex.EncodeToString(bytes), nil
 }
 
 // hashData computes SHA-256 hash of data and returns hex-encoded string
@@ -93,8 +96,8 @@ func hashData(data []byte) string {
 
 // signReceipt signs a receipt using the server's private key
 // NOTE: Go's json.Marshal is deterministic for structs - fields are always
-// serialized in alphabetical order by their JSON tag names.
-// This ensures consistent signatures. Non-determinism only affects map types.
+// serialized in the order they are defined in the struct, ensuring consistent output.
+// This guarantees consistent signatures across multiple marshaling operations.
 func signReceipt(receipt Receipt) (*SignedReceipt, error) {
 	// Get server's private key
 	privateKey, err := getServerPrivateKey()
@@ -103,7 +106,7 @@ func signReceipt(receipt Receipt) (*SignedReceipt, error) {
 	}
 
 	// Serialize receipt deterministically
-	// For structs, json.Marshal always outputs fields in alphabetical order by JSON tag
+	// json.Marshal outputs struct fields in their declaration order
 	receiptBytes, err := json.Marshal(receipt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal receipt: %w", err)

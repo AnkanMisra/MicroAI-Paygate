@@ -173,7 +173,12 @@ func main() {
 
 	// Initialize receipt cleanup goroutine
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
-	defer cleanupCancel()
+	defer func() {
+		cleanupCancel()
+		// Perform final cleanup on shutdown to prevent receipt leak
+		cleanupExpiredReceipts()
+		log.Println("Final receipt cleanup completed on shutdown")
+	}()
 	go startReceiptCleanup(cleanupCtx)
 	log.Println("Receipt cleanup goroutine started")
 
@@ -306,6 +311,9 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	// 5. Generate cryptographic receipt
+	// NOTE: Response hashing is performed on the AI response body
+	// Large responses (>1MB) may cause slight delays during hashing
+	// Expected typical response size: <100KB for summaries
 	responseBody := []byte(summary) // Response body for hashing
 	receipt, err := GenerateReceipt(paymentCtx, verifyResp.RecoveredAddress, c.Request.URL.Path, requestBody, responseBody)
 	if err != nil {
@@ -801,8 +809,15 @@ func getServerPrivateKey() (*ecdsa.PrivateKey, error) {
 			return
 		}
 
+		// Validate minimum key length to prevent trivially weak keys
+		// Keys shorter than 16 bytes (128 bits) are cryptographically insecure
+		if len(keyBytes) < 16 {
+			serverPrivateKeyErr = fmt.Errorf("private key too short: got %d bytes, expected at least 16 bytes (128 bits)", len(keyBytes))
+			return
+		}
+
 		// Left-pad to 32 bytes if necessary (handles keys with leading zeros like 0x0001...)
-		// Keys shorter than 32 bytes after hex decode are valid but need padding
+		// Keys between 16-31 bytes are valid but need padding
 		if len(keyBytes) < 32 {
 			padded := make([]byte, 32)
 			copy(padded[32-len(keyBytes):], keyBytes)
