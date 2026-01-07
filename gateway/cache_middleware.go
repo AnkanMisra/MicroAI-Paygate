@@ -12,8 +12,7 @@ import (
 )
 
 // CacheMiddleware implements cache-aside pattern for AI responses
-// SECURITY: Cache is checked AFTER payment verification in the handler
-// This middleware only wraps the response writer to store successful responses
+// It only caches responses after successful payment verification
 func CacheMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Skip if caching is disabled
@@ -22,16 +21,17 @@ func CacheMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Read and restore request body for cache key generation
+		// Only cache requests with payment signature (after verification)
+		signature := c.GetHeader("X-402-Signature")
+		if signature == "" {
+			c.Next()
+			return
+		}
+
+		// Read and restore request body
 		var bodyBytes []byte
 		if c.Request.Body != nil {
-			var err error
-			bodyBytes, err = io.ReadAll(c.Request.Body)
-			if err != nil {
-				log.Printf("CacheMiddleware: failed to read request body: %v", err)
-				c.Next()
-				return
-			}
+			bodyBytes, _ = io.ReadAll(c.Request.Body)
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 		}
 
@@ -50,22 +50,27 @@ func CacheMiddleware() gin.HandlerFunc {
 		// Generate cache key
 		cacheKey := getCacheKey(req.Text)
 
-	// Try to get from cache
-	if cached, err := getFromCache(c.Request.Context(), cacheKey); err == nil {
-		log.Printf("Cache HIT: %s (saved API call)", cacheKey[:16])
-		// Mark this as cached so we don't re-cache it
-		c.Set("from_cache", true)
-		c.JSON(200, gin.H{
-			"result":    cached.Result,
-			"cached":    true,
-			"cached_at": cached.CachedAt,
-			"cache_key": cacheKey[:16],
-		})
-		c.Abort()
-		return
-	}
+		// Try to get from cache
+		if cached, err := getFromCache(c.Request.Context(), cacheKey); err == nil {
+			log.Printf("Cache HIT: %s (saved API call)", cacheKey[:16])
+			// Mark this as cached so we don't re-cache it
+			c.Set("from_cache", true)
+			c.JSON(200, gin.H{
+				"result":    cached.Result,
+				"cached":    true,
+				"cached_at": cached.CachedAt,
+				"cache_key": cacheKey[:16],
+			})
+			c.Abort()
+			return
+		}
 
-	log.Printf("Cache MISS: %s (will call API)", cacheKey[:16])
+		log.Printf("Cache MISS: %s (will call API)", cacheKey[:16])
+
+		// Wrap the response writer to capture the response
+		writer := &cacheResponseWriter{
+			ResponseWriter: c.Writer,
+			body:           &bytes.Buffer{},
 			cacheKey:       cacheKey,
 			ctx:            c.Request.Context(),
 			ginCtx:         c,
@@ -94,9 +99,7 @@ type cacheResponseWriter struct {
 // Write captures the response body while also writing to the underlying writer
 func (w *cacheResponseWriter) Write(data []byte) (int, error) {
 	w.mu.Lock()
-	if _, err := w.body.Write(data); err != nil {
-		log.Printf("Failed to buffer response for caching: %v", err)
-	}
+	w.body.Write(data) // Capture response
 	w.mu.Unlock()
 	return w.ResponseWriter.Write(data)
 }
@@ -104,9 +107,7 @@ func (w *cacheResponseWriter) Write(data []byte) (int, error) {
 // WriteString captures string responses
 func (w *cacheResponseWriter) WriteString(s string) (int, error) {
 	w.mu.Lock()
-	if _, err := w.body.WriteString(s); err != nil {
-		log.Printf("Failed to buffer response string for caching: %v", err)
-	}
+	w.body.WriteString(s)
 	w.mu.Unlock()
 	return w.ResponseWriter.WriteString(s)
 }

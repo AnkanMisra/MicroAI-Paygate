@@ -167,8 +167,13 @@ aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
 aiGroup.Use(CacheMiddleware()) // Add cache middleware after timeout
 aiGroup.POST("/summarize", handleSummarize)
 
-	log.Printf("Go Gateway running on port %s", port)
-	r.Run(":" + port)
+port := os.Getenv("PORT")
+if port == "" {
+	port = "3000"
+}
+
+log.Printf("Go Gateway running on port %s", port)
+r.Run(":" + port)
 }
 
 // handleSummarize handles POST /api/ai/summarize requests. It validates
