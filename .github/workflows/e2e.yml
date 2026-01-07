@@ -12,7 +12,7 @@ jobs:
       OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'z-ai/glm-4.5-air:free' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check OpenRouter key
         run: |
