@@ -62,20 +62,35 @@ export async function verifyReceipt(signedReceipt: SignedReceipt): Promise<boole
       return false;
     }
 
-    // Serialize receipt deterministically (alphabetical by JSON tag, same as Go)
+    // Serialize receipt deterministically (same as Go's json.Marshal)
     const receiptJSON = JSON.stringify(signedReceipt.receipt);
     
-    // Hash using Keccak256 (Ethereum-compatible)
+    // Hash using Keccak256 (Ethereum-compatible) - same as Go's crypto.Keccak256Hash
     const messageHash = ethers.keccak256(ethers.toUtf8Bytes(receiptJSON));
 
-    // Recover signer address from signature
-    const recoveredAddress = ethers.recoverAddress(messageHash, signedReceipt.signature);
+    // Convert signature from hex string to bytes
+    const sigBytes = ethers.getBytes(signedReceipt.signature);
 
-    // Compute address from server's public key
-    const serverAddress = ethers.computeAddress(signedReceipt.server_public_key);
+    // Go's crypto.Sign produces 65-byte signatures: [R (32 bytes)][S (32 bytes)][V (1 byte)]
+   // V is the recovery ID (0 or 1 in Go, 27 or 28 in Ethereum)
+    if (sigBytes.length !== 65) {
+      console.error(`Invalid signature length: expected 65 bytes, got ${sigBytes.length}`);
+      return false;
+    }
 
-    // Compare addresses (case-insensitive)
-    return recoveredAddress.toLowerCase() === serverAddress.toLowerCase();
+    // Recover the public key from the signature
+    // Go uses v=0/1, but ethers expects v=27/28, so we add 27
+    const signature = ethers.Signature.from({
+      r: ethers.hexlify(sigBytes.slice(0, 32)),
+      s: ethers.hexlify(sigBytes.slice(32, 64)),
+      v: sigBytes[64] + 27
+    });
+
+    const recoveredPubKey = ethers.SigningKey.recoverPublicKey(messageHash, signature);
+
+    // Compare recovered public key with server's public key
+    // Both should be uncompressed public keys (0x04 prefix + 64 bytes)
+    return recoveredPubKey.toLowerCase() === signedReceipt.server_public_key.toLowerCase();
   } catch (error) {
     console.error('Receipt verification failed:', error);
     return false;

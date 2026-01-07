@@ -16,7 +16,10 @@ func TestGenerateReceiptID(t *testing.T) {
 	ids := make(map[string]bool)
 	
 	for i := 0; i < 100; i++ {
-		id := generateReceiptID()
+		id, err := generateReceiptID()
+		if err != nil {
+			t.Fatalf("generateReceiptID() failed: %v", err)
+		}
 		
 		// Check format
 		if !strings.HasPrefix(id,  "rcpt_") {
@@ -164,9 +167,14 @@ func TestReceiptJSONSerialization(t *testing.T) {
 }
 
 func TestStoreAndRetrieveReceipt(t *testing.T) {
+	receiptID, err := generateReceiptID()
+	if err != nil {
+		t.Fatalf("generateReceiptID() failed: %v", err)
+	}
+
 	signedReceipt := &SignedReceipt{
 		Receipt: Receipt{
-			ID:        generateReceiptID(),
+			ID:        receiptID,
 			Version:   "1.0",
 			Timestamp: time.Now().UTC(),
 			Payment: PaymentDetails{
@@ -241,8 +249,13 @@ func TestVerifyReceiptSignature(t *testing.T) {
 		t.Skip("Skipping verification test: SERVER_WALLET_PRIVATE_KEY not set")
 	}
 
+	receiptID, err := generateReceiptID()
+	if err != nil {
+		t.Fatalf("generateReceiptID() failed: %v", err)
+	}
+
 	receipt := Receipt{
-		ID:        generateReceiptID(),
+		ID:        receiptID,
 		Version:   "1.0",
 		Timestamp: time.Now().UTC(),
 		Payment: PaymentDetails{
