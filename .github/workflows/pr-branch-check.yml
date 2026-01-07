@@ -48,7 +48,7 @@ jobs:
       
       - name: Add PR comment
         if: ${{ failure() }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const behind = '${{ steps.check.outputs.behind }}';
