@@ -6,7 +6,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,8 +18,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -137,7 +141,7 @@ func main() {
 		AllowOrigins:     []string{"http://localhost:3001"},
 		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "X-402-Signature", "X-402-Nonce"},
-		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After"},
+		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After", "X-402-Receipt"},
 		AllowCredentials: true,
 	}))
 
@@ -161,6 +165,22 @@ func main() {
 	aiGroup := r.Group("/api/ai")
 	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
 	aiGroup.POST("/summarize", handleSummarize)
+
+	// Receipt lookup endpoint
+	// Note: Rate limiting applies only if enabled globally via RATE_LIMIT_ENABLED=true
+	// Random 12-char receipt IDs (2^48 space) make brute-force enumeration impractical
+	r.GET("/api/receipts/:id", handleGetReceipt)
+
+	// Initialize receipt cleanup goroutine
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
+	defer func() {
+		cleanupCancel()
+		// Perform final cleanup on shutdown to prevent receipt leak
+		cleanupExpiredReceipts()
+		log.Println("Final receipt cleanup completed on shutdown")
+	}()
+	go startReceiptCleanup(cleanupCtx)
+	log.Println("Receipt cleanup goroutine started")
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -190,6 +210,26 @@ func handleSummarize(c *gin.Context) {
 		})
 		return
 	}
+
+	// Capture request body for receipt generation
+	// Limit request body to 10MB to prevent memory exhaustion attacks
+	maxBodySize := int64(10 * 1024 * 1024)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBodySize)
+
+	requestBody, err := c.GetRawData()
+	if err != nil {
+		log.Printf("error reading request body: %v", err)
+		// Return 413 if body exceeds size limit, 500 for other errors
+		if err.Error() == "http: request body too large" {
+			c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
+		} else {
+			c.JSON(500, gin.H{"error": "Failed to read request body"})
+		}
+		return
+	}
+	// Set body to NoBody since we've already read it into requestBody
+	// We'll use json.Unmarshal(requestBody, &req) later instead of c.BindJSON
+	c.Request.Body = http.NoBody
 
 	// 2. Verify Payment (Call Rust Service)
 	paymentCtx := PaymentContext{
@@ -251,13 +291,14 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
-	// 3. Call AI Service
+	// 3. Parse request body
 	var req SummarizeRequest
-	if err := c.BindJSON(&req); err != nil {
+	if err := json.Unmarshal(requestBody, &req); err != nil {
 		c.JSON(400, gin.H{"error": "Invalid request body"})
 		return
 	}
 
+	// 4. Call AI Service
 	summary, err := callOpenRouter(c.Request.Context(), req.Text)
 	if err != nil {
 		// If the error was due to a timeout, return 504
@@ -269,7 +310,40 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{"result": summary})
+	// 5. Generate cryptographic receipt
+	// NOTE: Response hashing is performed on the AI response body
+	// Large responses (>1MB) may cause slight delays during hashing
+	// Expected typical response size: <100KB for summaries
+	responseBody := []byte(summary) // Response body for hashing
+	receipt, err := GenerateReceipt(paymentCtx, verifyResp.RecoveredAddress, c.Request.URL.Path, requestBody, responseBody)
+	if err != nil {
+		log.Printf("error generating receipt: %v", err)
+		c.JSON(500, gin.H{"error": "Failed to generate receipt", "details": err.Error()})
+		return
+	}
+
+	// 6. Store receipt with TTL
+	if err := storeReceipt(receipt, getReceiptTTL()); err != nil {
+		log.Printf("error storing receipt: %v", err)
+		c.JSON(500, gin.H{"error": "Failed to store receipt"})
+		return
+	}
+
+	// 7. Encode receipt for header
+	receiptJSON, err := json.Marshal(receipt)
+	if err != nil {
+		log.Printf("error marshaling receipt: %v", err)
+		c.JSON(500, gin.H{"error": "Failed to encode receipt"})
+		return
+	}
+	receiptBase64 := base64.StdEncoding.EncodeToString(receiptJSON)
+
+	// 8. Add receipt to response
+	c.Header("X-402-Receipt", receiptBase64)
+	c.JSON(200, gin.H{
+		"result":  summary,
+		"receipt": receipt,
+	})
 }
 
 // createPaymentContext constructs a PaymentContext prefilled with the recipient address (from RECIPIENT_ADDRESS or a fallback), the USDC token, amount "0.001", a newly generated UUID nonce, and chain ID 8453.
@@ -526,4 +600,242 @@ func getEnvAsInt(key string, defaultValue int) int {
 		return defaultValue
 	}
 	return val
+}
+
+// Receipt Management Functions
+
+var (
+	receiptStoreMu         sync.RWMutex
+	receiptStore           = make(map[string]*receiptEntry)
+	receiptCleanupInterval = 5 * time.Minute
+)
+
+type receiptEntry struct {
+	receipt   *SignedReceipt
+	expiresAt time.Time
+}
+
+// startReceiptCleanup runs periodic cleanup in a single goroutine
+// This prevents goroutine leaks by using a single background worker
+// instead of spawning one goroutine per receipt
+func startReceiptCleanup(ctx context.Context) {
+	ticker := time.NewTicker(receiptCleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Receipt cleanup goroutine stopped")
+			return
+		case <-ticker.C:
+			cleanupExpiredReceipts()
+		}
+	}
+}
+
+// cleanupExpiredReceipts removes expired receipts from the store
+func cleanupExpiredReceipts() {
+	now := time.Now()
+	receiptStoreMu.Lock()
+	defer receiptStoreMu.Unlock()
+
+	count := 0
+	for id, entry := range receiptStore {
+		if now.After(entry.expiresAt) {
+			delete(receiptStore, id)
+			count++
+		}
+	}
+
+	if count > 0 {
+		log.Printf("Cleaned up %d expired receipts", count)
+	}
+}
+
+// storeReceipt stores a receipt with TTL
+// Returns error for future extensibility (Redis/Postgres implementations)
+func storeReceipt(receipt *SignedReceipt, ttl time.Duration) error {
+	// Validate receipt format before storage
+	if err := validateReceipt(receipt); err != nil {
+		return fmt.Errorf("invalid receipt format: %w", err)
+	}
+
+	receiptStoreMu.Lock()
+	defer receiptStoreMu.Unlock()
+
+	receiptStore[receipt.Receipt.ID] = &receiptEntry{
+		receipt:   receipt,
+		expiresAt: time.Now().Add(ttl),
+	}
+
+	return nil
+}
+
+// validateReceipt validates that a receipt has all required fields
+func validateReceipt(receipt *SignedReceipt) error {
+	if receipt == nil {
+		return fmt.Errorf("receipt is nil")
+	}
+
+	// Validate receipt fields
+	if receipt.Receipt.ID == "" {
+		return fmt.Errorf("receipt ID is empty")
+	}
+	if !strings.HasPrefix(receipt.Receipt.ID, "rcpt_") {
+		return fmt.Errorf("receipt ID must start with 'rcpt_'")
+	}
+	if receipt.Receipt.Version == "" {
+		return fmt.Errorf("receipt version is empty")
+	}
+	if receipt.Receipt.Timestamp.IsZero() {
+		return fmt.Errorf("receipt timestamp is zero")
+	}
+
+	// Validate payment details
+	if receipt.Receipt.Payment.Payer == "" {
+		return fmt.Errorf("payer address is empty")
+	}
+	if receipt.Receipt.Payment.Recipient == "" {
+		return fmt.Errorf("recipient address is empty")
+	}
+	if receipt.Receipt.Payment.Amount == "" {
+		return fmt.Errorf("payment amount is empty")
+	}
+	if receipt.Receipt.Payment.Token == "" {
+		return fmt.Errorf("token is empty")
+	}
+	if receipt.Receipt.Payment.Nonce == "" {
+		return fmt.Errorf("nonce is empty")
+	}
+
+	// Validate service details
+	if receipt.Receipt.Service.Endpoint == "" {
+		return fmt.Errorf("service endpoint is empty")
+	}
+	if receipt.Receipt.Service.RequestHash == "" {
+		return fmt.Errorf("request hash is empty")
+	}
+	if receipt.Receipt.Service.ResponseHash == "" {
+		return fmt.Errorf("response hash is empty")
+	}
+
+	// Validate signature
+	if receipt.Signature == "" {
+		return fmt.Errorf("signature is empty")
+	}
+	if !strings.HasPrefix(receipt.Signature, "0x") {
+		return fmt.Errorf("signature must start with '0x'")
+	}
+
+	// Validate server public key
+	if receipt.ServerPublicKey == "" {
+		return fmt.Errorf("server public key is empty")
+	}
+	if !strings.HasPrefix(receipt.ServerPublicKey, "0x") {
+		return fmt.Errorf("server public key must start with '0x'")
+	}
+
+	return nil
+}
+
+// getReceipt retrieves a receipt by ID
+func getReceipt(id string) (*SignedReceipt, bool) {
+	receiptStoreMu.RLock()
+	defer receiptStoreMu.RUnlock()
+
+	entry, exists := receiptStore[id]
+	if !exists {
+		return nil, false
+	}
+
+	// Check if expired
+	if time.Now().After(entry.expiresAt) {
+		return nil, false
+	}
+
+	return entry.receipt, true
+}
+
+// getReceiptTTL returns configured TTL or default 24h
+func getReceiptTTL() time.Duration {
+	ttlSeconds := getEnvAsInt("RECEIPT_TTL", 86400)
+	return time.Duration(ttlSeconds) * time.Second
+}
+
+// handleGetReceipt handles GET /api/receipts/:id
+func handleGetReceipt(c *gin.Context) {
+	id := c.Param("id")
+
+	receipt, exists := getReceipt(id)
+	if !exists {
+		c.JSON(404, gin.H{
+			"error":   "Receipt not found",
+			"message": "Receipt may have expired or never existed",
+		})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"receipt":           receipt.Receipt,
+		"signature":         receipt.Signature,
+		"server_public_key": receipt.ServerPublicKey,
+		"status":            "valid",
+	})
+}
+
+// Server private key management
+var (
+	serverPrivateKey     *ecdsa.PrivateKey
+	serverPrivateKeyOnce sync.Once
+	serverPrivateKeyErr  error
+)
+
+// getServerPrivateKey loads the server's private key (cached with sync.Once)
+// This prevents race conditions and ensures the key is loaded only once
+func getServerPrivateKey() (*ecdsa.PrivateKey, error) {
+	serverPrivateKeyOnce.Do(func() {
+		keyHex := os.Getenv("SERVER_WALLET_PRIVATE_KEY")
+		if keyHex == "" {
+			serverPrivateKeyErr = fmt.Errorf("SERVER_WALLET_PRIVATE_KEY not set")
+			return
+		}
+
+		// Remove 0x prefix if present
+		keyHex = strings.TrimPrefix(keyHex, "0x")
+
+		keyBytes, err := hex.DecodeString(keyHex)
+		if err != nil {
+			serverPrivateKeyErr = fmt.Errorf("invalid private key format: %w", err)
+			return
+		}
+
+		// Validate minimum key length to prevent trivially weak keys
+		// Keys shorter than 16 bytes (128 bits) are cryptographically insecure
+		if len(keyBytes) < 16 {
+			serverPrivateKeyErr = fmt.Errorf("private key too short: got %d bytes, expected at least 16 bytes (128 bits)", len(keyBytes))
+			return
+		}
+
+		// Left-pad to 32 bytes if necessary (handles keys with leading zeros like 0x0001...)
+		// Keys between 16-31 bytes are valid but need padding
+		if len(keyBytes) < 32 {
+			padded := make([]byte, 32)
+			copy(padded[32-len(keyBytes):], keyBytes)
+			keyBytes = padded
+		} else if len(keyBytes) > 32 {
+			serverPrivateKeyErr = fmt.Errorf("private key must be at most 32 bytes, got %d bytes", len(keyBytes))
+			return
+		}
+
+		privateKey, err := crypto.ToECDSA(keyBytes)
+		if err != nil {
+			serverPrivateKeyErr = fmt.Errorf("failed to parse private key: %w", err)
+			return
+		}
+
+		serverPrivateKey = privateKey
+		log.Println("Server private key loaded successfully")
+	})
+
+	return serverPrivateKey, serverPrivateKeyErr
 }
