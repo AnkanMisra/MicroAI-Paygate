@@ -8,7 +8,7 @@
     "dev": "bun run --watch src/index.ts",
     "agent": "bun run agent/bot.ts",
     "dev:all": "concurrently \"bun run dev\" \"sleep 2 && bun run agent\"",
-    "stack": "concurrently -n \"VERIFIER,GATEWAY,WEB\" -c \"red,cyan,green\" \"cd verifier && cargo run\" \"cd gateway && go run main.go\" \"cd web && bun run dev\"",
+    "stack": "concurrently -n \"VERIFIER,GATEWAY,WEB\" -c \"red,cyan,green\" \"cd verifier && cargo run\" \"cd gateway && go run .\" \"cd web && bun run dev\"",
     "test:unit": "cd gateway && go test ./... && cd ../verifier && cargo test",
     "test:go": "cd gateway && go test ./...",
     "test:rust": "cd verifier && cargo test",
