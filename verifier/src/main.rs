@@ -52,25 +52,26 @@ struct VerifyResponse {
 }
 
 async fn verify_signature(
-    headers: HeaderMap, // VIBE FIX: Receive the headers here
+    headers: HeaderMap,
     Json(payload): Json<VerifyRequest>,
-) -> (StatusCode, Json<VerifyResponse>) {
+) -> (StatusCode, HeaderMap, Json<VerifyResponse>) {
     
-    // VIBE FIX: Extract and log the Correlation ID
+    // Extract ID
     let correlation_id = headers
         .get("X-Correlation-ID")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown");
+
+    // Prepare response header
+    let mut res_headers = HeaderMap::new();
+    res_headers.insert("X-Correlation-ID", correlation_id.parse().unwrap());
 
     println!(
         "[CorrelationID: {}] Received verification request for nonce: {}",
         correlation_id, payload.context.nonce
     );
 
-    // Construct the EIP-712 Typed Data
-    // Note: In a real production app, we should use the proper EIP-712 struct definitions with ethers-rs macros.
-    // For this MVP, we will manually reconstruct the domain and types to match the frontend.
-    // Domain
+    // Reconstruct Typed Data (Domain, Types, Value)
     let domain = serde_json::json!({
         "name": "MicroAI Paygate",
         "version": "1",
@@ -78,7 +79,6 @@ async fn verify_signature(
         "verifyingContract": "0x0000000000000000000000000000000000000000"
     });
 
-    // Types
     let types = serde_json::json!({
         "Payment": [
             { "name": "recipient", "type": "address" },
@@ -88,7 +88,6 @@ async fn verify_signature(
         ]
     });
 
-    // Value
     let value = serde_json::json!({
         "recipient": payload.context.recipient,
         "token": payload.context.token,
@@ -96,7 +95,7 @@ async fn verify_signature(
         "nonce": payload.context.nonce
     });
 
-    let typed_data = serde_json::json!({
+    let typed_data_json = serde_json::json!({
         "domain": domain,
         "types": types,
         "primaryType": "Payment",
@@ -104,11 +103,12 @@ async fn verify_signature(
     });
 
     // Parse TypedData
-    let typed_data: TypedData = match serde_json::from_value(typed_data) {
+    let typed_data: TypedData = match serde_json::from_value(typed_data_json) {
         Ok(td) => td,
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
+                res_headers.clone(), // Header added
                 Json(VerifyResponse {
                     is_valid: false,
                     recovered_address: None,
@@ -124,6 +124,7 @@ async fn verify_signature(
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
+                res_headers.clone(), // Header added
                 Json(VerifyResponse {
                     is_valid: false,
                     recovered_address: None,
@@ -133,12 +134,13 @@ async fn verify_signature(
         }
     };
 
-    // Verify
+    // Final Verification
     match signature.recover_typed_data(&typed_data) {
         Ok(address) => {
             println!("[CorrelationID: {}] Signature valid! Recovered: {:?}", correlation_id, address);
             (
                 StatusCode::OK,
+                res_headers, // Header added
                 Json(VerifyResponse {
                     is_valid: true,
                     recovered_address: Some(format!("{:?}", address)),
@@ -150,6 +152,7 @@ async fn verify_signature(
             println!("[CorrelationID: {}] Verification failed: {}", correlation_id, e);
             (
                 StatusCode::OK,
+                res_headers, // Header added
                 Json(VerifyResponse {
                     is_valid: false,
                     recovered_address: None,
@@ -242,7 +245,7 @@ mod tests {
             signature: "0x1234567890".to_string(),
         };
 
-        let (status, _) = verify_signature(HeaderMap::new(), Json(req)).await;
+        let (status, _headers, Json(response)) = verify_signature(HeaderMap::new(), Json(req)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 }
