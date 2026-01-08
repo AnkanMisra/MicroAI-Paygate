@@ -14,6 +14,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -154,9 +155,11 @@ func main() {
 	// deadline when nested timeouts are present to avoid surprising behavior.
 	r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
 
-	// Health check with shorter timeout (2s)
-	r.GET("/healthz", RequestTimeoutMiddleware(getHealthCheckTimeout()), handleHealth)
+	// Health check if server is up
+	r.GET("/healthz", handleHealthz)
 
+	// Readiness check for dependencies
+	r.GET("/readyz",handleReadyz)
 	// AI endpoints with AI-specific timeout (30s)
 	aiGroup := r.Group("/api/ai")
 	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
@@ -526,4 +529,56 @@ func getEnvAsInt(key string, defaultValue int) int {
 		return defaultValue
 	}
 	return val
+}
+//handleHealthz provides a basic liveness check
+func handleHealthz(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "gateway", "timestamp": time.Now().Unix(),})
+}
+//handleReadyz provides a readiness check
+func handleReadyz(c *gin.Context) {
+	checks := make(map[string]interface{})
+
+	//1. check verifier connectivity
+	verifierStatus := checkVerifierHealth()
+	checks["verifier"] = verifierStatus
+
+	//2. Check OpenRouter availability
+	openRouterStatus := checkOpenRouterHealth()
+	checks["openrouter"] = openRouterStatus
+
+	//3. Self-health metrics
+	checks["gateway"] = gin.H{
+		"goroutines": runtime.NumGoroutine(),
+		"status":	 "ok",
+	}
+	//Overall status logic
+	ready:= verifierStatus=="ok"
+
+	statusCode:=http.StatusOK
+	if !ready{
+		statusCode=http.StatusServiceUnavailable
+	}
+	c.JSON(statusCode, gin.H{"ready": ready, "timestamp": time.Now().Unix(), "checks": checks,})
+}	
+// checkOpenRouterHealth pings OpenRouter models list to verify API key/connectivity
+func checkOpenRouterHealth() string {
+	// url := os.Getenv("VERIFIER_URL")
+	// if url == "" {
+	// 	url = "http://127.0.0.1.3002"
+	// }
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", "https://openrouter.ai/api/v1/models", nil)
+	resp, err := http.DefaultClient.Do(req)	
+
+	if err != nil {
+		return "unreachable"
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "degraded"
+	}
+	return "ok"
 }
