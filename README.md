@@ -386,6 +386,140 @@ We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 
 This project is licensed under the [MIT License](LICENSE).
 
+## Receipt Verification
+
+MicroAI Paygate issues cryptographic receipts for every successful API request. These receipts are tamper-proof, independently verifiable, and stored for 24 hours by default.
+
+### Receipt Structure
+
+Every successful request returns a receipt in the response body and `X-402-Receipt` header:
+
+```json
+{
+  "result": "AI summary...",
+  "receipt": {
+    "receipt": {
+      "id": "rcpt_a1b2c3d4e5f6",
+      "version": "1.0",
+      "timestamp": "2026-01-06T10:30:00Z",
+      "payment": {
+        "payer": "0x742d35Cc...",
+        "recipient": "0x2cAF48b4...",
+        "amount": "0.001",
+        "token": "USDC",
+        "chainId": 8453,
+        "nonce": "9c311e31-..."
+      },
+      "service": {
+        "endpoint": "/api/ai/summarize",
+        "request_hash": "sha256:abc123...",
+        "response_hash": "sha256:def456..."
+      }
+    },
+    "signature": "0x1234...",
+    "server_public_key": "0xabcd..."
+  }
+}
+```
+
+### Client-Side Verification (TypeScript)
+
+Use the provided verification library to verify receipts client-side:
+
+```typescript
+import { verifyReceipt, fetchReceipt } from './web/src/lib/verify-receipt';
+
+// After receiving a response
+const response = await fetch('/api/ai/summarize', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-402-Signature': signature,
+    'X-402-Nonce': nonce,
+  },
+  body: JSON.stringify({ text: 'Your text here' }),
+});
+
+const data = await response.json();
+
+// Verify the receipt signature
+const isValid = await verifyReceipt(data.receipt);
+console.log(`Receipt valid: ${isValid}`); // true
+
+// Store receipt for future reference
+localStorage.setItem(
+  `receipt_${data.receipt.receipt.id}`, 
+  JSON.stringify(data.receipt)
+);
+```
+
+### Receipt Lookup API
+
+Retrieve stored receipts by ID:
+
+```bash
+# Fetch receipt
+curl http://localhost:3000/api/receipts/rcpt_a1b2c3d4e5f6
+
+# Response (200 OK)
+{
+  "receipt": { ... },
+  "signature": "0x...",
+  "server_public_key": "0x...",
+  "status": "valid"
+}
+
+# Not found (404)
+{
+  "error": "Receipt not found",
+  "message": "Receipt may have expired or never existed"
+}
+```
+
+### Verification Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant G as Gateway
+    participant V as Verifier
+    participant AI as OpenRouter
+
+    C->>G: POST /api/ai/summarize + signature
+    G->>V: Verify signature
+    V-->>G: Valid ✓
+    G->>AI: Get AI response
+    AI-->>G: Response
+    Note over G: Generate Receipt
+    G->>G: Hash request/response
+    G->>G: Sign with server key
+    G-->>C: Response + Receipt
+    Note over C: Verify Receipt
+    C->>C: Check signature matches
+    C->>C: Validate server public key
+    C->>C: Store receipt
+```
+
+### Security Features
+
+- **ECDSA Signatures**: Receipts signed using Keccak256 + secp256k1 (Ethereum-compatible)
+- **Tamper-Proof**: Any modification invalidates the signature
+- **Content Hashes**: Only SHA-256 hashes stored, not full request/response
+- **Rate Limited**: Receipt lookup limited to 10 requests/minute (anonymous tier)
+- **Auto-Expiry**: Receipts expire after 24 hours (configurable via `RECEIPT_TTL`)
+
+### Configuration
+
+Add to `.env`:
+
+```bash
+# Required: Server's private key for signing receipts
+SERVER_WALLET_PRIVATE_KEY=your_private_key_hex
+
+# Optional: Receipt TTL in seconds (default: 86400 = 24 hours)
+RECEIPT_TTL=86400
+```
+
 ## API Reference
 
 ### Endpoints

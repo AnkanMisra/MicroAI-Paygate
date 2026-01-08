@@ -1,3 +1,4 @@
+
 // Package main implements the gateway HTTP server used by MicroAI-Paygate.
 // It provides request handlers, middleware, and configuration helpers
 // for timeouts and rate limiting.
@@ -160,6 +161,7 @@ func main() {
 
 	// Readiness check for dependencies
 	r.GET("/readyz",handleReadyz)
+  
 	// AI endpoints with AI-specific timeout (30s)
 	aiGroup := r.Group("/api/ai")
 	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
