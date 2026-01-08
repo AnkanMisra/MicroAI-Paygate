@@ -126,7 +126,7 @@ async fn verify_signature(
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
-                res_headers.clone(), // Header added
+                res_headers, // Header added
                 Json(VerifyResponse {
                     is_valid: false,
                     recovered_address: None,
