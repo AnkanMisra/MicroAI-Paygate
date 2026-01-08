@@ -11,7 +11,29 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid" // Added this import for the ID generation
 )
+
+// CorrelationIDMiddleware checks for an existing X-Correlation-ID header
+// or generates a new one, ensuring requests can be traced across services.
+func CorrelationIDMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 1. Check if the header already exists
+		id := c.GetHeader("X-Correlation-ID")
+
+		// 2. If missing, generate a new UUID
+		if id == "" {
+			id = uuid.New().String()
+		}
+
+		// 3. Save it to the context (for logs) and response header (for the client)
+		c.Set("correlation_id", id)
+		c.Header("X-Correlation-ID", id)
+
+		// 4. Continue to the next step
+		c.Next()
+	}
+}
 
 // bufferedWriter captures response writes in-memory so the middleware can
 // decide whether to send the real response or a timeout response without
@@ -193,15 +215,15 @@ type responseWriterShim struct {
 	orig gin.ResponseWriter
 }
 
-func (rws *responseWriterShim) Header() http.Header               { return rws.bw.Header() }
-func (rws *responseWriterShim) Write(data []byte) (int, error)    { return rws.bw.Write(data) }
+func (rws *responseWriterShim) Header() http.Header              { return rws.bw.Header() }
+func (rws *responseWriterShim) Write(data []byte) (int, error)   { return rws.bw.Write(data) }
 func (rws *responseWriterShim) WriteString(s string) (int, error) { return rws.bw.WriteString(s) }
-func (rws *responseWriterShim) WriteHeader(statusCode int)        { rws.bw.WriteHeader(statusCode) }
-func (rws *responseWriterShim) WriteHeaderNow()                   { rws.bw.WriteHeaderNow() }
-func (rws *responseWriterShim) Status() int                       { return rws.bw.Status() }
-func (rws *responseWriterShim) Written() bool                     { return rws.bw.wrote }
-func (rws *responseWriterShim) Size() int                         { return rws.bw.buf.Len() }
-func (rws *responseWriterShim) WriteHeaderNowWithoutLock()        {}
+func (rws *responseWriterShim) WriteHeader(statusCode int)       { rws.bw.WriteHeader(statusCode) }
+func (rws *responseWriterShim) WriteHeaderNow()                  { rws.bw.WriteHeaderNow() }
+func (rws *responseWriterShim) Status() int                      { return rws.bw.Status() }
+func (rws *responseWriterShim) Written() bool                    { return rws.bw.wrote }
+func (rws *responseWriterShim) Size() int                        { return rws.bw.buf.Len() }
+func (rws *responseWriterShim) WriteHeaderNowWithoutLock()       {}
 
 // Flush flushes the response to the client if the underlying writer
 // supports http.Flusher. This is a no-op otherwise.

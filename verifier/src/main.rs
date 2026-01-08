@@ -1,6 +1,6 @@
 use axum::{
     extract::Json,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode}, // VIBE FIX: Added HeaderMap to read headers
     routing::{get, post},
     Router,
 };
@@ -52,12 +52,21 @@ struct VerifyResponse {
 }
 
 async fn verify_signature(
+    headers: HeaderMap, // VIBE FIX: Receive the headers here
     Json(payload): Json<VerifyRequest>,
 ) -> (StatusCode, Json<VerifyResponse>) {
+    
+    // VIBE FIX: Extract and log the Correlation ID
+    let correlation_id = headers
+        .get("X-Correlation-ID")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+
     println!(
-        "Received verification request for nonce: {}",
-        payload.context.nonce
+        "[CorrelationID: {}] Received verification request for nonce: {}",
+        correlation_id, payload.context.nonce
     );
+
     // Construct the EIP-712 Typed Data
     // Note: In a real production app, we should use the proper EIP-712 struct definitions with ethers-rs macros.
     // For this MVP, we will manually reconstruct the domain and types to match the frontend.
@@ -127,7 +136,7 @@ async fn verify_signature(
     // Verify
     match signature.recover_typed_data(&typed_data) {
         Ok(address) => {
-            println!("Signature valid! Recovered: {:?}", address);
+            println!("[CorrelationID: {}] Signature valid! Recovered: {:?}", correlation_id, address);
             (
                 StatusCode::OK,
                 Json(VerifyResponse {
@@ -138,7 +147,7 @@ async fn verify_signature(
             )
         }
         Err(e) => {
-            println!("Verification failed: {}", e);
+            println!("[CorrelationID: {}] Verification failed: {}", correlation_id, e);
             (
                 StatusCode::OK,
                 Json(VerifyResponse {
@@ -212,7 +221,8 @@ mod tests {
             signature: signature_str,
         };
 
-        let (status, Json(response)) = verify_signature(Json(req)).await;
+        // For tests, we pass empty headers
+        let (status, Json(response)) = verify_signature(HeaderMap::new(), Json(req)).await;
 
         assert_eq!(status, StatusCode::OK);
         assert!(response.is_valid);
@@ -232,7 +242,7 @@ mod tests {
             signature: "0x1234567890".to_string(),
         };
 
-        let (status, _) = verify_signature(Json(req)).await;
+        let (status, _) = verify_signature(HeaderMap::new(), Json(req)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 }

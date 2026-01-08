@@ -112,6 +112,10 @@ func main() {
 
 	r := gin.Default()
 
+	// VIBE FIX: Register the Correlation ID Middleware immediately
+	// This ensures every single request gets an ID before anything else happens.
+	r.Use(CorrelationIDMiddleware())
+
 	r.StaticFile("/openapi.yaml", "openapi.yaml")
 
 	r.GET("/docs", func(c *gin.Context) {
@@ -140,8 +144,8 @@ func main() {
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3001"},
 		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "X-402-Signature", "X-402-Nonce"},
-		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After", "X-402-Receipt"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "X-402-Signature", "X-402-Nonce", "X-Correlation-ID"},                                                          // Added X-Correlation-ID
+		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After", "X-402-Receipt", "X-Correlation-ID"}, // Added X-Correlation-ID
 		AllowCredentials: true,
 	}))
 
@@ -266,6 +270,11 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 	vreq.Header.Set("Content-Type", "application/json")
+
+	// VIBE FIX: Pass Correlation ID to the Verifier Service
+	if cid, exists := c.Get("correlation_id"); exists {
+		vreq.Header.Set("X-Correlation-ID", cid.(string))
+	}
 
 	// Use http.DefaultClient and rely on verifierCtx for timeouts/cancellation.
 	resp, err := http.DefaultClient.Do(vreq)
@@ -423,6 +432,12 @@ func callOpenRouter(ctx context.Context, text string) (string, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
+
+	// VIBE FIX: Pass Correlation ID to AI Service
+	// (Assuming the context has it, though OpenRouter might not use it, it's good practice)
+	if cid, ok := ctx.Value("correlation_id").(string); ok {
+		req.Header.Set("X-Correlation-ID", cid)
+	}
 
 	// Use http.DefaultClient and rely on ctx for cancellation/timeouts.
 	resp, err := http.DefaultClient.Do(req)
