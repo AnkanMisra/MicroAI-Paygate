@@ -435,7 +435,7 @@ func callOpenRouter(ctx context.Context, text string) (string, error) {
 
 	// VIBE FIX: Pass Correlation ID to AI Service
 	// (Assuming the context has it, though OpenRouter might not use it, it's good practice)
-	if cid, ok := ctx.Value("correlation_id").(string); ok {
+	if cid, ok := ctx.Value(correlationIDKey).(string); ok { // Changed to use correlationIDKey
 		req.Header.Set("X-Correlation-ID", cid)
 	}
 

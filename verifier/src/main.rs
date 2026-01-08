@@ -64,7 +64,9 @@ async fn verify_signature(
 
     // Prepare response header
     let mut res_headers = HeaderMap::new();
-    res_headers.insert("X-Correlation-ID", correlation_id.parse().unwrap());
+    if let Ok(header_value) = correlation_id.parse() {
+        res_headers.insert("X-Correlation-ID", header_value);
+    }
 
     println!(
         "[CorrelationID: {}] Received verification request for nonce: {}",
@@ -225,7 +227,7 @@ mod tests {
         };
 
         // For tests, we pass empty headers
-        let (status, Json(response)) = verify_signature(HeaderMap::new(), Json(req)).await;
+        let (status, _headers, Json(response)) = verify_signature(HeaderMap::new(), Json(req)).await;
 
         assert_eq!(status, StatusCode::OK);
         assert!(response.is_valid);
