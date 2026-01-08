@@ -264,4 +264,5 @@ func (rws *responseWriterShim) CloseNotify() <-chan bool {
 	ch := make(chan bool)
 	close(ch)
 	return ch
+
 }
