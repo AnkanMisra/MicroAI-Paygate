@@ -456,6 +456,7 @@ func callOpenRouter(ctx context.Context, text string) (string, error) {
 
 	choices, ok := result["choices"].([]interface{})
 	if !ok || len(choices) == 0 {
+		log.Printf("OpenRouter response: %+v", result)
 		return "", fmt.Errorf("invalid response from AI provider: no choices")
 	}
 
