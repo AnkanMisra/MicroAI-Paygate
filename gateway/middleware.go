@@ -5,13 +5,40 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid" // Added this import for the ID generation
 )
+
+type contextKey string
+
+const correlationIDKey contextKey = "correlation_id"
+
+// CorrelationIDMiddleware checks for an existing X-Correlation-ID header
+// or generates a new one, ensuring requests can be traced across services.
+func CorrelationIDMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.GetHeader("X-Correlation-ID")
+		if id == "" {
+			id = uuid.New().String()
+		}
+
+		c.Set("correlation_id", id) // Keep this as a string for Gin
+
+		// VIBE FIX: Use the custom typed key for the standard context
+		ctx := context.WithValue(c.Request.Context(), correlationIDKey, id)
+		c.Request = c.Request.WithContext(ctx)
+
+		c.Header("X-Correlation-ID", id)
+		log.Printf("[CorrelationID: %s] %s %s", id, c.Request.Method, c.Request.URL.Path)
+		c.Next()
+	}
+}
 
 // bufferedWriter captures response writes in-memory so the middleware can
 // decide whether to send the real response or a timeout response without
@@ -237,4 +264,5 @@ func (rws *responseWriterShim) CloseNotify() <-chan bool {
 	ch := make(chan bool)
 	close(ch)
 	return ch
+
 }

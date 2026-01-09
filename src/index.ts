@@ -3,11 +3,16 @@ import cors from "cors";
 import { CONFIG } from "./config";
 import { aiRoutes } from "./routes/ai";
 import { x402Middleware } from "./middleware/x402";
+import { correlationMiddleware } from "./middleware/correlation"; // VIBE FIX: Import the new tool
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// VIBE FIX: Activate the tracing middleware immediately
+// This ensures every request gets tagged with an ID before it hits the AI routes
+app.use(correlationMiddleware);
 
 // Health check (public)
 app.get("/health", (req, res) => {
