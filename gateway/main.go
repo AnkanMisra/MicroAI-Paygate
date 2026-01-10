@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+    "os/signal"
+    "syscall"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-contrib/cors"
@@ -157,6 +159,7 @@ func main() {
 	// deadline; the middleware implementation always uses the earliest
 	// deadline when nested timeouts are present to avoid surprising behavior.
 	r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
+	r.Use(TrackInFlightRequests())
 
 	// Health check with shorter timeout (2s)
 	r.GET("/healthz", RequestTimeoutMiddleware(getHealthCheckTimeout()), handleHealth)
@@ -187,8 +190,49 @@ func main() {
 		port = "3000"
 	}
 
-	log.Printf("Go Gateway running on port %s", port)
-	r.Run(":" + port)
+addr := ":" + port
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+
+	go func() {
+		log.Printf("[INFO] Gateway listening on %s", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("[FATAL] listen error: %v", err)
+		}
+	}()
+
+	// ---- Graceful shutdown ----
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	<-quit
+	log.Println("[INFO] Shutdown signal received, draining connections...")
+
+	active := GetActiveRequestCount()
+	if active > 0 {
+		log.Printf("[INFO] Waiting for %d in-flight request(s)...", active)
+		WaitForInFlightRequests()
+		log.Println("[INFO] All in-flight requests completed")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("[ERROR] Server forced to shutdown: %v", err)
+	} else {
+		log.Println("[OK] Server shutdown completed")
+	}
+
+
 }
 
 // handleSummarize handles POST /api/ai/summarize requests. It validates
