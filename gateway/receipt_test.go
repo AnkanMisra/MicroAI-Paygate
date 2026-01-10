@@ -14,23 +14,23 @@ import (
 func TestGenerateReceiptID(t *testing.T) {
 	// Generate multiple IDs and check format
 	ids := make(map[string]bool)
-	
+
 	for i := 0; i < 100; i++ {
 		id, err := generateReceiptID()
 		if err != nil {
 			t.Fatalf("generateReceiptID() failed: %v", err)
 		}
-		
+
 		// Check format
-		if !strings.HasPrefix(id,  "rcpt_") {
+		if !strings.HasPrefix(id, "rcpt_") {
 			t.Errorf("Receipt ID should start with 'rcpt_', got: %s", id)
 		}
-		
+
 		// Check length (rcpt_ + 12 hex chars = 17 total)
 		if len(id) != 17 {
 			t.Errorf("Receipt ID should be 17 characters, got %d: %s", len(id), id)
 		}
-		
+
 		// Check uniqueness
 		if ids[id] {
 			t.Errorf("Duplicate receipt ID generated: %s", id)

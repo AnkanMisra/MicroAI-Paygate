@@ -20,6 +20,13 @@ services:
     networks:
       - microai-net
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - microai-net
+
   web:
     build: ./web
     ports:
