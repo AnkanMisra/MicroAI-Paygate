@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
@@ -48,7 +48,7 @@ jobs:
       
       - name: Add PR comment
         if: ${{ failure() }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const behind = '${{ steps.check.outputs.behind }}';
@@ -56,27 +56,31 @@ jobs:
             const base = '${{ github.event.pull_request.base.ref }}';
             const headRef = '${{ github.event.pull_request.head.ref }}';
             
+            const body = [
+              '## Branch Out of Date',
+              '',
+              'This PR is **' + behind + ' commits behind** `' + base + '`.',
+              '',
+              '**Status:**',
+              '- ' + behind + ' commits behind `' + base + '`',
+              '- ' + ahead + ' commits ahead of `' + base + '`',
+              '',
+              '**Action Required:**',
+              'Please update your branch to include the latest changes from `' + base + '`:',
+              '',
+              '```bash',
+              'git checkout ' + headRef,
+              'git merge origin/' + base,
+              '# Or for a cleaner history:',
+              'git rebase origin/' + base,
+              '```',
+              '',
+              'Once updated, this check will pass automatically.'
+            ].join('\n');
+            
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `## Branch Out of Date
-
-This PR is **${behind} commits behind** \`${base}\`.
-
-**Status:**
-- ${behind} commits behind \`${base}\`
-- ${ahead} commits ahead of \`${base}\`
-
-**Action Required:**
-Please update your branch to include the latest changes from \`${base}\`:
-
-\`\`\`bash
-git checkout ${headRef}
-git merge origin/${base}
-# Or for a cleaner history:
-git rebase origin/${base}
-\`\`\`
-
-Once updated, this check will pass automatically.`
+              body: body
             });
