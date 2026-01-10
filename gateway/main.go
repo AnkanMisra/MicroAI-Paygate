@@ -159,6 +159,7 @@ func main() {
 	// deadline; the middleware implementation always uses the earliest
 	// deadline when nested timeouts are present to avoid surprising behavior.
 	r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
+	r.Use(TrackInFlightRequests())
 
 	// Health check with shorter timeout (2s)
 	r.GET("/healthz", RequestTimeoutMiddleware(getHealthCheckTimeout()), handleHealth)
@@ -189,12 +190,17 @@ func main() {
 		port = "3000"
 	}
 
-		addr := ":" + port
+addr := ":" + port
 
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: r,
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
+
 
 	go func() {
 		log.Printf("[INFO] Gateway listening on %s", addr)
@@ -210,6 +216,13 @@ func main() {
 	<-quit
 	log.Println("[INFO] Shutdown signal received, draining connections...")
 
+	active := GetActiveRequestCount()
+	if active > 0 {
+		log.Printf("[INFO] Waiting for %d in-flight request(s)...", active)
+		WaitForInFlightRequests()
+		log.Println("[INFO] All in-flight requests completed")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -218,6 +231,7 @@ func main() {
 	} else {
 		log.Println("[OK] Server shutdown completed")
 	}
+
 
 }
 
