@@ -44,8 +44,15 @@ func CacheMiddleware() gin.HandlerFunc {
 		}
 
 		// Read request body to generate cache key
-		// Limit to 10MB to match handler limit and prevent DoS
+		// Check Content-Length first to reject oversized requests immediately
 		const maxBodySize = 10 * 1024 * 1024
+		if c.Request.ContentLength > maxBodySize {
+			c.Header("Connection", "close")
+			c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
+			c.Abort()
+			return
+		}
+		
 		var requestBody []byte
 		var err error
 		if c.Request.Body != nil {
@@ -72,12 +79,23 @@ func CacheMiddleware() gin.HandlerFunc {
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 		}
 
-		// Parse body to get text
+		// Parse body to get text for cache key
+		// Note: Cache key is based on text+model at request time. If model env var changes
+		// between cache key generation and AI call, there could be a mismatch, but this
+		// is acceptable since the model should not change during normal operation.
 		var req SummarizeRequest
 		if err := json.Unmarshal(requestBody, &req); err != nil {
-			// Invalid body, let handler handle
-			log.Printf("[DEBUG] Cache bypass due to invalid JSON: %v", err)
-			c.Next()
+			// Invalid JSON - reject immediately to prevent cache bypass attacks
+			log.Printf("[DEBUG] Invalid JSON in request: %v", err)
+			c.JSON(400, gin.H{"error": "Invalid request body", "message": "Request must be valid JSON"})
+			c.Abort()
+			return
+		}
+		
+		// Validate text is not empty
+		if req.Text == "" {
+			c.JSON(400, gin.H{"error": "Invalid request", "message": "text field cannot be empty"})
+			c.Abort()
 			return
 		}
 
@@ -93,7 +111,11 @@ func CacheMiddleware() gin.HandlerFunc {
 			log.Printf("Cache HIT: %s", cacheKey)
 
 			// Cache HIT! -> Verify Payment *BEFORE* serving
-			verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce)
+			// Use fresh context to avoid issues if request context is already cancelled
+			verifyCtx, verifyCancel := context.WithTimeout(context.Background(), getVerifierTimeout())
+			defer verifyCancel()
+			
+			verifyResp, paymentCtx, err := verifyPayment(verifyCtx, signature, nonce)
 			if err != nil {
 				log.Printf("Verification error on cache hit: %v", err)
 				if errors.Is(err, context.DeadlineExceeded) {
@@ -117,6 +139,9 @@ func CacheMiddleware() gin.HandlerFunc {
 
 			// Generate Receipt and Respond
 			// We treat the cached result as the AI result
+			// Generate receipt for cache hit using current request and cached result.
+			// Note: request_hash matches current request, response is from cache,
+			// but both are cryptographically valid since cache key ensures identical text.
 			if err := generateAndSendReceipt(c, *paymentCtx, verifyResp.RecoveredAddress, requestBody, cached.Result); err != nil {
 				log.Printf("Failed to send cached response receipt: %v", err)
 				// generateAndSendReceipt already sent an error response (500)
@@ -162,6 +187,9 @@ func CacheMiddleware() gin.HandlerFunc {
 }
 
 func getCacheKey(text string, model string) string {
+	// Cache key includes both text and model to prevent collisions.
+	// Note: If API is extended with additional parameters (temperature, max_tokens, etc.),
+	// this cache key will need to include those parameters to avoid incorrect cache hits.
 	combined := text + ":" + model
 	hash := sha256.Sum256([]byte(combined))
 	return "ai:summary:" + hex.EncodeToString(hash[:])
