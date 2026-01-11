@@ -17,11 +17,16 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 8545596 (sync main.go with latest commit and format code with change in checkopenrouterhealth function)
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -165,8 +170,13 @@ func main() {
 	// deadline when nested timeouts are present to avoid surprising behavior.
 	r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
 
-	// Health check with shorter timeout (2s)
-	r.GET("/healthz", RequestTimeoutMiddleware(getHealthCheckTimeout()), handleHealth)
+
+	// Health check if server is up
+	r.GET("/healthz", handleHealthz)
+
+	// Readiness check for dependencies
+
+	r.GET("/readyz", handleReadyz)
 
 	// AI endpoints with AI-specific timeout (30s)
 	aiGroup := r.Group("/api/ai")
@@ -904,3 +914,66 @@ func getServerPrivateKey() (*ecdsa.PrivateKey, error) {
 
 	return serverPrivateKey, serverPrivateKeyErr
 }
+
+
+// handleHealthz provides a basic liveness check
+func handleHealthz(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "gateway", "timestamp": time.Now().Unix()})
+}
+
+// handleReadyz provides a readiness check
+func handleReadyz(c *gin.Context) {
+	checks := make(map[string]interface{})
+
+	//1. check verifier connectivity
+	verifierStatus := checkVerifierHealth()
+	checks["verifier"] = verifierStatus
+
+	//2. Check OpenRouter availability
+	openRouterStatus := checkOpenRouterHealth()
+	checks["openrouter"] = openRouterStatus
+
+	//3. Self-health metrics
+	checks["gateway"] = gin.H{
+		"goroutines": runtime.NumGoroutine(),
+		"status":     "ok",
+	}
+	//Overall status logic
+	ready := verifierStatus == "ok" && openRouterStatus == "ok"
+
+	statusCode := http.StatusOK
+	if !ready {
+		statusCode = http.StatusServiceUnavailable
+	}
+	c.JSON(statusCode, gin.H{"ready": ready, "timestamp": time.Now().Unix(), "checks": checks})
+}
+
+// checkOpenRouterHealth pings OpenRouter models list to verify API key/connectivity
+func checkOpenRouterHealth() string {
+	apiKey := os.Getenv("OPENROUTER_API_KEY")
+	if apiKey == "" {
+		return "unconfigured"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://openrouter.ai/api/v1/models", nil)
+	if err != nil {
+		return "unreachable"
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	resp, err := http.DefaultClient.Do(req)
+
+	if err != nil {
+		return "unreachable"
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "degraded"
+	}
+	return "ok"
+}
+
+
+
