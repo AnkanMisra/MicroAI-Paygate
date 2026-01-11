@@ -56,7 +56,8 @@ func TestCacheKeyUniqueForDifferentInputs(t *testing.T) {
 func TestCacheKeySpec(t *testing.T) {
 	text := "test"
 	model := "z-ai/glm-4.5-air:free"
-	combined := text + ":" + model
+	const cacheVersion = "v1"
+	combined := cacheVersion + ":" + text + ":" + model
 	hash := sha256.Sum256([]byte(combined))
 	expected := "ai:summary:" + hex.EncodeToString(hash[:])
 	actual := getCacheKey(text, model)

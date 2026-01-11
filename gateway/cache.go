@@ -46,6 +46,7 @@ func CacheMiddleware() gin.HandlerFunc {
 		// Read request body to generate cache key
 		// Check Content-Length first to reject oversized requests immediately
 		const maxBodySize = 10 * 1024 * 1024
+		// ContentLength == -1 means unknown (chunked encoding or no header), proceed to MaxBytesReader
 		if c.Request.ContentLength > maxBodySize {
 			c.Header("Connection", "close")
 			c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
@@ -188,11 +189,13 @@ func CacheMiddleware() gin.HandlerFunc {
 
 func getCacheKey(text string, model string) string {
 	// IMPORTANT: This cache key ONLY includes text and model.
+	// Cache version v1 - if parameters change, increment version to invalidate old caches
 	// If callOpenRouter() is modified to accept additional parameters
 	// (temperature, max_tokens, top_p, etc.), those MUST be added to
 	// this cache key to prevent incorrect cache hits.
 	// TODO: Consider accepting a struct with all OpenRouter parameters
-	combined := text + ":" + model
+	const cacheVersion = "v1"
+	combined := cacheVersion + ":" + text + ":" + model
 	hash := sha256.Sum256([]byte(combined))
 	return "ai:summary:" + hex.EncodeToString(hash[:])
 }

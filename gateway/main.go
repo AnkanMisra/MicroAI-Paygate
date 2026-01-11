@@ -275,6 +275,12 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
+	// Validate text is not empty (also validated in cache middleware, but needed here for non-cached requests)
+	if req.Text == "" {
+		c.JSON(400, gin.H{"error": "Invalid request", "message": "text field cannot be empty"})
+		return
+	}
+
 	// 3. Call AI Service
 	summary, err := callOpenRouter(c.Request.Context(), req.Text)
 	if err != nil {
