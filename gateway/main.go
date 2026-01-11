@@ -257,7 +257,7 @@ func handleSummarize(c *gin.Context) {
 		if errors.Is(err, context.DeadlineExceeded) {
 			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "Verifier request timed out"})
 		} else {
-			c.JSON(500, gin.H{"error": "Verification Service Failed", "details": err.Error()})
+			c.JSON(500, gin.H{"error": "Verification Service Failed", "message": "An internal error occurred"})
 		}
 		return
 	}
@@ -350,7 +350,17 @@ func verifyPayment(ctx context.Context, signature, nonce string) (*VerifyRespons
 
 // generateAndSendReceipt handles receipt generation, storage, and sending the final JSON response.
 func generateAndSendReceipt(c *gin.Context, paymentCtx PaymentContext, recoveredAddr string, requestBody []byte, aiResult string) error {
-	responseBody := []byte(aiResult)
+	// Construct the response body that will be sent to client (without receipt)
+	responseMap := map[string]interface{}{
+		"result": aiResult,
+	}
+	responseBody, err := json.Marshal(responseMap)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to encode response"})
+		return err
+	}
+
+	// Generate receipt with the actual response body hash
 	receipt, err := GenerateReceipt(paymentCtx, recoveredAddr, c.Request.URL.Path, requestBody, responseBody)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to generate receipt", "details": err.Error()})
@@ -370,10 +380,9 @@ func generateAndSendReceipt(c *gin.Context, paymentCtx PaymentContext, recovered
 	receiptBase64 := base64.StdEncoding.EncodeToString(receiptJSON)
 
 	c.Header("X-402-Receipt", receiptBase64)
-	c.JSON(200, gin.H{
-		"result":  aiResult,
-		"receipt": receipt,
-	})
+	// Add receipt to response map and send
+	responseMap["receipt"] = receipt
+	c.JSON(200, responseMap)
 	return nil
 }
 
