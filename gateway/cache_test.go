@@ -19,8 +19,9 @@ func TestCacheKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			key1 := getCacheKey(tt.text)
-			key2 := getCacheKey(tt.text)
+			model := "z-ai/glm-4.5-air:free"
+			key1 := getCacheKey(tt.text, model)
+			key2 := getCacheKey(tt.text, model)
 
 			// 1. Deterministic
 			if key1 != key2 {
@@ -43,8 +44,9 @@ func TestCacheKey(t *testing.T) {
 
 func TestCacheKeyCollisionWait(t *testing.T) {
 	// Not a real collision test, but ensuring different content = different key
-	k1 := getCacheKey("abc")
-	k2 := getCacheKey("abd")
+	model := "z-ai/glm-4.5-air:free"
+	k1 := getCacheKey("abc", model)
+	k2 := getCacheKey("abd", model)
 	if k1 == k2 {
 		t.Error("Collision detected for different content")
 	}
@@ -53,9 +55,11 @@ func TestCacheKeyCollisionWait(t *testing.T) {
 // Manual helper to verify SHA logic matches spec
 func TestCacheKeySpec(t *testing.T) {
 	text := "test"
-	hash := sha256.Sum256([]byte(text))
+	model := "z-ai/glm-4.5-air:free"
+	combined := text + ":" + model
+	hash := sha256.Sum256([]byte(combined))
 	expected := "ai:summary:" + hex.EncodeToString(hash[:])
-	actual := getCacheKey(text)
+	actual := getCacheKey(text, model)
 	if actual != expected {
 		t.Errorf("Spec mismatch: got %s want %s", actual, expected)
 	}
