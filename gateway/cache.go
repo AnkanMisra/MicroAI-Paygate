@@ -60,9 +60,10 @@ func CacheMiddleware() gin.HandlerFunc {
 					c.Abort()
 					return
 				}
-				// Other read errors - restore empty body and continue
-				c.Request.Body = io.NopCloser(bytes.NewBuffer(nil))
-				c.Next()
+				// Other read errors - don't continue to handler since body is corrupted
+				log.Printf("[ERROR] Failed to read request body: %v", err)
+				c.JSON(500, gin.H{"error": "Failed to read request body"})
+				c.Abort()
 				return
 			}
 			// Store body in context for handler reuse
@@ -89,7 +90,7 @@ func CacheMiddleware() gin.HandlerFunc {
 
 		// Check Cache
 		if cached, err := getFromCache(c.Request.Context(), cacheKey); err == nil {
-			log.Printf("Cache HIT: %s...", cacheKey[:16])
+			log.Printf("Cache HIT: %s", cacheKey)
 
 			// Cache HIT! -> Verify Payment *BEFORE* serving
 			verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce)
@@ -125,7 +126,7 @@ func CacheMiddleware() gin.HandlerFunc {
 		}
 
 		// Cache MISS
-		log.Printf("Cache MISS: %s...", cacheKey[:16])
+		log.Printf("Cache MISS: %s", cacheKey)
 
 		// Prepare to capture response
 		writer := &cachedWriter{
@@ -137,13 +138,13 @@ func CacheMiddleware() gin.HandlerFunc {
 
 		c.Next()
 
-		// Handler finished. If 200 OK, store in cache.
-		// NOTE: writer.Status() might differ if handler hasn't written header yet?
-		// But handler should have written 200 via JSON.
-		if writer.Status() == 200 {
-			// Extract "result" from response body with proper locking
-			bodyBytes := writer.getBodyBytes()
-			
+		// Handler finished. Check status and extract result with proper locking
+		writer.mu.RLock()
+		statusCode := writer.ResponseWriter.Status()
+		bodyBytes := writer.body.Bytes()
+		writer.mu.RUnlock()
+
+		if statusCode == 200 {
 			// Response format: {"result": "...", "receipt": ...}
 			var resp map[string]interface{}
 			if err := json.Unmarshal(bodyBytes, &resp); err == nil {
@@ -198,14 +199,22 @@ func storeInCache(ctx context.Context, key string, data string) {
 
 	jsonData, err := json.Marshal(cached)
 	if err != nil {
-		log.Printf("[WARNING] Failed to marshal cache data for key %s...: %v", key[:16], err)
+		log.Printf("[WARNING] Failed to marshal cache data for key %s: %v", safeKeyPrefix(key), err)
 		return
 	}
 
 	// Use the context provided by caller (already has 5s timeout from async goroutine)
 	if err := redisClient.Set(ctx, key, jsonData, ttl).Err(); err != nil {
-		log.Printf("[WARNING] Failed to store in cache for key %s...: %v", key[:16], err)
+		log.Printf("[WARNING] Failed to store in cache for key %s: %v", safeKeyPrefix(key), err)
 	}
+}
+
+// safeKeyPrefix returns first 32 chars of key for logging, or full key if shorter
+func safeKeyPrefix(key string) string {
+	if len(key) > 32 {
+		return key[:32] + "..."
+	}
+	return key
 }
 
 type cachedWriter struct {

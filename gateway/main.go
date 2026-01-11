@@ -225,12 +225,8 @@ func handleSummarize(c *gin.Context) {
 
 	// Check if body already read by middleware
 	if body, exists := c.Get("request_body"); exists {
-		if bodyBytes, ok := body.([]byte); ok {
-			requestBody = bodyBytes
-		} else {
-			// Type assertion failed - this shouldn't happen but handle gracefully
-			log.Printf("Warning: request_body in context is not []byte, reading from request")
-		}
+		// Cache middleware always sets this as []byte, safe to assert
+		requestBody = body.([]byte)
 	}
 	
 	// Read body if not already available
