@@ -190,10 +190,7 @@ func storeInCache(ctx context.Context, key string, data string) {
 		return
 	}
 
-	// Create context with timeout for storage
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
+	// Use the context provided by caller (already has 5s timeout from async goroutine)
 	if err := redisClient.Set(ctx, key, jsonData, ttl).Err(); err != nil {
 		log.Printf("Failed to store in cache: %v", err)
 	}

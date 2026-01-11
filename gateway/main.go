@@ -225,8 +225,16 @@ func handleSummarize(c *gin.Context) {
 
 	// Check if body already read by middleware
 	if body, exists := c.Get("request_body"); exists {
-		requestBody = body.([]byte)
-	} else {
+		if bodyBytes, ok := body.([]byte); ok {
+			requestBody = bodyBytes
+		} else {
+			// Type assertion failed - this shouldn't happen but handle gracefully
+			log.Printf("Warning: request_body in context is not []byte, reading from request")
+		}
+	}
+	
+	// Read body if not already available
+	if requestBody == nil {
 		// Read body with limit (only if middleware didn't process it)
 		const maxBodySize = 10 * 1024 * 1024
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodySize))
