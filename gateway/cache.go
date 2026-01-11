@@ -111,8 +111,8 @@ func CacheMiddleware() gin.HandlerFunc {
 			log.Printf("Cache HIT: %s", cacheKey)
 
 			// Cache HIT! -> Verify Payment *BEFORE* serving
-			// Use fresh context to avoid issues if request context is already cancelled
-			verifyCtx, verifyCancel := context.WithTimeout(context.Background(), getVerifierTimeout())
+			// Use request context as parent to respect overall timeout, with verifier-specific deadline
+			verifyCtx, verifyCancel := context.WithTimeout(c.Request.Context(), getVerifierTimeout())
 			defer verifyCancel()
 			
 			verifyResp, paymentCtx, err := verifyPayment(verifyCtx, signature, nonce)
@@ -187,9 +187,11 @@ func CacheMiddleware() gin.HandlerFunc {
 }
 
 func getCacheKey(text string, model string) string {
-	// Cache key includes both text and model to prevent collisions.
-	// Note: If API is extended with additional parameters (temperature, max_tokens, etc.),
-	// this cache key will need to include those parameters to avoid incorrect cache hits.
+	// IMPORTANT: This cache key ONLY includes text and model.
+	// If callOpenRouter() is modified to accept additional parameters
+	// (temperature, max_tokens, top_p, etc.), those MUST be added to
+	// this cache key to prevent incorrect cache hits.
+	// TODO: Consider accepting a struct with all OpenRouter parameters
 	combined := text + ":" + model
 	hash := sha256.Sum256([]byte(combined))
 	return "ai:summary:" + hex.EncodeToString(hash[:])

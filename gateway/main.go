@@ -186,6 +186,11 @@ func main() {
 		// Perform final cleanup on shutdown to prevent receipt leak
 		cleanupExpiredReceipts()
 		log.Println("Final receipt cleanup completed on shutdown")
+		// Close Redis connection if active
+		if redisClient != nil {
+			redisClient.Close()
+			log.Println("Redis connection closed")
+		}
 	}()
 	go startReceiptCleanup(cleanupCtx)
 	log.Println("Receipt cleanup goroutine started")

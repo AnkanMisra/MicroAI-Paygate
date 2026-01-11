@@ -48,7 +48,11 @@ func initRedis() {
 	defer cancel()
 
 	if err := redisClient.Ping(ctx).Err(); err != nil {
-		log.Fatalf("Redis connection required when CACHE_ENABLED=true, but connection failed: %v", err)
+		log.Printf("WARNING: Redis connection failed when CACHE_ENABLED=true: %v", err)
+		log.Println("Continuing with caching disabled. Set CACHE_ENABLED=false to suppress this warning.")
+		redisClient.Close()
+		redisClient = nil
+		return
 	}
 	log.Println("Redis connected successfully")
 }
