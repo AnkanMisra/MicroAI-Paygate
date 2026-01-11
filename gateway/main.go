@@ -6,9 +6,13 @@ package main
 import (
 	"bytes"
 	"context"
+<<<<<<< HEAD
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/base64"
+=======
+	"crypto/sha256"
+>>>>>>> 0ea95ad (sync main.go with latest commit and format code with change in checkopenrouterhealth function)
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,12 +20,20 @@ import (
 	"log"
 	"net/http"
 	"os"
+<<<<<<< HEAD
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
+=======
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
+
+>>>>>>> 0ea95ad (sync main.go with latest commit and format code with change in checkopenrouterhealth function)
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -141,7 +153,11 @@ func main() {
 		AllowOrigins:     []string{"http://localhost:3001"},
 		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "X-402-Signature", "X-402-Nonce"},
+<<<<<<< HEAD
 		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After", "X-402-Receipt"},
+=======
+		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After"},
+>>>>>>> 0ea95ad (sync main.go with latest commit and format code with change in checkopenrouterhealth function)
 		AllowCredentials: true,
 	}))
 
@@ -162,7 +178,8 @@ func main() {
 	r.GET("/healthz", handleHealthz)
 
 	// Readiness check for dependencies
-	r.GET("/readyz",handleReadyz)
+
+	r.GET("/readyz", handleReadyz)
 
 	// AI endpoints with AI-specific timeout (30s)
 	aiGroup := r.Group("/api/ai")
@@ -843,6 +860,13 @@ func getServerPrivateKey() (*ecdsa.PrivateKey, error) {
 
 	return serverPrivateKey, serverPrivateKeyErr
 }
+
+// handleHealthz provides a basic liveness check
+func handleHealthz(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "gateway", "timestamp": time.Now().Unix()})
+}
+
+// handleReadyz provides a readiness check
 func handleReadyz(c *gin.Context) {
 	checks := make(map[string]interface{})
 
@@ -857,28 +881,33 @@ func handleReadyz(c *gin.Context) {
 	//3. Self-health metrics
 	checks["gateway"] = gin.H{
 		"goroutines": runtime.NumGoroutine(),
-		"status":	 "ok",
+		"status":     "ok",
 	}
 	//Overall status logic
-	ready:= verifierStatus=="ok"
+	ready := verifierStatus == "ok" && openRouterStatus == "ok"
 
-	statusCode:=http.StatusOK
-	if !ready{
-		statusCode=http.StatusServiceUnavailable
+	statusCode := http.StatusOK
+	if !ready {
+		statusCode = http.StatusServiceUnavailable
 	}
-	c.JSON(statusCode, gin.H{"ready": ready, "timestamp": time.Now().Unix(), "checks": checks,})
-}	
+	c.JSON(statusCode, gin.H{"ready": ready, "timestamp": time.Now().Unix(), "checks": checks})
+}
+
 // checkOpenRouterHealth pings OpenRouter models list to verify API key/connectivity
 func checkOpenRouterHealth() string {
-	// url := os.Getenv("VERIFIER_URL")
-	// if url == "" {
-	// 	url = "http://127.0.0.1.3002"
-	// }
+	apiKey := os.Getenv("OPENROUTER_API_KEY")
+	if apiKey == "" {
+		return "unconfigured"
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	req, _ := http.NewRequestWithContext(ctx, "GET", "https://openrouter.ai/api/v1/models", nil)
-	resp, err := http.DefaultClient.Do(req)	
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://openrouter.ai/api/v1/models", nil)
+	if err != nil {
+		return "unreachable"
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	resp, err := http.DefaultClient.Do(req)
 
 	if err != nil {
 		return "unreachable"
@@ -890,3 +919,4 @@ func checkOpenRouterHealth() string {
 	}
 	return "ok"
 }
+
