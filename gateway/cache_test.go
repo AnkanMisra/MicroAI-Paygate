@@ -42,13 +42,13 @@ func TestCacheKey(t *testing.T) {
 	}
 }
 
-func TestCacheKeyCollisionWait(t *testing.T) {
-	// Not a real collision test, but ensuring different content = different key
+func TestCacheKeyUniqueForDifferentInputs(t *testing.T) {
+	// Verify that different inputs produce different cache keys
 	model := "z-ai/glm-4.5-air:free"
 	k1 := getCacheKey("abc", model)
 	k2 := getCacheKey("abd", model)
 	if k1 == k2 {
-		t.Error("Collision detected for different content")
+		t.Error("Different inputs produced same cache key")
 	}
 }
 

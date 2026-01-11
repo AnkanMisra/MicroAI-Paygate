@@ -345,6 +345,8 @@ func verifyPayment(ctx context.Context, signature, nonce string) (*VerifyRespons
 }
 
 // generateAndSendReceipt handles receipt generation, storage, and sending the final JSON response.
+// The receipt is sent ONLY in the X-402-Receipt header, not in the response body,
+// to ensure the ResponseHash in the receipt matches the actual JSON body clients receive.
 func generateAndSendReceipt(c *gin.Context, paymentCtx PaymentContext, recoveredAddr string, requestBody []byte, aiResult string) error {
 	// Construct the response body that will be sent to client (without receipt)
 	responseMap := map[string]interface{}{
@@ -375,9 +377,8 @@ func generateAndSendReceipt(c *gin.Context, paymentCtx PaymentContext, recovered
 	}
 	receiptBase64 := base64.StdEncoding.EncodeToString(receiptJSON)
 
+	// Send receipt in header only (not in body) so ResponseHash matches body
 	c.Header("X-402-Receipt", receiptBase64)
-	// Add receipt to response map and send
-	responseMap["receipt"] = receipt
 	c.JSON(200, responseMap)
 	return nil
 }
