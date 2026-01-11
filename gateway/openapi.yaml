@@ -107,16 +107,72 @@ paths:
                         example: 8453
 
         "403":
-          description: Invalid signature
+          description: Invalid signature or verification error
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   error:
-                    type: string
-                  details:
-                    type: string
+                    type: object
+                    description: Structured error response with code
+                    properties:
+                      code:
+                        type: string
+                        description: Error code for debugging
+                        enum:
+                          - "E001"
+                          - "E002"
+                          - "E003"
+                          - "E004"
+                          - "E005"
+                          - "E006"
+                        example: "E001"
+                      message:
+                        type: string
+                        description: Human-readable error message
+                        example: "Missing signature"
+                      details:
+                        type: string
+                        description: Additional error details
+                        example: "No X-402-Signature header provided"
+              examples:
+                missing_signature:
+                  value:
+                    error:
+                      code: "E001"
+                      message: "Missing signature"
+                      details: "No X-402-Signature header provided"
+                malformed_signature:
+                  value:
+                    error:
+                      code: "E002"
+                      message: "Malformed signature"
+                      details: "Invalid hex format or wrong length"
+                recovery_failed:
+                  value:
+                    error:
+                      code: "E003"
+                      message: "Recovery failed"
+                      details: "ECDSA recovery operation failed"
+                address_mismatch:
+                  value:
+                    error:
+                      code: "E004"
+                      message: "Address mismatch"
+                      details: "Recovered address doesn't match expected address"
+                invalid_message:
+                  value:
+                    error:
+                      code: "E005"
+                      message: "Invalid message"
+                      details: "Message format or typed data construction failed"
+                nonce_reused:
+                  value:
+                    error:
+                      code: "E006"
+                      message: "Nonce reused"
+                      details: "Duplicate nonce detected (replay attack prevention)"
 
         "500":
           description: Server error
