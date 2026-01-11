@@ -89,7 +89,7 @@ func CacheMiddleware() gin.HandlerFunc {
 				if errors.Is(err, context.DeadlineExceeded) {
 					c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "Verifier request timed out"})
 				} else {
-					c.JSON(500, gin.H{"error": "Verification Service Failed", "details": err.Error()})
+					c.JSON(500, gin.H{"error": "Verification Service Failed", "message": "An internal error occurred"})
 				}
 				c.Abort()
 				return
@@ -109,7 +109,7 @@ func CacheMiddleware() gin.HandlerFunc {
 			// We treat the cached result as the AI result
 			if err := generateAndSendReceipt(c, *paymentCtx, verifyResp.RecoveredAddress, requestBody, cached.Result); err != nil {
 				log.Printf("Failed to send cached response receipt: %v", err)
-				// verifyAndSendReceipt handles error response
+				// generateAndSendReceipt already sent an error response (500)
 			}
 			c.Abort()
 			return
@@ -123,7 +123,6 @@ func CacheMiddleware() gin.HandlerFunc {
 			ResponseWriter: c.Writer,
 			body:           &bytes.Buffer{},
 			cacheKey:       cacheKey,
-			ctx:            c.Request.Context(), // Use request context (has timeouts)
 		}
 		c.Writer = writer
 
@@ -138,11 +137,11 @@ func CacheMiddleware() gin.HandlerFunc {
 			var resp map[string]interface{}
 			if err := json.Unmarshal(writer.body.Bytes(), &resp); err == nil {
 				if result, ok := resp["result"].(string); ok {
-					// Store asynchronously to not block response
-					// But use a detached context or background with timeout because
-					// request context might be canceled.
+					// Store asynchronously with a deadline to prevent indefinite goroutines
 					go func(k, v string) {
-						storeInCache(context.Background(), k, []byte(v))
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						storeInCache(ctx, k, v)
 					}(cacheKey, result)
 				}
 			}
@@ -173,7 +172,7 @@ func getFromCache(ctx context.Context, key string) (*CachedResponse, error) {
 	return &cached, nil
 }
 
-func storeInCache(ctx context.Context, key string, data []byte) {
+func storeInCache(ctx context.Context, key string, data string) {
 	if redisClient == nil {
 		return
 	}
@@ -181,7 +180,7 @@ func storeInCache(ctx context.Context, key string, data []byte) {
 	ttl := time.Duration(getEnvAsInt("CACHE_TTL_SECONDS", 3600)) * time.Second
 
 	cached := CachedResponse{
-		Result:   string(data),
+		Result:   data,
 		CachedAt: time.Now().Unix(),
 	}
 
@@ -204,7 +203,6 @@ type cachedWriter struct {
 	gin.ResponseWriter
 	body     *bytes.Buffer
 	cacheKey string
-	ctx      context.Context
 }
 
 func (w *cachedWriter) Write(data []byte) (int, error) {

@@ -8,8 +8,11 @@ services:
     environment:
       - PORT=3000
       - VERIFIER_URL=http://verifier:3002
+      - REDIS_URL=redis:6379
+      - CACHE_ENABLED=true
     depends_on:
       - verifier
+      - redis
     networks:
       - microai-net
 
@@ -26,6 +29,13 @@ services:
       - "6379:6379"
     networks:
       - microai-net
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   web:
     build: ./web
@@ -41,3 +51,6 @@ services:
 networks:
   microai-net:
     driver: bridge
+
+volumes:
+  redis-data:

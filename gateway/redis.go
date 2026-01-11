@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -40,7 +41,8 @@ func initRedis() {
 }
 
 func getCacheEnabled() bool {
-	return os.Getenv("CACHE_ENABLED") == "true"
+	enabled := strings.ToLower(os.Getenv("CACHE_ENABLED"))
+	return enabled == "true" || enabled == "1"
 }
 
 func getEnv(key, fallback string) string {

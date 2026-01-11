@@ -206,77 +206,57 @@ func main() {
 // 500) to the client.
 func handleSummarize(c *gin.Context) {
 	// 1. Payment Verification
-	// Check if already verified by middleware
-	var verifyResp *VerifyResponse
-	var paymentCtx *PaymentContext
-
-	if v, exists := c.Get("payment_verification"); exists {
-		verifyResp = v.(*VerifyResponse)
-	}
-	if p, exists := c.Get("payment_context"); exists {
-		paymentCtx = p.(*PaymentContext)
-	}
-
-	// If not verified (Cache MISS or Cache Disabled), verify now
+	// Note: CacheMiddleware aborts on cache HIT, so this handler only runs on cache MISS or when caching is disabled
 	var requestBody []byte
 	var err error
 
-	if verifyResp == nil {
-		signature := c.GetHeader("X-402-Signature")
-		nonce := c.GetHeader("X-402-Nonce")
+	signature := c.GetHeader("X-402-Signature")
+	nonce := c.GetHeader("X-402-Nonce")
 
-		// Basic check
-		if signature == "" || nonce == "" {
-			c.JSON(402, gin.H{
-				"error":          "Payment Required",
-				"message":        "Please sign the payment context",
-				"paymentContext": createPaymentContext(),
-			})
-			return
-		}
+	// Basic check
+	if signature == "" || nonce == "" {
+		c.JSON(402, gin.H{
+			"error":          "Payment Required",
+			"message":        "Please sign the payment context",
+			"paymentContext": createPaymentContext(),
+		})
+		return
+	}
 
-		// Check if body already read by middleware
-		if body, exists := c.Get("request_body"); exists {
-			requestBody = body.([]byte)
-		} else {
-			// Read body with limit (only if middleware didn't process it)
-			const maxBodySize = 10 * 1024 * 1024
-			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodySize))
-			requestBody, err = io.ReadAll(c.Request.Body)
-			if err != nil {
-				var maxBytesErr *http.MaxBytesError
-				if errors.As(err, &maxBytesErr) {
-					c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
-				} else {
-					c.JSON(500, gin.H{"error": "Failed to read request body"})
-				}
-				return
-			}
-		}
-
-		// Verify
-		verifyResp, paymentCtx, err = verifyPayment(c.Request.Context(), signature, nonce)
-		if err != nil {
-			log.Printf("Verification error: %v", err)
-			if errors.Is(err, context.DeadlineExceeded) {
-				c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "Verifier request timed out"})
-			} else {
-				c.JSON(500, gin.H{"error": "Verification Service Failed", "details": err.Error()})
-			}
-			return
-		}
-
-		if !verifyResp.IsValid {
-			c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
-			return
-		}
+	// Check if body already read by middleware
+	if body, exists := c.Get("request_body"); exists {
+		requestBody = body.([]byte)
 	} else {
-		// If verified by middleware, get the original body
+		// Read body with limit (only if middleware didn't process it)
+		const maxBodySize = 10 * 1024 * 1024
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodySize))
 		requestBody, err = io.ReadAll(c.Request.Body)
 		if err != nil {
-			c.JSON(500, gin.H{"error": "Failed to read request body"})
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
+			} else {
+				c.JSON(500, gin.H{"error": "Failed to read request body"})
+			}
 			return
 		}
+	}
+
+	// Verify
+	verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce)
+	if err != nil {
+		log.Printf("Verification error: %v", err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "Verifier request timed out"})
+		} else {
+			c.JSON(500, gin.H{"error": "Verification Service Failed", "details": err.Error()})
+		}
+		return
+	}
+
+	if !verifyResp.IsValid {
+		c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
+		return
 	}
 
 	// 2. Parse Request
