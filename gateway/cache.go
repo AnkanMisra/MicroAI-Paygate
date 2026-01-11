@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -57,13 +58,14 @@ func CacheMiddleware() gin.HandlerFunc {
 					c.Abort()
 					return
 				}
-				// Other read errors
+				// Other read errors - restore empty body and continue
+				c.Request.Body = io.NopCloser(bytes.NewBuffer(nil))
 				c.Next()
 				return
 			}
 			// Store body in context for handler reuse
 			c.Set("request_body", requestBody)
-			// Restore body
+			// Restore body for any code path (cache hit abort or handler)
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 		}
 
@@ -71,6 +73,7 @@ func CacheMiddleware() gin.HandlerFunc {
 		var req SummarizeRequest
 		if err := json.Unmarshal(requestBody, &req); err != nil {
 			// Invalid body, let handler handle
+			log.Printf("[DEBUG] Cache bypass due to invalid JSON: %v", err)
 			c.Next()
 			return
 		}
@@ -132,10 +135,12 @@ func CacheMiddleware() gin.HandlerFunc {
 		// NOTE: writer.Status() might differ if handler hasn't written header yet?
 		// But handler should have written 200 via JSON.
 		if writer.Status() == 200 {
-			// Extract "result" from response body
+			// Extract "result" from response body with proper locking
+			bodyBytes := writer.getBodyBytes()
+			
 			// Response format: {"result": "...", "receipt": ...}
 			var resp map[string]interface{}
-			if err := json.Unmarshal(writer.body.Bytes(), &resp); err == nil {
+			if err := json.Unmarshal(bodyBytes, &resp); err == nil {
 				if result, ok := resp["result"].(string); ok {
 					// Store asynchronously with a deadline to prevent indefinite goroutines
 					go func(k, v string) {
@@ -186,13 +191,13 @@ func storeInCache(ctx context.Context, key string, data string) {
 
 	jsonData, err := json.Marshal(cached)
 	if err != nil {
-		log.Printf("Failed to marshal cache data: %v", err)
+		log.Printf("[WARNING] Failed to marshal cache data for key %s...: %v", key[:16], err)
 		return
 	}
 
 	// Use the context provided by caller (already has 5s timeout from async goroutine)
 	if err := redisClient.Set(ctx, key, jsonData, ttl).Err(); err != nil {
-		log.Printf("Failed to store in cache: %v", err)
+		log.Printf("[WARNING] Failed to store in cache for key %s...: %v", key[:16], err)
 	}
 }
 
@@ -200,14 +205,25 @@ type cachedWriter struct {
 	gin.ResponseWriter
 	body     *bytes.Buffer
 	cacheKey string
+	mu       sync.RWMutex
 }
 
 func (w *cachedWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.body.Write(data)
 	return w.ResponseWriter.Write(data)
 }
 
 func (w *cachedWriter) WriteString(s string) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.body.WriteString(s)
 	return w.ResponseWriter.WriteString(s)
+}
+
+func (w *cachedWriter) getBodyBytes() []byte {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.body.Bytes()
 }
