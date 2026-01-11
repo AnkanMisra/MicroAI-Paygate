@@ -31,7 +31,10 @@ func initRedis() {
 		var err error
 		opts, err = redis.ParseURL(redisURL)
 		if err != nil {
-			log.Fatalf("Invalid REDIS_URL format: %v", err)
+			log.Printf("WARNING: Invalid REDIS_URL format: %v", err)
+			log.Println("Continuing with caching disabled. Set CACHE_ENABLED=false to suppress this warning.")
+			redisClient = nil
+			return
 		}
 	} else {
 		// Treat as host:port and build options manually

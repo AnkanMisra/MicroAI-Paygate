@@ -112,11 +112,8 @@ func CacheMiddleware() gin.HandlerFunc {
 			log.Printf("Cache HIT: %s", cacheKey)
 
 			// Cache HIT! -> Verify Payment *BEFORE* serving
-			// Use request context as parent to respect overall timeout, with verifier-specific deadline
-			verifyCtx, verifyCancel := context.WithTimeout(c.Request.Context(), getVerifierTimeout())
-			defer verifyCancel()
-			
-			verifyResp, paymentCtx, err := verifyPayment(verifyCtx, signature, nonce)
+		// verifyPayment creates its own timeout context, so pass request context directly
+		verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce)
 			if err != nil {
 				log.Printf("Verification error on cache hit: %v", err)
 				if errors.Is(err, context.DeadlineExceeded) {
@@ -271,8 +268,3 @@ func (w *cachedWriter) WriteString(s string) (int, error) {
 	return w.ResponseWriter.WriteString(s)
 }
 
-func (w *cachedWriter) getBodyBytes() []byte {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	return w.body.Bytes()
-}
