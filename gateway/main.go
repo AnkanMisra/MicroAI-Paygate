@@ -235,21 +235,24 @@ func handleSummarize(c *gin.Context) {
 			return
 		}
 
-		// Read body with limit to prevent DoS (only now that we know they might pay)
-		const maxBodySize = 10 * 1024 * 1024
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodySize))
-		requestBody, err = io.ReadAll(c.Request.Body)
-		if err != nil {
-			var maxBytesErr *http.MaxBytesError
-			if errors.As(err, &maxBytesErr) {
-				c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
-			} else {
-				c.JSON(500, gin.H{"error": "Failed to read request body"})
+		// Check if body already read by middleware
+		if body, exists := c.Get("request_body"); exists {
+			requestBody = body.([]byte)
+		} else {
+			// Read body with limit (only if middleware didn't process it)
+			const maxBodySize = 10 * 1024 * 1024
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodySize))
+			requestBody, err = io.ReadAll(c.Request.Body)
+			if err != nil {
+				var maxBytesErr *http.MaxBytesError
+				if errors.As(err, &maxBytesErr) {
+					c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
+				} else {
+					c.JSON(500, gin.H{"error": "Failed to read request body"})
+				}
+				return
 			}
-			return
 		}
-		// Restore body
-		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 
 		// Verify
 		verifyResp, paymentCtx, err = verifyPayment(c.Request.Context(), signature, nonce)

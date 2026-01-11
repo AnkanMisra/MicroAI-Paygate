@@ -61,6 +61,8 @@ func CacheMiddleware() gin.HandlerFunc {
 				c.Next()
 				return
 			}
+			// Store body in context for handler reuse
+			c.Set("request_body", requestBody)
 			// Restore body
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 		}
