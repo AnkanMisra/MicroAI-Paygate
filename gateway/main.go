@@ -113,6 +113,9 @@ func main() {
 
 	r := gin.Default()
 
+	// Initialize Redis early to fail-fast if Redis required but unavailable
+	initRedis()
+
 	r.StaticFile("/openapi.yaml", "openapi.yaml")
 
 	r.GET("/docs", func(c *gin.Context) {
@@ -186,9 +189,6 @@ func main() {
 	}()
 	go startReceiptCleanup(cleanupCtx)
 	log.Println("Receipt cleanup goroutine started")
-
-	// Initialize Redis
-	initRedis()
 
 	port := os.Getenv("PORT")
 	if port == "" {

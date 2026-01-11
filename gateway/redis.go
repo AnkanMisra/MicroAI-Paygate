@@ -32,15 +32,9 @@ func initRedis() {
 	defer cancel()
 
 	if err := redisClient.Ping(ctx).Err(); err != nil {
-		if getCacheEnabled() {
-			log.Fatalf("Redis connection required when CACHE_ENABLED=true, but connection failed: %v", err)
-		}
-		log.Printf("Redis unavailable: %v (caching disabled)", err)
-		redisClient.Close()
-		redisClient = nil
-	} else {
-		log.Println("Redis connected successfully")
+		log.Fatalf("Redis connection required when CACHE_ENABLED=true, but connection failed: %v", err)
 	}
+	log.Println("Redis connected successfully")
 }
 
 func getCacheEnabled() bool {

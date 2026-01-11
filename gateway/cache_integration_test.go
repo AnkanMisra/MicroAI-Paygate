@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -51,9 +52,9 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 
 	// Mock OpenRouter (AI)
 	// Use small delay to simulate processing so we can verify cache speedup
-	aiCalls := 0
+	var aiCalls atomic.Int32
 	ai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		aiCalls++
+		aiCalls.Add(1)
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(200)
 		w.Write([]byte(`{"choices":[{"message":{"content":"AI Summary Result"}}]}`))
@@ -85,7 +86,8 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 
 	// 5. Test execution
 	textToSummarize := "This is a unique text for cache integration test " + time.Now().String()
-	cacheKey := getCacheKey(textToSummarize)
+	model := "z-ai/glm-4.5-air:free" // Default model
+	cacheKey := getCacheKey(textToSummarize, model)
 
 	// Helper to make request
 	makeRequest := func(sig string) *httptest.ResponseRecorder {
@@ -120,8 +122,8 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 	if w1.Code != 200 {
 		t.Fatalf("Request 1 failed: %d body=%s", w1.Code, w1.Body.String())
 	}
-	if aiCalls != 1 {
-		t.Errorf("Expected 1 AI call, got %d", aiCalls)
+	if aiCalls.Load() != 1 {
+		t.Errorf("Expected 1 AI call, got %d", aiCalls.Load())
 	}
 	if duration1 < 100*time.Millisecond {
 		t.Errorf("Request 1 was too fast (%v), expected >100ms delay", duration1)
@@ -149,8 +151,8 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 	if w2.Code != 200 {
 		t.Fatalf("Request 2 failed: %d body=%s", w2.Code, w2.Body.String())
 	}
-	if aiCalls != 1 {
-		t.Errorf("Expected AI calls to stay at 1, got %d (Cache Miss?)", aiCalls)
+	if aiCalls.Load() != 1 {
+		t.Errorf("Expected AI calls to stay at 1, got %d (Cache Miss?)", aiCalls.Load())
 	}
 	// Duration Check (should be significantly faster)
 	if duration2 > 50*time.Millisecond {

@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -54,6 +55,7 @@ func CacheMiddleware() gin.HandlerFunc {
 				// If body too large, MaxBytesReader returns error
 				var maxBytesErr *http.MaxBytesError
 				if errors.As(err, &maxBytesErr) {
+					c.Header("Connection", "close")
 					c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
 					c.Abort()
 					return
@@ -78,8 +80,12 @@ func CacheMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Generate Cache Key
-		cacheKey := getCacheKey(req.Text)
+		// Generate Cache Key (include model to prevent cache collisions)
+		model := os.Getenv("OPENROUTER_MODEL")
+		if model == "" {
+			model = "z-ai/glm-4.5-air:free"
+		}
+		cacheKey := getCacheKey(req.Text, model)
 
 		// Check Cache
 		if cached, err := getFromCache(c.Request.Context(), cacheKey); err == nil {
@@ -154,8 +160,9 @@ func CacheMiddleware() gin.HandlerFunc {
 	}
 }
 
-func getCacheKey(text string) string {
-	hash := sha256.Sum256([]byte(text))
+func getCacheKey(text string, model string) string {
+	combined := text + ":" + model
+	hash := sha256.Sum256([]byte(combined))
 	return "ai:summary:" + hex.EncodeToString(hash[:])
 }
 
