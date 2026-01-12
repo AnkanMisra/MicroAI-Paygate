@@ -47,6 +47,7 @@ describe("MicroAI Paygate E2E Flow", () => {
         { name: "token", type: "string" },
         { name: "amount", type: "string" },
         { name: "nonce", type: "string" },
+        { name: "timestamp", type: "uint256" },
       ],
     };
 
@@ -55,6 +56,7 @@ describe("MicroAI Paygate E2E Flow", () => {
       token: paymentContext.token,
       amount: paymentContext.amount,
       nonce: paymentContext.nonce,
+      timestamp: paymentContext.timestamp,
     };
 
     const signature = await wallet.signTypedData(domain, types, value);

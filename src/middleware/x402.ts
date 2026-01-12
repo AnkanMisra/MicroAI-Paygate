@@ -39,7 +39,8 @@ export const x402Middleware = async (req: Request, res: Response, next: NextFunc
     token: CONFIG.PAYMENT.TOKEN_SYMBOL,
     amount: CONFIG.PAYMENT.DEFAULT_PRICE, // Assuming fixed price for now
     chainId: CONFIG.CHAIN_ID,
-    nonce: nonce
+    nonce: nonce,
+    timestamp: Math.floor(Date.now() / 1000),
   };
 
   const verification = await PaymentService.verifyPayment(context, signature);

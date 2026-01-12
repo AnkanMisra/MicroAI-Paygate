@@ -11,6 +11,7 @@ export interface PaymentContext {
   amount: string;
   chainId: number;
   nonce: string;
+  timestamp: number;
 }
 
 // EIP-712 Domain Separator
@@ -28,6 +29,7 @@ const TYPES = {
     { name: "token", type: "string" },
     { name: "amount", type: "string" },
     { name: "nonce", type: "string" },
+    { name: "timestamp", type: "uint256" },
   ],
 };
 
@@ -45,6 +47,7 @@ export class PaymentService {
       amount: price,
       chainId: CONFIG.CHAIN_ID,
       nonce,
+      timestamp: Math.floor(Date.now() / 1000),
     };
   }
 
@@ -68,6 +71,7 @@ export class PaymentService {
         token: context.token,
         amount: context.amount,
         nonce: context.nonce,
+        timestamp: context.timestamp,
       };
 
       const signerAddress = ethers.verifyTypedData(DOMAIN, TYPES, value, signature);

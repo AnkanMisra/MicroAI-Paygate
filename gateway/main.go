@@ -34,6 +34,7 @@ type PaymentContext struct {
 	Amount    string `json:"amount"`
 	Nonce     string `json:"nonce"`
 	ChainID   int    `json:"chainId"`
+	Timestamp uint64 `json:"timestamp"`
 }
 
 type VerifyRequest struct {
@@ -238,6 +239,7 @@ func handleSummarize(c *gin.Context) {
 		Amount:    getPaymentAmount(),
 		Nonce:     nonce,
 		ChainID:   getChainID(),
+		Timestamp: uint64(time.Now().Unix()),
 	}
 
 	verifyReq := VerifyRequest{
@@ -354,6 +356,7 @@ func createPaymentContext() PaymentContext {
 		Amount:    getPaymentAmount(),
 		Nonce:     uuid.New().String(),
 		ChainID:   getChainID(),
+		Timestamp: uint64(time.Now().Unix()),
 	}
 }
 

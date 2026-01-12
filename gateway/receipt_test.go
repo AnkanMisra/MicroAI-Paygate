@@ -321,6 +321,7 @@ func TestReceiptFullFlowIntegration(t *testing.T) {
 		Amount:    "0.001",
 		Nonce:     "integration-test-nonce",
 		ChainID:   8453,
+		Timestamp: uint64(time.Now().Unix()),
 	}
 
 	payer := "0x742d35Cc6634C0532925a3b844Bc9e7595f8fE21"

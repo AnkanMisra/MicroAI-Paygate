@@ -105,6 +105,10 @@ paths:
                         type: integer
                         description: Blockchain network ID
                         example: 8453
+                      timestamp:
+                        type: integer
+                        description: Unix timestamp in seconds used in EIP-712 payment message
+                        example: 1700000000
 
         "403":
           description: Invalid signature
