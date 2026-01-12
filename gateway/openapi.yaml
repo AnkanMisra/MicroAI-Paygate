@@ -44,6 +44,13 @@ paths:
           schema:
             type: string
 
+        - name: X-402-Timestamp
+          in: header
+          required: false
+          description: Unix timestamp (in seconds) from the original 402 paymentContext, used in the EIP-712 payment message
+          schema:
+            type: string
+
       requestBody:
         required: true
         content:

@@ -14,6 +14,7 @@ declare global {
 export const x402Middleware = async (req: Request, res: Response, next: NextFunction) => {
   const signature = req.headers["x-402-signature"] as string;
   const nonce = req.headers["x-402-nonce"] as string;
+  const timestampHeader = req.headers["x-402-timestamp"] as string | undefined;
 
   // 1. If no signature/nonce, return 402 Payment Required
   if (!signature || !nonce) {
@@ -34,13 +35,30 @@ export const x402Middleware = async (req: Request, res: Response, next: NextFunc
   // NOTE: In a real app, you might want to encode the price/params in the nonce or have the client send the full context back.
   // Here we trust the client to send the nonce we gave them, and we verify against our store.
   
+  if (!timestampHeader) {
+    res.status(403).json({
+      error: "Payment Verification Failed",
+      details: "Missing X-402-Timestamp header",
+    });
+    return;
+  }
+
+  const parsedTimestamp = Number(timestampHeader);
+  if (!Number.isFinite(parsedTimestamp) || parsedTimestamp <= 0) {
+    res.status(400).json({
+      error: "Payment Verification Failed",
+      details: "Invalid X-402-Timestamp header",
+    });
+    return;
+  }
+
   const context: PaymentContext = {
     recipient: CONFIG.PAYMENT.RECIPIENT_ADDRESS,
     token: CONFIG.PAYMENT.TOKEN_SYMBOL,
     amount: CONFIG.PAYMENT.DEFAULT_PRICE, // Assuming fixed price for now
     chainId: CONFIG.CHAIN_ID,
     nonce: nonce,
-    timestamp: Math.floor(Date.now() / 1000),
+    timestamp: parsedTimestamp,
   };
 
   const verification = await PaymentService.verifyPayment(context, signature);

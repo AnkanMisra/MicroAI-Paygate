@@ -68,6 +68,7 @@ describe("MicroAI Paygate E2E Flow", () => {
         "Content-Type": "application/json",
         "X-402-Signature": signature,
         "X-402-Nonce": paymentContext.nonce,
+        "X-402-Timestamp": paymentContext.timestamp.toString(),
       },
       body: JSON.stringify({ text: "This is a test text to summarize." }),
     });

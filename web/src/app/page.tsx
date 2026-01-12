@@ -118,7 +118,8 @@ export default function Home() {
           headers: {
             "Content-Type": "application/json",
             "X-402-Signature": signature,
-            "X-402-Nonce": paymentContext.nonce,
+              "X-402-Nonce": paymentContext.nonce,
+              "X-402-Timestamp": paymentContext.timestamp.toString(),
           },
           body: JSON.stringify({ text: input }),
         });

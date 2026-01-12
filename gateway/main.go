@@ -200,6 +200,7 @@ func main() {
 func handleSummarize(c *gin.Context) {
 	signature := c.GetHeader("X-402-Signature")
 	nonce := c.GetHeader("X-402-Nonce")
+	timestampHeader := c.GetHeader("X-402-Timestamp")
 
 	// 1. Payment Required
 	if signature == "" || nonce == "" {
@@ -233,13 +234,24 @@ func handleSummarize(c *gin.Context) {
 	c.Request.Body = http.NoBody
 
 	// 2. Verify Payment (Call Rust Service)
+	if timestampHeader == "" {
+		c.JSON(403, gin.H{"error": "Invalid Signature", "details": "Missing X-402-Timestamp header"})
+		return
+	}
+
+	timestampValue, err := strconv.ParseInt(timestampHeader, 10, 64)
+	if err != nil || timestampValue <= 0 {
+		c.JSON(400, gin.H{"error": "Invalid timestamp", "details": "Invalid X-402-Timestamp header"})
+		return
+	}
+
 	paymentCtx := PaymentContext{
 		Recipient: getRecipientAddress(),
 		Token:     "USDC",
 		Amount:    getPaymentAmount(),
 		Nonce:     nonce,
 		ChainID:   getChainID(),
-		Timestamp: uint64(time.Now().Unix()),
+		Timestamp: uint64(timestampValue),
 	}
 
 	verifyReq := VerifyRequest{
