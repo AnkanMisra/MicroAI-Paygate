@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -113,6 +114,9 @@ func main() {
 
 	r := gin.Default()
 
+	// Initialize Redis early to fail-fast if Redis required but unavailable
+	initRedis()
+
 	r.StaticFile("/openapi.yaml", "openapi.yaml")
 
 	r.GET("/docs", func(c *gin.Context) {
@@ -165,7 +169,11 @@ func main() {
 	// AI endpoints with AI-specific timeout (30s)
 	aiGroup := r.Group("/api/ai")
 	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
-	aiGroup.POST("/summarize", handleSummarize)
+	if getCacheEnabled() {
+		aiGroup.POST("/summarize", CacheMiddleware(), handleSummarize)
+	} else {
+		aiGroup.POST("/summarize", handleSummarize)
+	}
 
 	// Receipt lookup endpoint
 	// Note: Rate limiting applies only if enabled globally via RATE_LIMIT_ENABLED=true
@@ -179,6 +187,11 @@ func main() {
 		// Perform final cleanup on shutdown to prevent receipt leak
 		cleanupExpiredReceipts()
 		log.Println("Final receipt cleanup completed on shutdown")
+		// Close Redis connection if active
+		if redisClient != nil {
+			redisClient.Close()
+			log.Println("Redis connection closed")
+		}
 	}()
 	go startReceiptCleanup(cleanupCtx)
 	log.Println("Receipt cleanup goroutine started")
@@ -198,42 +211,25 @@ func main() {
 // applied by middleware and returns appropriate HTTP errors (402, 403, 504,
 // 500) to the client.
 func handleSummarize(c *gin.Context) {
+	// 1. Payment Verification
+	// Note: CacheMiddleware aborts on cache HIT, so this handler only runs on cache MISS or when caching is disabled
+	var requestBody []byte
+	var err error
+
 	signature := c.GetHeader("X-402-Signature")
 	nonce := c.GetHeader("X-402-Nonce")
 	timestampHeader := c.GetHeader("X-402-Timestamp")
 
-	// 1. Payment Required
+	// Basic check
 	if signature == "" || nonce == "" {
-		paymentContext := createPaymentContext()
 		c.JSON(402, gin.H{
 			"error":          "Payment Required",
 			"message":        "Please sign the payment context",
-			"paymentContext": paymentContext,
+			"paymentContext": createPaymentContext(),
 		})
 		return
 	}
 
-	// Capture request body for receipt generation
-	// Limit request body to 10MB to prevent memory exhaustion attacks
-	maxBodySize := int64(10 * 1024 * 1024)
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBodySize)
-
-	requestBody, err := c.GetRawData()
-	if err != nil {
-		log.Printf("error reading request body: %v", err)
-		// Return 413 if body exceeds size limit, 500 for other errors
-		if err.Error() == "http: request body too large" {
-			c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
-		} else {
-			c.JSON(500, gin.H{"error": "Failed to read request body"})
-		}
-		return
-	}
-	// Set body to NoBody since we've already read it into requestBody
-	// We'll use json.Unmarshal(requestBody, &req) later instead of c.BindJSON
-	c.Request.Body = http.NoBody
-
-	// 2. Verify Payment (Call Rust Service)
 	if timestampHeader == "" {
 		c.JSON(403, gin.H{"error": "Invalid Signature", "details": "Missing X-402-Timestamp header"})
 		return
@@ -245,13 +241,90 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
+	// Check if body already read by middleware
+	if body, exists := c.Get("request_body"); exists {
+		// Cache middleware always sets this as []byte, safe to assert
+		requestBody = body.([]byte)
+	}
+	
+	// Read body if not already available
+	if requestBody == nil {
+		// Read body with limit (only if middleware didn't process it)
+		const maxBodySize = 10 * 1024 * 1024
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodySize))
+		requestBody, err = io.ReadAll(c.Request.Body)
+		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
+			} else {
+				c.JSON(500, gin.H{"error": "Failed to read request body"})
+			}
+			return
+		}
+	}
+
+	// Verify
+	verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, uint64(timestampValue))
+	if err != nil {
+		log.Printf("Verification error: %v", err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "Verifier request timed out"})
+		} else {
+			c.JSON(500, gin.H{"error": "Verification Service Failed", "message": "An internal error occurred"})
+		}
+		return
+	}
+
+	if !verifyResp.IsValid {
+		c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
+		return
+	}
+
+	// 2. Parse Request
+	var req SummarizeRequest
+	if err := json.Unmarshal(requestBody, &req); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	// Validate text is not empty (also validated in cache middleware, but needed here for non-cached requests)
+	if req.Text == "" {
+		c.JSON(400, gin.H{"error": "Invalid request", "message": "text field cannot be empty"})
+		return
+	}
+
+	// 3. Call AI Service
+	summary, err := callOpenRouter(c.Request.Context(), req.Text)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || c.Request.Context().Err() == context.DeadlineExceeded {
+			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "AI request timed out"})
+			return
+		}
+		c.JSON(500, gin.H{"error": "AI Service Failed", "details": err.Error()})
+		return
+	}
+
+	// 4. Generate & Send Receipt
+	if err := generateAndSendReceipt(c, *paymentCtx, verifyResp.RecoveredAddress, requestBody, summary); err != nil {
+		log.Printf("Failed to generate receipt: %v", err)
+		// generateAndSendReceipt sends error response if it fails?
+		// No, it returns error, we might have already written status if we aren't careful.
+		// Let's implement generateAndSendReceipt to handle sending response.
+		return
+	}
+}
+
+// verifyPayment calls the verification service.
+
+func verifyPayment(ctx context.Context, signature, nonce string, timestamp uint64) (*VerifyResponse, *PaymentContext, error) {
 	paymentCtx := PaymentContext{
 		Recipient: getRecipientAddress(),
 		Token:     "USDC",
 		Amount:    getPaymentAmount(),
 		Nonce:     nonce,
 		ChainID:   getChainID(),
-		Timestamp: uint64(timestampValue),
+		Timestamp: timestamp,
 	}
 
 	verifyReq := VerifyRequest{
@@ -261,103 +334,79 @@ func handleSummarize(c *gin.Context) {
 
 	verifyBody, err := json.Marshal(verifyReq)
 	if err != nil {
-		log.Printf("error marshaling verification request: %v", err)
-		c.JSON(500, gin.H{"error": "Failed to create verification request"})
-		return
+		return nil, nil, fmt.Errorf("marshal verification request: %w", err)
 	}
+
 	verifierURL := os.Getenv("VERIFIER_URL")
 	if verifierURL == "" {
 		verifierURL = "http://127.0.0.1:3002"
 	}
-	// Call verifier with its own timeout
-	verifierCtx, verifierCancel := context.WithTimeout(c.Request.Context(), getVerifierTimeout())
+
+	// Use a separate context for verifier timeout to avoid hanging
+	verifierCtx, verifierCancel := context.WithTimeout(ctx, getVerifierTimeout())
 	defer verifierCancel()
 
 	vreq, err := http.NewRequestWithContext(verifierCtx, "POST", verifierURL+"/verify", bytes.NewBuffer(verifyBody))
 	if err != nil {
-		// If the request cannot be created, return 500
-		c.JSON(500, gin.H{"error": "Invalid verifier request", "details": err.Error()})
-		return
+		return nil, nil, fmt.Errorf("create verifier request: %w", err)
 	}
 	vreq.Header.Set("Content-Type", "application/json")
 
-	// Use http.DefaultClient and rely on verifierCtx for timeouts/cancellation.
 	resp, err := http.DefaultClient.Do(vreq)
 	if err != nil {
-		// If the verifier or parent context timed out, return Gateway Timeout
-		if errors.Is(err, context.DeadlineExceeded) || verifierCtx.Err() == context.DeadlineExceeded || c.Request.Context().Err() == context.DeadlineExceeded {
-			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "Verifier request timed out"})
-			return
-		}
-		c.JSON(500, gin.H{"error": "Verification service unavailable"})
-		return
+		return nil, nil, fmt.Errorf("verifier request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != 200 {
+		return nil, nil, fmt.Errorf("verifier returned status %d", resp.StatusCode)
+	}
+
 	var verifyResp VerifyResponse
 	if err := json.NewDecoder(resp.Body).Decode(&verifyResp); err != nil {
-		c.JSON(500, gin.H{"error": "Failed to decode verification response"})
-		return
+		return nil, nil, fmt.Errorf("decode verification response: %w", err)
 	}
 
-	if !verifyResp.IsValid {
-		c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
-		return
-	}
+	return &verifyResp, &paymentCtx, nil
+}
 
-	// 3. Parse request body
-	var req SummarizeRequest
-	if err := json.Unmarshal(requestBody, &req); err != nil {
-		c.JSON(400, gin.H{"error": "Invalid request body"})
-		return
+// generateAndSendReceipt handles receipt generation, storage, and sending the final JSON response.
+// The receipt is sent ONLY in the X-402-Receipt header, not in the response body,
+// to ensure the ResponseHash in the receipt matches the actual JSON body clients receive.
+func generateAndSendReceipt(c *gin.Context, paymentCtx PaymentContext, recoveredAddr string, requestBody []byte, aiResult string) error {
+	// Construct the response body that will be sent to client (without receipt)
+	responseMap := map[string]interface{}{
+		"result": aiResult,
 	}
-
-	// 4. Call AI Service
-	summary, err := callOpenRouter(c.Request.Context(), req.Text)
+	responseBody, err := json.Marshal(responseMap)
 	if err != nil {
-		// If the error was due to a timeout, return 504
-		if errors.Is(err, context.DeadlineExceeded) || c.Request.Context().Err() == context.DeadlineExceeded {
-			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "AI request timed out"})
-			return
-		}
-		c.JSON(500, gin.H{"error": "AI Service Failed", "details": err.Error()})
-		return
+		c.JSON(500, gin.H{"error": "Failed to encode response"})
+		return err
 	}
 
-	// 5. Generate cryptographic receipt
-	// NOTE: Response hashing is performed on the AI response body
-	// Large responses (>1MB) may cause slight delays during hashing
-	// Expected typical response size: <100KB for summaries
-	responseBody := []byte(summary) // Response body for hashing
-	receipt, err := GenerateReceipt(paymentCtx, verifyResp.RecoveredAddress, c.Request.URL.Path, requestBody, responseBody)
+	// Generate receipt with the actual response body hash
+	receipt, err := GenerateReceipt(paymentCtx, recoveredAddr, c.Request.URL.Path, requestBody, responseBody)
 	if err != nil {
-		log.Printf("error generating receipt: %v", err)
 		c.JSON(500, gin.H{"error": "Failed to generate receipt", "details": err.Error()})
-		return
+		return err
 	}
 
-	// 6. Store receipt with TTL
 	if err := storeReceipt(receipt, getReceiptTTL()); err != nil {
-		log.Printf("error storing receipt: %v", err)
 		c.JSON(500, gin.H{"error": "Failed to store receipt"})
-		return
+		return err
 	}
 
-	// 7. Encode receipt for header
 	receiptJSON, err := json.Marshal(receipt)
 	if err != nil {
-		log.Printf("error marshaling receipt: %v", err)
 		c.JSON(500, gin.H{"error": "Failed to encode receipt"})
-		return
+		return err
 	}
 	receiptBase64 := base64.StdEncoding.EncodeToString(receiptJSON)
 
-	// 8. Add receipt to response
+	// Send receipt in header only (not in body) so ResponseHash matches body
 	c.Header("X-402-Receipt", receiptBase64)
-	c.JSON(200, gin.H{
-		"result":  summary,
-		"receipt": receipt,
-	})
+	c.JSON(200, responseMap)
+	return nil
 }
 
 // createPaymentContext constructs a PaymentContext prefilled with the recipient address (from RECIPIENT_ADDRESS or a fallback), the USDC token, amount "0.001", a newly generated UUID nonce, and chain ID 8453.
