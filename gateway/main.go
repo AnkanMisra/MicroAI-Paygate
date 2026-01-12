@@ -231,7 +231,7 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	if timestampHeader == "" {
-		c.JSON(403, gin.H{"error": "Invalid Signature", "details": "Missing X-402-Timestamp header"})
+		c.JSON(400, gin.H{"error": "Invalid timestamp", "details": "Missing X-402-Timestamp header"})
 		return
 	}
 
