@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -104,6 +105,7 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-402-Signature", sig)
 		req.Header.Set("X-402-Nonce", "nonce-123")
+		req.Header.Set("X-402-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
 
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -97,6 +98,7 @@ func TestHandleSummarize_AIRequestTimeoutReturns504(t *testing.T) {
 	req, _ := http.NewRequest("POST", "/api/ai/summarize", reqBody)
 	req.Header.Set("X-402-Signature", "sig")
 	req.Header.Set("X-402-Nonce", "nonce")
+	req.Header.Set("X-402-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
 	req.Header.Set("Content-Type", "application/json")
 
 	w := httptest.NewRecorder()
