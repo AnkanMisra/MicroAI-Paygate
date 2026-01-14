@@ -16,7 +16,7 @@ router.post("/summarize", async (req: Request, res: Response) => {
 router.post("/sentiment", async (req: Request, res: Response) => {
   try {
     const { text } = req.body;
-    const sentiment = await AIService.analyzeSentiment(text);
+    const sentiment = await AIService.analyzeSentiment(text, req.correlationId);
     res.json({ result: sentiment });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
