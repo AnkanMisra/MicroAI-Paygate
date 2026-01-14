@@ -8,7 +8,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/sha256"
-	"encoding/base64"
+	// "encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -166,13 +166,8 @@ func main() {
 	// deadline when nested timeouts are present to avoid surprising behavior.
 	r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
 
-
-	// Health check if server is up
-	r.GET("/healthz", handleHealthz)
-
-	// Readiness check for dependencies
-
-	r.GET("/readyz", handleReadyz)
+	//Receipt retrieval endpoint
+	r.GET("/receipts/:id", handleGetReceipt)
 
 	// AI endpoints with AI-specific timeout (30s)
 	aiGroup := r.Group("/api/ai")
@@ -944,16 +939,42 @@ func handleReadyz(c *gin.Context) {
 	c.JSON(statusCode, gin.H{"ready": ready, "timestamp": time.Now().Unix(), "checks": checks})
 }
 
-// checkOpenRouterHealth pings OpenRouter models list to verify API key/connectivity
+// checkVerifierHealth pings the verifier service to check connectivity
+func checkVerifierHealth() string {
+	verifierURL := os.Getenv("VERIFIER_URL")
+	if verifierURL == "" {
+		verifierURL = "http://127.0.0.1:3002"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", verifierURL+"/health", nil)
+	if err != nil {
+		return "unreachable"
+	}
+	//req.Header.Set("Authorization", "Bearer "+apiKey)
+	resp, err := http.DefaultClient.Do(req)
+
+	if err != nil {
+		return "unreachable"
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "degraded"
+	}
+	return "ok"
+}
+// checkOpenRouterHealth pings the OpenRouter models list to verify API
 func checkOpenRouterHealth() string {
 	apiKey := os.Getenv("OPENROUTER_API_KEY")
 	if apiKey == "" {
 		return "unconfigured"
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", "https://openrouter.ai/api/v1/models", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://openrouter.ai/v1/models", nil)
 	if err != nil {
 		return "unreachable"
 	}
