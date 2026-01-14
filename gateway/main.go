@@ -23,10 +23,6 @@ import (
 	"sync"
 	"time"
 
-<<<<<<< HEAD
-=======
-
->>>>>>> 8545596 (sync main.go with latest commit and format code with change in checkopenrouterhealth function)
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
