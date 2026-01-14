@@ -6,7 +6,7 @@ const router = Router();
 router.post("/summarize", async (req: Request, res: Response) => {
   try {
     const { text } = req.body;
-    const summary = await AIService.summarize(text);
+    const summary = await AIService.summarize(text, req.correlationId);
     res.json({ result: summary });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
