@@ -6,13 +6,9 @@ package main
 import (
 	"bytes"
 	"context"
-<<<<<<< HEAD
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/base64"
-=======
-	"crypto/sha256"
->>>>>>> 0ea95ad (sync main.go with latest commit and format code with change in checkopenrouterhealth function)
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -20,20 +16,13 @@ import (
 	"log"
 	"net/http"
 	"os"
-<<<<<<< HEAD
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
-=======
-	"runtime"
-	"strconv"
-	"strings"
-	"time"
-
->>>>>>> 0ea95ad (sync main.go with latest commit and format code with change in checkopenrouterhealth function)
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -153,11 +142,7 @@ func main() {
 		AllowOrigins:     []string{"http://localhost:3001"},
 		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "X-402-Signature", "X-402-Nonce"},
-<<<<<<< HEAD
 		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After", "X-402-Receipt"},
-=======
-		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After"},
->>>>>>> 0ea95ad (sync main.go with latest commit and format code with change in checkopenrouterhealth function)
 		AllowCredentials: true,
 	}))
 
