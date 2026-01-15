@@ -341,8 +341,9 @@ func verifyPayment(ctx context.Context, signature, nonce string) (*VerifyRespons
 	vreq.Header.Set("Content-Type", "application/json")
 
 	// VIBE FIX: Pass Correlation ID to the Verifier Service
-	if cid := ctx.Value("correlation_id"); cid != nil {
-		vreq.Header.Set("X-Correlation-ID", cid.(string))
+	// CORRECT: Use the constant 'correlationIDKey' to retrieve the value
+	if cid, ok := ctx.Value(correlationIDKey).(string); ok {
+		vreq.Header.Set("X-Correlation-ID", cid)
 	}
 
 	// Use http.DefaultClient and rely on verifierCtx for timeouts/cancellation.
