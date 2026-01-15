@@ -1,8 +1,19 @@
 name: Rust Tests
 
 on:
-  push:
   pull_request:
+    paths:
+      - 'verifier/**'
+      - '.github/workflows/rust-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'verifier/**'
+      - '.github/workflows/rust-tests.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   rust-tests:
