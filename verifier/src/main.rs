@@ -55,7 +55,6 @@ async fn verify_signature(
     headers: HeaderMap,
     Json(payload): Json<VerifyRequest>,
 ) -> (StatusCode, HeaderMap, Json<VerifyResponse>) {
-    
     // Extract ID
     let correlation_id = headers
         .get("X-Correlation-ID")
@@ -116,7 +115,7 @@ async fn verify_signature(
                     recovered_address: None,
                     error: Some(format!("Failed to build typed data: {}", e)),
                 }),
-            )
+            );
         }
     };
 
@@ -132,14 +131,17 @@ async fn verify_signature(
                     recovered_address: None,
                     error: Some(format!("Invalid signature format: {}", e)),
                 }),
-            )
+            );
         }
     };
 
     // Final Verification
     match signature.recover_typed_data(&typed_data) {
         Ok(address) => {
-            println!("[CorrelationID: {}] Signature valid! Recovered: {:?}", correlation_id, address);
+            println!(
+                "[CorrelationID: {}] Signature valid! Recovered: {:?}",
+                correlation_id, address
+            );
             (
                 StatusCode::OK,
                 res_headers, // Header added
@@ -151,7 +153,10 @@ async fn verify_signature(
             )
         }
         Err(e) => {
-            println!("[CorrelationID: {}] Verification failed: {}", correlation_id, e);
+            println!(
+                "[CorrelationID: {}] Verification failed: {}",
+                correlation_id, e
+            );
             (
                 StatusCode::OK,
                 res_headers, // Header added
@@ -227,7 +232,8 @@ mod tests {
         };
 
         // For tests, we pass empty headers
-        let (status, _headers, Json(response)) = verify_signature(HeaderMap::new(), Json(req)).await;
+        let (status, _headers, Json(response)) =
+            verify_signature(HeaderMap::new(), Json(req)).await;
 
         assert_eq!(status, StatusCode::OK);
         assert!(response.is_valid);
@@ -247,8 +253,8 @@ mod tests {
             signature: "0x1234567890".to_string(),
         };
 
-        let (status, _headers, Json(response)) = verify_signature(HeaderMap::new(), Json(req)).await;
+        let (status, _headers, Json(response)) =
+            verify_signature(HeaderMap::new(), Json(req)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 }
-
