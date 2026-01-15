@@ -8,6 +8,9 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'run_e2e.sh'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
       - '.github/workflows/e2e.yml'
   push:
     branches: [main]
@@ -17,6 +20,9 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'run_e2e.sh'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
       - '.github/workflows/e2e.yml'
 
 concurrency:
