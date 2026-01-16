@@ -1,8 +1,33 @@
 name: E2E Tests
 
 on:
-  push:
   pull_request:
+    paths:
+      - 'gateway/**'
+      - 'verifier/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'run_e2e.sh'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
+      - '.github/workflows/e2e.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'gateway/**'
+      - 'verifier/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'run_e2e.sh'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
+      - '.github/workflows/e2e.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   e2e:
@@ -12,7 +37,7 @@ jobs:
       OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'z-ai/glm-4.5-air:free' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check OpenRouter key
         run: |
@@ -23,7 +48,7 @@ jobs:
 
       - name: Set up Go
         if: env.OPENROUTER_API_KEY != ''
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24.x'
 

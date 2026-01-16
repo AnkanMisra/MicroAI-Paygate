@@ -520,6 +520,31 @@ SERVER_WALLET_PRIVATE_KEY=your_private_key_hex
 RECEIPT_TTL=86400
 ```
 
+### Caching Configuration
+
+MicroAI Paygate includes an intelligent Redis-backed caching layer to reduce OpenRouter API costs and improve response times for frequently requested content.
+
+**Features:**
+- **Cache-Aside Pattern**: Checks Redis before calling AI provider. If found, data is returned instantly, but **payment verification is still enforced**.
+- **Content-Addressable**: Uses SHA256 of request text as the cache key.
+- **Secure by Design**: Cached responses are ONLY served to requests with valid payment signatures. The latency savings come from avoiding the AI provider call, not from skipping verification.
+- **TTL-Based**: Configurable expiration to ensure content freshness.
+
+**Configuration:**
+Add to `.env`:
+```bash
+# Redis Configuration
+# Use 'redis:6379' for docker-compose, 'localhost:6379' for local run
+REDIS_URL=redis:6379
+REDIS_PASSWORD=
+REDIS_DB=0
+
+# Cache Settings
+CACHE_ENABLED=true
+# Time-to-live for cached items in seconds (default: 3600 = 1 hour)
+CACHE_TTL_SECONDS=3600
+```
+
 ## API Reference
 
 ### Endpoints

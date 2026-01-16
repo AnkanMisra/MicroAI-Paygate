@@ -14,11 +14,11 @@ import (
 
 // Receipt represents a cryptographic payment receipt
 type Receipt struct {
-	ID        string          `json:"id"`
-	Version   string          `json:"version"`
-	Timestamp time.Time       `json:"timestamp"`
-	Payment   PaymentDetails  `json:"payment"`
-	Service   ServiceDetails  `json:"service"`
+	ID        string         `json:"id"`
+	Version   string         `json:"version"`
+	Timestamp time.Time      `json:"timestamp"`
+	Payment   PaymentDetails `json:"payment"`
+	Service   ServiceDetails `json:"service"`
 }
 
 // PaymentDetails contains payment-related information
