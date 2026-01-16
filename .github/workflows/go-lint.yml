@@ -2,7 +2,18 @@ name: Go Lint
 
 on:
   pull_request:
+    paths:
+      - 'gateway/**'
+      - '.github/workflows/go-lint.yml'
   push:
+    branches: [main]
+    paths:
+      - 'gateway/**'
+      - '.github/workflows/go-lint.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   go-lint:
