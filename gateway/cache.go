@@ -53,7 +53,7 @@ func CacheMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		
+
 		var requestBody []byte
 		var err error
 		if c.Request.Body != nil {
@@ -92,7 +92,7 @@ func CacheMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		
+
 		// Validate text is not empty
 		if req.Text == "" {
 			c.JSON(400, gin.H{"error": "Invalid request", "message": "text field cannot be empty"})
@@ -112,8 +112,8 @@ func CacheMiddleware() gin.HandlerFunc {
 			log.Printf("Cache HIT: %s", cacheKey)
 
 			// Cache HIT! -> Verify Payment *BEFORE* serving
-		// verifyPayment creates its own timeout context, so pass request context directly
-		verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce)
+			// verifyPayment creates its own timeout context, so pass request context directly
+			verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce)
 			if err != nil {
 				log.Printf("Verification error on cache hit: %v", err)
 				if errors.Is(err, context.DeadlineExceeded) {
@@ -267,4 +267,3 @@ func (w *cachedWriter) WriteString(s string) (int, error) {
 	w.body.WriteString(s)
 	return w.ResponseWriter.WriteString(s)
 }
-

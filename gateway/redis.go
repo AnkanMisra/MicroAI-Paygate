@@ -25,7 +25,7 @@ func initRedis() {
 	// Parse Redis connection options
 	redisURL := getEnv("REDIS_URL", "localhost:6379")
 	var opts *redis.Options
-	
+
 	if strings.HasPrefix(redisURL, "redis://") || strings.HasPrefix(redisURL, "rediss://") {
 		// Parse full Redis URL
 		var err error
