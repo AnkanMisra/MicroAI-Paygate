@@ -8,7 +8,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/sha256"
-	// "encoding/base64"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -166,8 +166,11 @@ func main() {
 	// deadline when nested timeouts are present to avoid surprising behavior.
 	r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
 
-	//Receipt retrieval endpoint
-	r.GET("/receipts/:id", handleGetReceipt)
+	//health check if server is up
+	r.GET("/healthz", handleHealthz)
+
+	//readyness check
+	r.GET("/readyz", handleReadyz)
 
 	// AI endpoints with AI-specific timeout (30s)
 	aiGroup := r.Group("/api/ai")
