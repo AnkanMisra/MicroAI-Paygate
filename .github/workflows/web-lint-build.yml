@@ -2,7 +2,18 @@ name: Web Lint & Build
 
 on:
   pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-lint-build.yml'
   push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-lint-build.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   web-lint-build:

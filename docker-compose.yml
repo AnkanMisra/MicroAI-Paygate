@@ -8,8 +8,21 @@ services:
     environment:
       - PORT=3000
       - VERIFIER_URL=http://verifier:3002
+      - REDIS_URL=redis:6379
+      - CACHE_ENABLED=true
+      # Pass through from .env file
+      - OPENROUTER_API_KEY
+      - OPENROUTER_MODEL
+      - SERVER_WALLET_PRIVATE_KEY
+      - RECIPIENT_ADDRESS
+      - CHAIN_ID
+      - PAYMENT_AMOUNT
+      - REDIS_PASSWORD
+      - REDIS_DB
+      - CACHE_TTL_SECONDS
     depends_on:
       - verifier
+      - redis
     networks:
       - microai-net
 
@@ -19,6 +32,20 @@ services:
       - "3002:3002"
     networks:
       - microai-net
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - microai-net
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   web:
     build: ./web
@@ -34,3 +61,6 @@ services:
 networks:
   microai-net:
     driver: bridge
+
+volumes:
+  redis-data:

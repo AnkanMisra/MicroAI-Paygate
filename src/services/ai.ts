@@ -1,7 +1,11 @@
 import { CONFIG } from "../config";
 
 export class AIService {
-  private static async callOpenRouter(messages: { role: string; content: string }[]): Promise<string> {
+  // Updated: Now accepts correlationId (optional)
+  private static async callOpenRouter(
+    messages: { role: string; content: string }[], 
+    correlationId?: string
+  ): Promise<string> {
     if (!CONFIG.OPENROUTER_API_KEY) {
       throw new Error("OPENROUTER_API_KEY is not set");
     }
@@ -14,6 +18,8 @@ export class AIService {
           "Content-Type": "application/json",
           "HTTP-Referer": "https://microai.paygate", 
           "X-Title": "MicroAI Paygate",
+          // ADDED: Send the correlation ID to the AI provider
+          "X-Correlation-ID": correlationId || "unknown",
         },
         body: JSON.stringify({
           model: CONFIG.OPENROUTER_MODEL,
@@ -34,7 +40,8 @@ export class AIService {
     }
   }
 
-  static async summarize(text: string): Promise<string> {
+  // Updated: Pass correlationId through to callOpenRouter
+  static async summarize(text: string, correlationId?: string): Promise<string> {
     if (!text) throw new Error("Input text is required");
     
     const messages = [
@@ -42,10 +49,11 @@ export class AIService {
       { role: "user", content: `Please summarize the following text:\n\n${text}` }
     ];
     
-    return this.callOpenRouter(messages);
+    return this.callOpenRouter(messages, correlationId);
   }
 
-  static async analyzeSentiment(text: string): Promise<string> {
+  // Updated: Pass correlationId through to callOpenRouter
+  static async analyzeSentiment(text: string, correlationId?: string): Promise<string> {
     if (!text) throw new Error("Input text is required");
 
     const messages = [
@@ -53,6 +61,7 @@ export class AIService {
       { role: "user", content: `Analyze the sentiment of the following text:\n\n${text}` }
     ];
 
-    return this.callOpenRouter(messages);
+    return this.callOpenRouter(messages, correlationId);
   }
 }
+

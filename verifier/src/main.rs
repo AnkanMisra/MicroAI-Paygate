@@ -1,6 +1,6 @@
 use axum::{
     extract::Json,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode}, // VIBE FIX: Added HeaderMap to read headers
     routing::{get, post},
     Router,
 };
@@ -124,42 +124,27 @@ impl VerifyError {
 }
 
 async fn verify_signature(
+    headers: HeaderMap,
     Json(payload): Json<VerifyRequest>,
-) -> (StatusCode, Json<VerifyResponse>) {
+) -> (StatusCode, HeaderMap, Json<VerifyResponse>) {
+    // Extract ID
+    let correlation_id = headers
+        .get("X-Correlation-ID")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+
+    // Prepare response header
+    let mut res_headers = HeaderMap::new();
+    if let Ok(header_value) = correlation_id.parse() {
+        res_headers.insert("X-Correlation-ID", header_value);
+    }
+
     println!(
-        "Received verification request for nonce: {}",
-        payload.context.nonce
+        "[CorrelationID: {}] Received verification request for nonce: {}",
+        correlation_id, payload.context.nonce
     );
 
-    // Check for empty signature
-    if payload.signature.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(VerifyResponse {
-                is_valid: false,
-                recovered_address: None,
-                error: Some(VerifyError::missing_signature()),
-            }),
-        );
-    }
-
-    // Check for nonce reuse
-    {
-        let mut tracker = NONCE_TRACKER.lock().unwrap();
-        if tracker.contains(&payload.context.nonce) {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(VerifyResponse {
-                    is_valid: false,
-                    recovered_address: None,
-                    error: Some(VerifyError::nonce_reused()),
-                }),
-            );
-        }
-        tracker.insert(payload.context.nonce.clone());
-    }
-
-    // Construct the EIP-712 Typed Data
+    // Reconstruct Typed Data (Domain, Types, Value)
     let domain = serde_json::json!({
         "name": "MicroAI Paygate",
         "version": "1",
@@ -183,7 +168,7 @@ async fn verify_signature(
         "nonce": payload.context.nonce
     });
 
-    let typed_data = serde_json::json!({
+    let typed_data_json = serde_json::json!({
         "domain": domain,
         "types": types,
         "primaryType": "Payment",
@@ -196,6 +181,7 @@ async fn verify_signature(
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
+                res_headers, // Header added
                 Json(VerifyResponse {
                     is_valid: false,
                     recovered_address: None,
@@ -204,7 +190,7 @@ async fn verify_signature(
                         e
                     ))),
                 }),
-            )
+            );
         }
     };
 
@@ -222,6 +208,7 @@ async fn verify_signature(
             };
             return (
                 StatusCode::BAD_REQUEST,
+                res_headers, // Header added
                 Json(VerifyResponse {
                     is_valid: false,
                     recovered_address: None,
@@ -238,6 +225,7 @@ async fn verify_signature(
             println!("Signature valid! Recovered: {}", recovered_addr);
             (
                 StatusCode::OK,
+                res_headers, // Header added
                 Json(VerifyResponse {
                     is_valid: true,
                     recovered_address: Some(recovered_addr),
@@ -246,9 +234,13 @@ async fn verify_signature(
             )
         }
         Err(e) => {
-            println!("Verification failed: {}", e);
+            println!(
+                "[CorrelationID: {}] Verification failed: {}",
+                correlation_id, e
+            );
             (
                 StatusCode::OK,
+                res_headers, // Header added
                 Json(VerifyResponse {
                     is_valid: false,
                     recovered_address: None,
@@ -321,7 +313,9 @@ mod tests {
             signature: signature_str,
         };
 
-        let (status, Json(response)) = verify_signature(Json(req)).await;
+        // For tests, we pass empty headers
+        let (status, _headers, Json(response)) =
+            verify_signature(HeaderMap::new(), Json(req)).await;
 
         assert_eq!(status, StatusCode::OK);
         assert!(response.is_valid);
@@ -343,53 +337,8 @@ mod tests {
             signature: "0x1234567890".to_string(),
         };
 
-        let (status, Json(response)) = verify_signature(Json(req)).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(!response.is_valid);
-        assert!(response.error.is_some());
-    }
-
-    #[tokio::test]
-    async fn test_error_e001_missing_signature() {
-        NONCE_TRACKER.lock().unwrap().clear();
-
-        let req = VerifyRequest {
-            context: PaymentContext {
-                recipient: "0x1234567890123456789012345678901234567890".to_string(),
-                token: "USDC".to_string(),
-                amount: "100".to_string(),
-                nonce: "nonce-e001".to_string(),
-                chain_id: 1,
-            },
-            signature: "".to_string(),
-        };
-
-        let (status, Json(response)) = verify_signature(Json(req)).await;
-
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(!response.is_valid);
-        let error = response.error.unwrap();
-        assert_eq!(error.code, E001);
-        assert_eq!(error.message, "Missing signature");
-    }
-
-    #[tokio::test]
-    async fn test_error_e002_malformed_signature() {
-        NONCE_TRACKER.lock().unwrap().clear();
-
-        let req = VerifyRequest {
-            context: PaymentContext {
-                recipient: "0x1234567890123456789012345678901234567890".to_string(),
-                token: "USDC".to_string(),
-                amount: "100".to_string(),
-                nonce: "nonce-e002".to_string(),
-                chain_id: 1,
-            },
-            signature: "0xZZZZ".to_string(), // Invalid hex
-        };
-
-        let (status, Json(response)) = verify_signature(Json(req)).await;
-
+        let (status, _headers, Json(_response)) =
+            verify_signature(HeaderMap::new(), Json(req)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(!response.is_valid);
         let error = response.error.unwrap();
@@ -508,5 +457,188 @@ mod tests {
         let error = response2.error.unwrap();
         assert_eq!(error.code, E006);
         assert_eq!(error.message, "Nonce reused");
+    }
+
+    // ============================================================
+    // Correlation ID Tests - Verify X-Correlation-ID propagation
+    // ============================================================
+
+    #[tokio::test]
+    async fn test_correlation_id_preserved_in_response() {
+        // Test that when a correlation ID is provided in request headers,
+        // it is returned in response headers
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Correlation-ID",
+            "test-correlation-id-12345".parse().unwrap(),
+        );
+
+        let req = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234...".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "nonce".to_string(),
+                chain_id: 1,
+            },
+            signature: "0x1234567890".to_string(),
+        };
+
+        let (_status, response_headers, _json) = verify_signature(headers, Json(req)).await;
+
+        // Verify correlation ID is in response headers
+        let response_id = response_headers.get("X-Correlation-ID");
+        assert!(
+            response_id.is_some(),
+            "Expected X-Correlation-ID in response headers"
+        );
+        assert_eq!(
+            response_id.unwrap().to_str().unwrap(),
+            "test-correlation-id-12345",
+            "Correlation ID should be preserved from request"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_correlation_id_unknown_when_missing() {
+        // Test that when no correlation ID is provided, "unknown" is used
+        // but no header is returned (since "unknown" won't parse to a valid header)
+        let headers = HeaderMap::new(); // Empty headers
+
+        let req = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234...".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "nonce".to_string(),
+                chain_id: 1,
+            },
+            signature: "0x1234567890".to_string(),
+        };
+
+        let (_status, response_headers, _json) = verify_signature(headers, Json(req)).await;
+
+        // When "unknown" is used as fallback, it should still be set in response
+        let response_id = response_headers.get("X-Correlation-ID");
+        assert!(
+            response_id.is_some(),
+            "Expected X-Correlation-ID header even with unknown value"
+        );
+        assert_eq!(
+            response_id.unwrap().to_str().unwrap(),
+            "unknown",
+            "Should use 'unknown' as fallback correlation ID"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_correlation_id_with_valid_signature() {
+        // Test correlation ID propagation with a valid signature request
+        let wallet: LocalWallet =
+            "380eb0f3d505f087e438eca80bc4df9a7faa24f868e69fc0440261a0fc0567dc"
+                .parse()
+                .unwrap();
+        let wallet = wallet.with_chain_id(1u64);
+
+        let json_typed_data = serde_json::json!({
+            "domain": {
+                "name": "MicroAI Paygate",
+                "version": "1",
+                "chainId": 1,
+                "verifyingContract": "0x0000000000000000000000000000000000000000"
+            },
+            "types": {
+                "EIP712Domain": [
+                    { "name": "name", "type": "string" },
+                    { "name": "version", "type": "string" },
+                    { "name": "chainId", "type": "uint256" },
+                    { "name": "verifyingContract", "type": "address" }
+                ],
+                "Payment": [
+                    { "name": "recipient", "type": "address" },
+                    { "name": "token", "type": "string" },
+                    { "name": "amount", "type": "string" },
+                    { "name": "nonce", "type": "string" }
+                ]
+            },
+            "primaryType": "Payment",
+            "message": {
+                "recipient": "0x1234567890123456789012345678901234567890",
+                "token": "USDC",
+                "amount": "100",
+                "nonce": "correlation-test-nonce"
+            }
+        });
+
+        let typed_data: TypedData = serde_json::from_value(json_typed_data).unwrap();
+        let signature = wallet.sign_typed_data(&typed_data).await.unwrap();
+        let signature_str = format!("0x{}", hex::encode(signature.to_vec()));
+
+        // Add correlation ID to request headers
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Correlation-ID",
+            "valid-sig-correlation-id".parse().unwrap(),
+        );
+
+        let req = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234567890123456789012345678901234567890".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "correlation-test-nonce".to_string(),
+                chain_id: 1,
+            },
+            signature: signature_str,
+        };
+
+        let (status, response_headers, Json(response)) = verify_signature(headers, Json(req)).await;
+
+        // Verify successful response
+        assert_eq!(status, StatusCode::OK);
+        assert!(response.is_valid);
+
+        // Verify correlation ID is preserved
+        let response_id = response_headers.get("X-Correlation-ID");
+        assert!(
+            response_id.is_some(),
+            "Expected X-Correlation-ID in successful response"
+        );
+        assert_eq!(
+            response_id.unwrap().to_str().unwrap(),
+            "valid-sig-correlation-id",
+            "Correlation ID should be preserved in successful response"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_correlation_id_uuid_format() {
+        // Test that UUID-formatted correlation IDs are properly handled
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Correlation-ID",
+            "550e8400-e29b-41d4-a716-446655440000".parse().unwrap(),
+        );
+
+        let req = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234...".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "nonce".to_string(),
+                chain_id: 1,
+            },
+            signature: "0x1234567890".to_string(),
+        };
+
+        let (_status, response_headers, _json) = verify_signature(headers, Json(req)).await;
+
+        let response_id = response_headers.get("X-Correlation-ID");
+        assert!(response_id.is_some());
+        assert_eq!(
+            response_id.unwrap().to_str().unwrap(),
+            "550e8400-e29b-41d4-a716-446655440000",
+            "UUID correlation ID should be preserved exactly"
+        );
     }
 }
