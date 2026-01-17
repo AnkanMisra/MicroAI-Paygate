@@ -943,7 +943,7 @@ func handleReadyz(c *gin.Context) {
 }
 
 // checkVerifierHealth pings the verifier service to check connectivity
-func checkVerifierHealth() string {
+var checkVerifierHealth = func() string {
 	verifierURL := os.Getenv("VERIFIER_URL")
 	if verifierURL == "" {
 		verifierURL = "http://127.0.0.1:3002"
@@ -969,15 +969,21 @@ func checkVerifierHealth() string {
 	return "ok"
 }
 // checkOpenRouterHealth pings the OpenRouter models list to verify API
-func checkOpenRouterHealth() string {
+var checkOpenRouterHealth = func() string {
 	apiKey := os.Getenv("OPENROUTER_API_KEY")
 	if apiKey == "" {
 		return "unconfigured"
 	}
+	baseURL := os.Getenv("OPENROUTER_URL")
+	if baseURL == "" {
+		baseURL = "https://openrouter.ai"
+	}
+	healthURL := strings.TrimSuffix(baseURL, "/") + "/api/v1/models"
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://openrouter.ai/v1/models", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, nil)
 	if err != nil {
 		return "unreachable"
 	}

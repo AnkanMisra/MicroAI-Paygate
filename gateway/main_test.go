@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleSummarize_NoHeaders(t *testing.T) {
@@ -354,4 +355,94 @@ func TestRateLimitMiddleware_HeadersInResponse(t *testing.T) {
 	if w.Header().Get("X-RateLimit-Reset") == "" {
 		t.Error("Missing X-RateLimit-Reset header")
 	}
+}
+func TestHandleHealthz(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	r := gin.Default()
+	r.GET("/healthz", handleHealthz)
+
+	req, _ := http.NewRequest(http.MethodGet, "/healthz", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	require.Equal(t, "ok", response["status"])
+	require.NotNil(t, response["timestamp"])
+}
+func TestHandleReadyz_Healthy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// save originals
+	origVerifier := checkVerifierHealth
+	origOpenRouter := checkOpenRouterHealth
+	defer func() {
+		checkVerifierHealth = origVerifier
+		checkOpenRouterHealth = origOpenRouter
+	}()
+
+	// stub healthy 
+	checkVerifierHealth = func() string { return "ok" }
+	checkOpenRouterHealth = func() string { return "ok" }
+
+	r := gin.Default()
+	r.GET("/readyz", handleHealthz)
+
+	req, _ := http.NewRequest(http.MethodGet, "/readyz", nil)
+	w := httptest.NewRecorder()
+	
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	require.Equal(t, "ok", response["status"])
+	require.NotNil(t, response["timestamp"])
+
+	checks := response["checks"].(map[string]interface{})
+	require.Equal(t, "ok", checks["verifier"])
+	require.Equal(t, "ok", checks["openrouter"])
+}
+func TestHandleReadyz_UnHealthy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	origVerifier := checkVerifierHealth
+	origOpenRouter := checkOpenRouterHealth
+	defer func() {
+		checkVerifierHealth = origVerifier
+		checkOpenRouterHealth = origOpenRouter
+	}()
+
+	// one dependency unhealthy 
+	checkVerifierHealth = func() string { return "down" }
+	checkOpenRouterHealth = func() string { return "ok" }
+
+	r := gin.Default()
+	r.GET("/readyz", handleHealthz)
+
+	req, _ := http.NewRequest(http.MethodGet, "/readyz", nil)
+	w := httptest.NewRecorder()
+	
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	require.Equal(t, false, response["ready"])
+	require.NotNil(t, response["timestamp"])
+
+	checks := response["checks"].(map[string]interface{})
+	require.Equal(t, "down", checks["verifier"])
 }
