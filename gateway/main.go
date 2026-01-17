@@ -169,7 +169,7 @@ func main() {
 	//health check if server is up
 	r.GET("/healthz", handleHealthz)
 
-	//readyness check
+	//readiness check
 	r.GET("/readyz", handleReadyz)
 
 	// AI endpoints with AI-specific timeout (30s)
