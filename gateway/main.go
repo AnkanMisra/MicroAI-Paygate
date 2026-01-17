@@ -13,7 +13,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+ 
 	"io"
+
+	"html/template"
+
 	"log"
 	"net/http"
 	"os"
@@ -52,6 +56,7 @@ type SummarizeRequest struct {
 	Text string `json:"text"`
 }
 
+
 func validateConfig() error {
 	required := []string{
 		"OPENROUTER_API_KEY",
@@ -67,6 +72,22 @@ func validateConfig() error {
 	}
 	return nil
 }
+
+var swaggerTmpl *template.Template
+
+func init() {
+	swaggerTmpl = template.Must(
+		template.ParseFiles("templates/swagger.html"),
+	)
+}
+func getSwaggerUIVersion() string {
+	if v := os.Getenv("SWAGGER_UI_VERSION"); v != "" {
+		return v
+	}
+	return "5.11.0"
+}
+
+
 func main() {
 	// Try loading .env from current directory first, then fallback to parent
 	err := godotenv.Load(".env")
@@ -120,25 +141,16 @@ func main() {
 
 	r.GET("/docs", func(c *gin.Context) {
 		c.Header("Content-Type", "text/html")
-		c.String(200, `
-<!DOCTYPE html>
-<html>
-<head>
-  <title>MicroAI Paygate Docs</title>
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css" />
-</head>
-<body>
-  <div id="swagger-ui"></div>
-  <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js"></script>
-  <script>
-    SwaggerUIBundle({
-      url: '/openapi.yaml',
-      dom_id: '#swagger-ui'
-    });
-  </script>
-</body>
-</html>
-`)
+
+		data := struct {
+			Version string
+		}{
+			Version: getSwaggerUIVersion(),
+		}
+
+		if err := swaggerTmpl.Execute(c.Writer, data); err != nil {
+			c.String(500, "failed to render swagger ui")
+		}
 	})
 
 	r.Use(cors.New(cors.Config{
