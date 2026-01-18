@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+dist/
 .bun/
 
 # Environment variables
@@ -45,4 +46,5 @@ docs
 # Ignored Components
 agent/
 issues/
+
 
