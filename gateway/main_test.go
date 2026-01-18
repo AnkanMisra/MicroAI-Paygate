@@ -431,7 +431,7 @@ func TestHandleReadyz_UnHealthy(t *testing.T) {
 	}()
 
 	// one dependency unhealthy
-	checkVerifierHealth = func() string { return "down" }
+	checkVerifierHealth = func() string { return "unreachable" }
 	checkOpenRouterHealth = func() string { return "ok" }
 
 	r := gin.Default()
@@ -452,5 +452,5 @@ func TestHandleReadyz_UnHealthy(t *testing.T) {
 	require.NotNil(t, response["timestamp"])
 
 	checks := response["checks"].(map[string]interface{})
-	require.Equal(t, "down", checks["verifier"])
+	require.Equal(t, "unreachable", checks["verifier"])
 }
