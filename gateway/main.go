@@ -531,10 +531,6 @@ func callOpenRouter(ctx context.Context, text string) (string, error) {
 	return content, nil
 }
 
-func handleHealth(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "gateway"})
-}
-
 // Rate Limiting Functions
 
 // initRateLimiters creates rate limiters for each tier
@@ -909,7 +905,6 @@ func getServerPrivateKey() (*ecdsa.PrivateKey, error) {
 	return serverPrivateKey, serverPrivateKeyErr
 }
 
-
 // handleHealthz provides a basic liveness check
 func handleHealthz(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "gateway", "timestamp": time.Now().Unix()})
@@ -928,9 +923,13 @@ func handleReadyz(c *gin.Context) {
 	checks["openrouter"] = openRouterStatus
 
 	//3. Self-health metrics
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
 	checks["gateway"] = gin.H{
-		"goroutines": runtime.NumGoroutine(),
-		"status":     "ok",
+		"goroutines":      runtime.NumGoroutine(),
+		"memory_alloc_mb": memStats.Alloc / 1024 / 1024,
+		"memory_sys_mb":   memStats.Sys / 1024 / 1024,
+		"status":          "ok",
 	}
 	//Overall status logic
 	ready := verifierStatus == "ok" && openRouterStatus == "ok"
@@ -968,6 +967,7 @@ var checkVerifierHealth = func() string {
 	}
 	return "ok"
 }
+
 // checkOpenRouterHealth pings the OpenRouter models list to verify API
 var checkOpenRouterHealth = func() string {
 	apiKey := os.Getenv("OPENROUTER_API_KEY")
@@ -1000,6 +1000,3 @@ var checkOpenRouterHealth = func() string {
 	}
 	return "ok"
 }
-
-
-
