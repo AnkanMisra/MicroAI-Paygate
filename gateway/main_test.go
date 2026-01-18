@@ -413,6 +413,12 @@ func TestHandleReadyz_Healthy(t *testing.T) {
 	checks := response["checks"].(map[string]interface{})
 	require.Equal(t, "ok", checks["verifier"])
 	require.Equal(t, "ok", checks["openrouter"])
+
+	gatewayChecks := checks["gateway"].(map[string]interface{})
+	require.Equal(t, "ok", gatewayChecks["status"])
+	require.NotZero(t, gatewayChecks["goroutines"])
+	require.Contains(t, gatewayChecks, "memory_alloc_mb")
+	require.Contains(t, gatewayChecks, "memory_sys_mb")
 }
 func TestHandleReadyz_UnHealthy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
