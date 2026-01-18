@@ -95,7 +95,8 @@ func TestSignReceipt(t *testing.T) {
 
 	// This test requires SERVER_WALLET_PRIVATE_KEY to be set
 	// Skip if not available
-	if serverPrivateKey == nil {
+	privateKey, err := getServerPrivateKey()
+	if err != nil || privateKey == nil {
 		t.Skip("Skipping signature test: SERVER_WALLET_PRIVATE_KEY not set")
 	}
 
@@ -291,7 +292,7 @@ func TestVerifyReceiptSignature(t *testing.T) {
 	}
 
 	// Get server's public key bytes
-	serverPubBytes := crypto.FromECDSAPub(&serverPrivateKey.PublicKey)
+	serverPubBytes := crypto.FromECDSAPub(&privateKey.PublicKey)
 
 	// Verify signature without recovery ID (remove last byte which is the recovery ID)
 	// SECURITY: crypto.VerifySignature uses constant-time comparison to prevent timing attacks
@@ -400,7 +401,7 @@ func TestReceiptFullFlowIntegration(t *testing.T) {
 	}
 
 	// Verify signature
-	serverPubBytes := crypto.FromECDSAPub(&serverPrivateKey.PublicKey)
+	serverPubBytes := crypto.FromECDSAPub(&privateKey.PublicKey)
 	if !crypto.VerifySignature(serverPubBytes, hash.Bytes(), sigBytes[:64]) {
 		t.Error("Signature verification failed for retrieved receipt")
 	}

@@ -875,9 +875,9 @@ func getServerPrivateKey() (*ecdsa.PrivateKey, error) {
 		}
 
 		// Validate minimum key length to prevent trivially weak keys
-		// Keys shorter than 16 bytes (128 bits) are cryptographically insecure
-		if len(keyBytes) < 16 {
-			serverPrivateKeyErr = fmt.Errorf("private key too short: got %d bytes, expected at least 16 bytes (128 bits)", len(keyBytes))
+		// Keys shorter than 31 bytes are cryptographically insecure or malformed
+		if len(keyBytes) < 31 {
+			serverPrivateKeyErr = fmt.Errorf("private key too short: got %d bytes, expected at least 31 bytes", len(keyBytes))
 			return
 		}
 
@@ -905,12 +905,19 @@ func getServerPrivateKey() (*ecdsa.PrivateKey, error) {
 	return serverPrivateKey, serverPrivateKeyErr
 }
 
-// handleHealthz provides a basic liveness check
+// handleHealthz implements the liveness probe for the gateway service.
+// It returns a 200 OK status if the server is running and reachable.
+// Response format: {"status": "ok", "service": "gateway", "timestamp": <unix_time>}
 func handleHealthz(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "gateway", "timestamp": time.Now().Unix()})
 }
 
-// handleReadyz provides a readiness check
+// handleReadyz implements the readiness probe for the gateway service.
+// It performs a comprehensive health check by verifying:
+// 1. Connectivity to the Verifier service
+// 2. Availability of the OpenRouter API
+// 3. Self-health metrics (goroutine count, memory usage)
+// Returns 200 OK if all dependencies are healthy, otherwise 503 Service Unavailable.
 func handleReadyz(c *gin.Context) {
 	checks := make(map[string]interface{})
 
@@ -941,7 +948,12 @@ func handleReadyz(c *gin.Context) {
 	c.JSON(statusCode, gin.H{"ready": ready, "timestamp": time.Now().Unix(), "checks": checks})
 }
 
-// checkVerifierHealth pings the verifier service to check connectivity
+// checkVerifierHealth pings the Verifier service's health endpoint.
+// It uses a 2-second timeout to prevent hanging.
+// Returns:
+// - "ok": Verifier is healthy (200 OK)
+// - "degraded": Verifier is reachable but returned non-200 status
+// - "unreachable": Verifier could not be contacted
 var checkVerifierHealth = func() string {
 	verifierURL := os.Getenv("VERIFIER_URL")
 	if verifierURL == "" {
@@ -968,7 +980,13 @@ var checkVerifierHealth = func() string {
 	return "ok"
 }
 
-// checkOpenRouterHealth pings the OpenRouter models list to verify API
+// checkOpenRouterHealth checks the availability of the OpenRouter API.
+// It attempts to fetch the list of models with a 2-second timeout.
+// Returns:
+// - "ok": API is reachable (200 OK)
+// - "unconfigured": OPENROUTER_API_KEY is not set
+// - "degraded": API is reachable but returned non-200 status
+// - "unreachable": API could not be contacted
 var checkOpenRouterHealth = func() string {
 	apiKey := os.Getenv("OPENROUTER_API_KEY")
 	if apiKey == "" {
