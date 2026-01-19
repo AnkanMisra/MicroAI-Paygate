@@ -142,13 +142,13 @@ func main() {
 `)
 	})
 
-	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3001"},
-		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "X-402-Signature", "X-402-Nonce"},
-		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After", "X-402-Receipt"},
-		AllowCredentials: true,
-	}))
+		r.Use(cors.New(cors.Config{
+			AllowOrigins:     []string{"http://localhost:3001"},
+			AllowMethods:     []string{"GET", "POST", "OPTIONS"},
+			AllowHeaders:     []string{"Origin", "Content-Type", "X-402-Signature", "X-402-Nonce", "X-402-Timestamp"},
+			ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After", "X-402-Receipt"},
+			AllowCredentials: true,
+		}))
 
 	// Initialize rate limiters if enabled
 	if getRateLimitEnabled() {
@@ -276,10 +276,15 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
-	if !verifyResp.IsValid {
-		c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
-		return
-	}
+	       if !verifyResp.IsValid {
+		       // If the error is due to timestamp, return 400, else 403 for signature
+		       if verifyResp.Error != nil && strings.Contains(verifyResp.Error, "timestamp") {
+			       c.JSON(400, gin.H{"error": "Invalid timestamp", "details": verifyResp.Error})
+		       } else {
+			       c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
+		       }
+		       return
+	       }
 
 	// 2. Parse Request
 	var req SummarizeRequest

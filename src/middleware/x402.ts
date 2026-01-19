@@ -35,18 +35,19 @@ export const x402Middleware = async (req: Request, res: Response, next: NextFunc
   // NOTE: In a real app, you might want to encode the price/params in the nonce or have the client send the full context back.
   // Here we trust the client to send the nonce we gave them, and we verify against our store.
   
+
   if (!timestampHeader) {
-    res.status(403).json({
-      error: "Payment Verification Failed",
+    res.status(400).json({
+      error: "Invalid timestamp",
       details: "Missing X-402-Timestamp header",
     });
     return;
   }
 
-  const parsedTimestamp = Number(timestampHeader);
-  if (!Number.isFinite(parsedTimestamp) || parsedTimestamp <= 0) {
+  const parsedTimestamp = parseInt(timestampHeader, 10);
+  if (!Number.isInteger(parsedTimestamp) || parsedTimestamp <= 0) {
     res.status(400).json({
-      error: "Payment Verification Failed",
+      error: "Invalid timestamp",
       details: "Invalid X-402-Timestamp header",
     });
     return;
