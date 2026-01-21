@@ -6,20 +6,26 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gateway/middleware"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -122,12 +128,44 @@ func main() {
 		gin.Recovery(),
 		middleware.RequestLogger(),
 	)
+	r := gin.Default()
+
+	// VIBE FIX: Register the Correlation ID Middleware immediately
+	// This ensures every single request gets an ID before anything else happens.
+	r.Use(CorrelationIDMiddleware())
+	// Initialize Redis early to fail-fast if Redis required but unavailable
+	initRedis()
+
+	r.StaticFile("/openapi.yaml", "openapi.yaml")
+
+	r.GET("/docs", func(c *gin.Context) {
+		c.Header("Content-Type", "text/html")
+		c.String(200, `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MicroAI Paygate Docs</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css" />
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js"></script>
+  <script>
+    SwaggerUIBundle({
+      url: '/openapi.yaml',
+      dom_id: '#swagger-ui'
+    });
+  </script>
+</body>
+</html>
+`)
+	})
 
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3001"},
 		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "X-402-Signature", "X-402-Nonce"},
-		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "X-402-Signature", "X-402-Nonce", "X-Correlation-ID"},                                                          // Added X-Correlation-ID
+		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After", "X-402-Receipt", "X-Correlation-ID"}, // Added X-Correlation-ID
 		AllowCredentials: true,
 	}))
 
@@ -144,13 +182,41 @@ func main() {
 	// deadline when nested timeouts are present to avoid surprising behavior.
 	r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
 
-	// Health check with shorter timeout (2s)
-	r.GET("/healthz", RequestTimeoutMiddleware(getHealthCheckTimeout()), handleHealth)
+	//health check if server is up
+	r.GET("/healthz", handleHealthz)
+
+	//readiness check
+	r.GET("/readyz", handleReadyz)
 
 	// AI endpoints with AI-specific timeout (30s)
 	aiGroup := r.Group("/api/ai")
 	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
-	aiGroup.POST("/summarize", handleSummarize)
+	if getCacheEnabled() {
+		aiGroup.POST("/summarize", CacheMiddleware(), handleSummarize)
+	} else {
+		aiGroup.POST("/summarize", handleSummarize)
+	}
+
+	// Receipt lookup endpoint
+	// Note: Rate limiting applies only if enabled globally via RATE_LIMIT_ENABLED=true
+	// Random 12-char receipt IDs (2^48 space) make brute-force enumeration impractical
+	r.GET("/api/receipts/:id", handleGetReceipt)
+
+	// Initialize receipt cleanup goroutine
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
+	defer func() {
+		cleanupCancel()
+		// Perform final cleanup on shutdown to prevent receipt leak
+		cleanupExpiredReceipts()
+		log.Println("Final receipt cleanup completed on shutdown")
+		// Close Redis connection if active
+		if redisClient != nil {
+			redisClient.Close()
+			log.Println("Redis connection closed")
+		}
+	}()
+	go startReceiptCleanup(cleanupCtx)
+	log.Println("Receipt cleanup goroutine started")
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -176,6 +242,11 @@ func handleHealth(c *gin.Context) {
 // applied by middleware and returns appropriate HTTP errors (402, 403, 504,
 // 500) to the client.
 func handleSummarize(c *gin.Context) {
+	// 1. Payment Verification
+	// Note: CacheMiddleware aborts on cache HIT, so this handler only runs on cache MISS or when caching is disabled
+	var requestBody []byte
+	var err error
+
 	signature := c.GetHeader("X-402-Signature")
 	nonce := c.GetHeader("X-402-Nonce")
 
@@ -187,10 +258,12 @@ func handleSummarize(c *gin.Context) {
 			"error":          "Payment Required",
 			"paymentContext": ctx,
 		paymentContext := createPaymentContext()
+	// Basic check
+	if signature == "" || nonce == "" {
 		c.JSON(402, gin.H{
 			"error":          "Payment Required",
 			"message":        "Please sign the payment context",
-			"paymentContext": paymentContext,
+			"paymentContext": createPaymentContext(),
 		})
 		return
 	}
@@ -211,6 +284,82 @@ func handleSummarize(c *gin.Context) {
 	if err != nil {
 		c.JSON(500, gin.H{"error": "verifier unavailable"})
 	// 2. Verify Payment (Call Rust Service)
+	// Check if body already read by middleware
+	if body, exists := c.Get("request_body"); exists {
+		// Cache middleware always sets this as []byte, safe to assert
+		requestBody = body.([]byte)
+	}
+
+	// Read body if not already available
+	if requestBody == nil {
+		// Read body with limit (only if middleware didn't process it)
+		const maxBodySize = 10 * 1024 * 1024
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodySize))
+		requestBody, err = io.ReadAll(c.Request.Body)
+		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
+			} else {
+				c.JSON(500, gin.H{"error": "Failed to read request body"})
+			}
+			return
+		}
+	}
+
+	// Verify
+	verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce)
+	if err != nil {
+		log.Printf("Verification error: %v", err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "Verifier request timed out"})
+		} else {
+			c.JSON(500, gin.H{"error": "Verification Service Failed", "message": "An internal error occurred"})
+		}
+		return
+	}
+
+	if !verifyResp.IsValid {
+		c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
+		return
+	}
+
+	// 2. Parse Request
+	var req SummarizeRequest
+	if err := json.Unmarshal(requestBody, &req); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	// Validate text is not empty (also validated in cache middleware, but needed here for non-cached requests)
+	if req.Text == "" {
+		c.JSON(400, gin.H{"error": "Invalid request", "message": "text field cannot be empty"})
+		return
+	}
+
+	// 3. Call AI Service
+	summary, err := callOpenRouter(c.Request.Context(), req.Text)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || c.Request.Context().Err() == context.DeadlineExceeded {
+			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "AI request timed out"})
+			return
+		}
+		c.JSON(500, gin.H{"error": "AI Service Failed", "details": err.Error()})
+		return
+	}
+
+	// 4. Generate & Send Receipt
+	if err := generateAndSendReceipt(c, *paymentCtx, verifyResp.RecoveredAddress, requestBody, summary); err != nil {
+		log.Printf("Failed to generate receipt: %v", err)
+		// generateAndSendReceipt sends error response if it fails?
+		// No, it returns error, we might have already written status if we aren't careful.
+		// Let's implement generateAndSendReceipt to handle sending response.
+		return
+	}
+}
+
+// verifyPayment calls the verification service.
+func verifyPayment(ctx context.Context, signature, nonce string) (*VerifyResponse, *PaymentContext, error) {
 	paymentCtx := PaymentContext{
 		Recipient: getRecipientAddress(),
 		Token:     "USDC",
@@ -226,38 +375,40 @@ func handleSummarize(c *gin.Context) {
 
 	verifyBody, err := json.Marshal(verifyReq)
 	if err != nil {
-		log.Printf("error marshaling verification request: %v", err)
-		c.JSON(500, gin.H{"error": "Failed to create verification request"})
-		return
+		return nil, nil, fmt.Errorf("marshal verification request: %w", err)
 	}
+
 	verifierURL := os.Getenv("VERIFIER_URL")
 	if verifierURL == "" {
 		verifierURL = "http://127.0.0.1:3002"
 	}
-	// Call verifier with its own timeout
-	verifierCtx, verifierCancel := context.WithTimeout(c.Request.Context(), getVerifierTimeout())
+
+	// Use a separate context for verifier timeout to avoid hanging
+	verifierCtx, verifierCancel := context.WithTimeout(ctx, getVerifierTimeout())
 	defer verifierCancel()
 
 	vreq, err := http.NewRequestWithContext(verifierCtx, "POST", verifierURL+"/verify", bytes.NewBuffer(verifyBody))
 	if err != nil {
-		// If the request cannot be created, return 500
-		c.JSON(500, gin.H{"error": "Invalid verifier request", "details": err.Error()})
-		return
+		return nil, nil, fmt.Errorf("create verifier request: %w", err)
 	}
 	vreq.Header.Set("Content-Type", "application/json")
+
+	// VIBE FIX: Pass Correlation ID to the Verifier Service
+	// CORRECT: Use the constant 'correlationIDKey' to retrieve the value
+	if cid, ok := ctx.Value(correlationIDKey).(string); ok {
+		vreq.Header.Set("X-Correlation-ID", cid)
+	}
 
 	// Use http.DefaultClient and rely on verifierCtx for timeouts/cancellation.
 	resp, err := http.DefaultClient.Do(vreq)
 	if err != nil {
-		// If the verifier or parent context timed out, return Gateway Timeout
-		if errors.Is(err, context.DeadlineExceeded) || verifierCtx.Err() == context.DeadlineExceeded || c.Request.Context().Err() == context.DeadlineExceeded {
-			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "Verifier request timed out"})
-			return
-		}
-		c.JSON(500, gin.H{"error": "Verification service unavailable"})
-		return
+		return nil, nil, fmt.Errorf("verifier request failed: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, nil, fmt.Errorf("verifier returned status %d", resp.StatusCode)
+	}
 
 	var verifyResp VerifyResponse
 	_ = json.NewDecoder(resp.Body).Decode(&verifyResp)
@@ -275,9 +426,40 @@ func handleSummarize(c *gin.Context) {
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "invalid body"})
 		return
+	if err := json.NewDecoder(resp.Body).Decode(&verifyResp); err != nil {
+		return nil, nil, fmt.Errorf("decode verification response: %w", err)
 	}
 
-	summary, err := callOpenRouter(c.Request.Context(), req.Text)
+	return &verifyResp, &paymentCtx, nil
+}
+
+// generateAndSendReceipt handles receipt generation, storage, and sending the final JSON response.
+// The receipt is sent ONLY in the X-402-Receipt header, not in the response body,
+// to ensure the ResponseHash in the receipt matches the actual JSON body clients receive.
+func generateAndSendReceipt(c *gin.Context, paymentCtx PaymentContext, recoveredAddr string, requestBody []byte, aiResult string) error {
+	// Construct the response body that will be sent to client (without receipt)
+	responseMap := map[string]interface{}{
+		"result": aiResult,
+	}
+	responseBody, err := json.Marshal(responseMap)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to encode response"})
+		return err
+	}
+
+	// Generate receipt with the actual response body hash
+	receipt, err := GenerateReceipt(paymentCtx, recoveredAddr, c.Request.URL.Path, requestBody, responseBody)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to generate receipt", "details": err.Error()})
+		return err
+	}
+
+	if err := storeReceipt(receipt, getReceiptTTL()); err != nil {
+		c.JSON(500, gin.H{"error": "Failed to store receipt"})
+		return err
+	}
+
+	receiptJSON, err := json.Marshal(receipt)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		// If the error was due to a timeout, return 504
@@ -287,9 +469,15 @@ func handleSummarize(c *gin.Context) {
 		}
 		c.JSON(500, gin.H{"error": "AI Service Failed", "details": err.Error()})
 		return
+		c.JSON(500, gin.H{"error": "Failed to encode receipt"})
+		return err
 	}
+	receiptBase64 := base64.StdEncoding.EncodeToString(receiptJSON)
 
-	c.JSON(200, gin.H{"result": summary})
+	// Send receipt in header only (not in body) so ResponseHash matches body
+	c.Header("X-402-Receipt", receiptBase64)
+	c.JSON(200, responseMap)
+	return nil
 }
 
 /* -------------------- Helpers -------------------- */
@@ -366,6 +554,12 @@ func callOpenRouter(ctx context.Context, text string) (string, error) {
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
+	// VIBE FIX: Pass Correlation ID to AI Service
+	// (Assuming the context has it, though OpenRouter might not use it, it's good practice)
+	if cid, ok := ctx.Value(correlationIDKey).(string); ok { // Changed to use correlationIDKey
+		req.Header.Set("X-Correlation-ID", cid)
+	}
+
 	// Use http.DefaultClient and rely on ctx for cancellation/timeouts.
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -381,6 +575,29 @@ func callOpenRouter(ctx context.Context, text string) (string, error) {
 		return "", fmt.Errorf("failed to decode AI response: %w", err)
 	}
 	return "stub summary", nil
+
+	choices, ok := result["choices"].([]interface{})
+	if !ok || len(choices) == 0 {
+		log.Printf("OpenRouter response: %+v", result)
+		return "", fmt.Errorf("invalid response from AI provider: no choices")
+	}
+
+	choice, ok := choices[0].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid response from AI provider: malformed choice")
+	}
+
+	message, ok := choice["message"].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid response from AI provider: malformed message")
+	}
+
+	content, ok := message["content"].(string)
+	if !ok {
+		return "", fmt.Errorf("invalid response from AI provider: missing content")
+	}
+
+	return content, nil
 }
 
 // Rate Limiting Functions
@@ -517,4 +734,356 @@ func getEnvAsInt(key string, defaultValue int) int {
 		return defaultValue
 	}
 	return val
+}
+
+// Receipt Management Functions
+
+var (
+	receiptStoreMu         sync.RWMutex
+	receiptStore           = make(map[string]*receiptEntry)
+	receiptCleanupInterval = 5 * time.Minute
+)
+
+type receiptEntry struct {
+	receipt   *SignedReceipt
+	expiresAt time.Time
+}
+
+// startReceiptCleanup runs periodic cleanup in a single goroutine
+// This prevents goroutine leaks by using a single background worker
+// instead of spawning one goroutine per receipt
+func startReceiptCleanup(ctx context.Context) {
+	ticker := time.NewTicker(receiptCleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Receipt cleanup goroutine stopped")
+			return
+		case <-ticker.C:
+			cleanupExpiredReceipts()
+		}
+	}
+}
+
+// cleanupExpiredReceipts removes expired receipts from the store
+func cleanupExpiredReceipts() {
+	now := time.Now()
+	receiptStoreMu.Lock()
+	defer receiptStoreMu.Unlock()
+
+	count := 0
+	for id, entry := range receiptStore {
+		if now.After(entry.expiresAt) {
+			delete(receiptStore, id)
+			count++
+		}
+	}
+
+	if count > 0 {
+		log.Printf("Cleaned up %d expired receipts", count)
+	}
+}
+
+// storeReceipt stores a receipt with TTL
+// Returns error for future extensibility (Redis/Postgres implementations)
+func storeReceipt(receipt *SignedReceipt, ttl time.Duration) error {
+	// Validate receipt format before storage
+	if err := validateReceipt(receipt); err != nil {
+		return fmt.Errorf("invalid receipt format: %w", err)
+	}
+
+	receiptStoreMu.Lock()
+	defer receiptStoreMu.Unlock()
+
+	receiptStore[receipt.Receipt.ID] = &receiptEntry{
+		receipt:   receipt,
+		expiresAt: time.Now().Add(ttl),
+	}
+
+	return nil
+}
+
+// validateReceipt validates that a receipt has all required fields
+func validateReceipt(receipt *SignedReceipt) error {
+	if receipt == nil {
+		return fmt.Errorf("receipt is nil")
+	}
+
+	// Validate receipt fields
+	if receipt.Receipt.ID == "" {
+		return fmt.Errorf("receipt ID is empty")
+	}
+	if !strings.HasPrefix(receipt.Receipt.ID, "rcpt_") {
+		return fmt.Errorf("receipt ID must start with 'rcpt_'")
+	}
+	if receipt.Receipt.Version == "" {
+		return fmt.Errorf("receipt version is empty")
+	}
+	if receipt.Receipt.Timestamp.IsZero() {
+		return fmt.Errorf("receipt timestamp is zero")
+	}
+
+	// Validate payment details
+	if receipt.Receipt.Payment.Payer == "" {
+		return fmt.Errorf("payer address is empty")
+	}
+	if receipt.Receipt.Payment.Recipient == "" {
+		return fmt.Errorf("recipient address is empty")
+	}
+	if receipt.Receipt.Payment.Amount == "" {
+		return fmt.Errorf("payment amount is empty")
+	}
+	if receipt.Receipt.Payment.Token == "" {
+		return fmt.Errorf("token is empty")
+	}
+	if receipt.Receipt.Payment.Nonce == "" {
+		return fmt.Errorf("nonce is empty")
+	}
+
+	// Validate service details
+	if receipt.Receipt.Service.Endpoint == "" {
+		return fmt.Errorf("service endpoint is empty")
+	}
+	if receipt.Receipt.Service.RequestHash == "" {
+		return fmt.Errorf("request hash is empty")
+	}
+	if receipt.Receipt.Service.ResponseHash == "" {
+		return fmt.Errorf("response hash is empty")
+	}
+
+	// Validate signature
+	if receipt.Signature == "" {
+		return fmt.Errorf("signature is empty")
+	}
+	if !strings.HasPrefix(receipt.Signature, "0x") {
+		return fmt.Errorf("signature must start with '0x'")
+	}
+
+	// Validate server public key
+	if receipt.ServerPublicKey == "" {
+		return fmt.Errorf("server public key is empty")
+	}
+	if !strings.HasPrefix(receipt.ServerPublicKey, "0x") {
+		return fmt.Errorf("server public key must start with '0x'")
+	}
+
+	return nil
+}
+
+// getReceipt retrieves a receipt by ID
+func getReceipt(id string) (*SignedReceipt, bool) {
+	receiptStoreMu.RLock()
+	defer receiptStoreMu.RUnlock()
+
+	entry, exists := receiptStore[id]
+	if !exists {
+		return nil, false
+	}
+
+	// Check if expired
+	if time.Now().After(entry.expiresAt) {
+		return nil, false
+	}
+
+	return entry.receipt, true
+}
+
+// getReceiptTTL returns configured TTL or default 24h
+func getReceiptTTL() time.Duration {
+	ttlSeconds := getEnvAsInt("RECEIPT_TTL", 86400)
+	return time.Duration(ttlSeconds) * time.Second
+}
+
+// handleGetReceipt handles GET /api/receipts/:id
+func handleGetReceipt(c *gin.Context) {
+	id := c.Param("id")
+
+	receipt, exists := getReceipt(id)
+	if !exists {
+		c.JSON(404, gin.H{
+			"error":   "Receipt not found",
+			"message": "Receipt may have expired or never existed",
+		})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"receipt":           receipt.Receipt,
+		"signature":         receipt.Signature,
+		"server_public_key": receipt.ServerPublicKey,
+		"status":            "valid",
+	})
+}
+
+// Server private key management
+var (
+	serverPrivateKey     *ecdsa.PrivateKey
+	serverPrivateKeyOnce sync.Once
+	serverPrivateKeyErr  error
+)
+
+// getServerPrivateKey loads the server's private key (cached with sync.Once)
+// This prevents race conditions and ensures the key is loaded only once
+func getServerPrivateKey() (*ecdsa.PrivateKey, error) {
+	serverPrivateKeyOnce.Do(func() {
+		keyHex := os.Getenv("SERVER_WALLET_PRIVATE_KEY")
+		if keyHex == "" {
+			serverPrivateKeyErr = fmt.Errorf("SERVER_WALLET_PRIVATE_KEY not set")
+			return
+		}
+
+		// Remove 0x prefix if present
+		keyHex = strings.TrimPrefix(keyHex, "0x")
+
+		keyBytes, err := hex.DecodeString(keyHex)
+		if err != nil {
+			serverPrivateKeyErr = fmt.Errorf("invalid private key format: %w", err)
+			return
+		}
+
+		// Validate minimum key length to prevent trivially weak keys
+		// Keys shorter than 31 bytes are cryptographically insecure or malformed
+		if len(keyBytes) < 31 {
+			serverPrivateKeyErr = fmt.Errorf("private key too short: got %d bytes, expected at least 31 bytes", len(keyBytes))
+			return
+		}
+
+		// Left-pad to 32 bytes if necessary (handles keys with leading zeros like 0x0001...)
+		// Keys between 16-31 bytes are valid but need padding
+		if len(keyBytes) < 32 {
+			padded := make([]byte, 32)
+			copy(padded[32-len(keyBytes):], keyBytes)
+			keyBytes = padded
+		} else if len(keyBytes) > 32 {
+			serverPrivateKeyErr = fmt.Errorf("private key must be at most 32 bytes, got %d bytes", len(keyBytes))
+			return
+		}
+
+		privateKey, err := crypto.ToECDSA(keyBytes)
+		if err != nil {
+			serverPrivateKeyErr = fmt.Errorf("failed to parse private key: %w", err)
+			return
+		}
+
+		serverPrivateKey = privateKey
+		log.Println("Server private key loaded successfully")
+	})
+
+	return serverPrivateKey, serverPrivateKeyErr
+}
+
+// handleHealthz implements the liveness probe for the gateway service.
+// It returns a 200 OK status if the server is running and reachable.
+// Response format: {"status": "ok", "service": "gateway", "timestamp": <unix_time>}
+func handleHealthz(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "gateway", "timestamp": time.Now().Unix()})
+}
+
+// handleReadyz implements the readiness probe for the gateway service.
+// It performs a comprehensive health check by verifying:
+// 1. Connectivity to the Verifier service
+// 2. Availability of the OpenRouter API
+// 3. Self-health metrics (goroutine count, memory usage)
+// Returns 200 OK if all dependencies are healthy, otherwise 503 Service Unavailable.
+func handleReadyz(c *gin.Context) {
+	checks := make(map[string]interface{})
+
+	//1. check verifier connectivity
+	verifierStatus := checkVerifierHealth()
+	checks["verifier"] = verifierStatus
+
+	//2. Check OpenRouter availability
+	openRouterStatus := checkOpenRouterHealth()
+	checks["openrouter"] = openRouterStatus
+
+	//3. Self-health metrics
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	checks["gateway"] = gin.H{
+		"goroutines":      runtime.NumGoroutine(),
+		"memory_alloc_mb": memStats.Alloc / 1024 / 1024,
+		"memory_sys_mb":   memStats.Sys / 1024 / 1024,
+		"status":          "ok",
+	}
+	//Overall status logic
+	ready := verifierStatus == "ok" && openRouterStatus == "ok"
+
+	statusCode := http.StatusOK
+	if !ready {
+		statusCode = http.StatusServiceUnavailable
+	}
+	c.JSON(statusCode, gin.H{"ready": ready, "timestamp": time.Now().Unix(), "checks": checks})
+}
+
+// checkVerifierHealth pings the Verifier service's health endpoint.
+// It uses a 2-second timeout to prevent hanging.
+// Returns:
+// - "ok": Verifier is healthy (200 OK)
+// - "degraded": Verifier is reachable but returned non-200 status
+// - "unreachable": Verifier could not be contacted
+var checkVerifierHealth = func() string {
+	verifierURL := os.Getenv("VERIFIER_URL")
+	if verifierURL == "" {
+		verifierURL = "http://127.0.0.1:3002"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", verifierURL+"/health", nil)
+	if err != nil {
+		return "unreachable"
+	}
+	//req.Header.Set("Authorization", "Bearer "+apiKey)
+	resp, err := http.DefaultClient.Do(req)
+
+	if err != nil {
+		return "unreachable"
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "degraded"
+	}
+	return "ok"
+}
+
+// checkOpenRouterHealth checks the availability of the OpenRouter API.
+// It attempts to fetch the list of models with a 2-second timeout.
+// Returns:
+// - "ok": API is reachable (200 OK)
+// - "unconfigured": OPENROUTER_API_KEY is not set
+// - "degraded": API is reachable but returned non-200 status
+// - "unreachable": API could not be contacted
+var checkOpenRouterHealth = func() string {
+	apiKey := os.Getenv("OPENROUTER_API_KEY")
+	if apiKey == "" {
+		return "unconfigured"
+	}
+	baseURL := os.Getenv("OPENROUTER_URL")
+	if baseURL == "" {
+		baseURL = "https://openrouter.ai"
+	}
+	healthURL := strings.TrimSuffix(baseURL, "/") + "/api/v1/models"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, nil)
+	if err != nil {
+		return "unreachable"
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	resp, err := http.DefaultClient.Do(req)
+
+	if err != nil {
+		return "unreachable"
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "degraded"
+	}
+	return "ok"
 }
