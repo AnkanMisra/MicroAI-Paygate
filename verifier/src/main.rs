@@ -24,8 +24,19 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn health() -> &'static str {
-    "Rust Verifier OK"
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+    service: &'static str,
+    version: &'static str,
+}
+
+async fn health() -> Json<HealthResponse> {
+    Json(HealthResponse {
+        status: "healthy",
+        service: "verifier",
+        version: env!("CARGO_PKG_VERSION"),
+    })
 }
 
 #[derive(Deserialize, Debug)]
@@ -175,6 +186,15 @@ mod tests {
     use super::*;
     use ethers::signers::{LocalWallet, Signer};
     use ethers::types::transaction::eip712::TypedData;
+
+    #[tokio::test]
+    async fn test_health_endpoint() {
+        let Json(response) = health().await;
+        
+        assert_eq!(response.status, "healthy");
+        assert_eq!(response.service, "verifier");
+        assert_eq!(response.version, env!("CARGO_PKG_VERSION"));
+    }
 
     #[tokio::test]
     async fn test_verify_signature_valid() {
