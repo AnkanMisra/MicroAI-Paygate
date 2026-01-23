@@ -32,7 +32,7 @@ export default function Home() {
 
     try {
       // 1. Initial Request
-      let response = await fetch(`${process.env.NEXT_PUBLIC_GATEWAY_URL}/api/ai/summarize`, {
+      let response = await fetch(`${process.env.NEXT_PUBLIC_GATEWAY_URL||'http://localhost:3000'}/api/ai/summarize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: input }),
@@ -110,7 +110,7 @@ export default function Home() {
 
         // 4. Retry Request
         setStatus("Signature received. Retrying request...");
-        response = await fetch(`${process.env.NEXT_PUBLIC_GATEWAY_URL}/api/ai/summarize`, {
+        response = await fetch(`${process.env.NEXT_PUBLIC_GATEWAY_URL||'http://localhost:3000'}/api/ai/summarize`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
