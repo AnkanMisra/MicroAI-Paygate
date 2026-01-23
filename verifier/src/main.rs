@@ -31,12 +31,27 @@ struct HealthResponse {
     version: &'static str,
 }
 
-async fn health() -> Json<HealthResponse> {
-    Json(HealthResponse {
-        status: "healthy",
-        service: "verifier",
-        version: env!("CARGO_PKG_VERSION"),
-    })
+async fn health(headers: HeaderMap) -> (HeaderMap, Json<HealthResponse>) {
+    // Extract ID
+    let correlation_id = headers
+        .get("X-Correlation-ID")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+
+    // Prepare response header
+    let mut res_headers = HeaderMap::new();
+    if let Ok(header_value) = correlation_id.parse() {
+        res_headers.insert("X-Correlation-ID", header_value);
+    }
+
+    (
+        res_headers,
+        Json(HealthResponse {
+            status: "healthy",
+            service: "verifier",
+            version: env!("CARGO_PKG_VERSION"),
+        }),
+    )
 }
 
 #[derive(Deserialize, Debug)]
@@ -189,11 +204,25 @@ mod tests {
 
     #[tokio::test]
     async fn test_health_endpoint() {
-        let Json(response) = health().await;
-        
+        let (_headers, Json(response)) = health(HeaderMap::new()).await;
+
         assert_eq!(response.status, "healthy");
         assert_eq!(response.service, "verifier");
         assert_eq!(response.version, env!("CARGO_PKG_VERSION"));
+    }
+
+    #[tokio::test]
+    async fn test_health_endpoint_correlation_id() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Correlation-ID", "health-check-id".parse().unwrap());
+
+        let (res_headers, Json(response)) = health(headers).await;
+
+        assert_eq!(response.status, "healthy");
+
+        let response_id = res_headers.get("X-Correlation-ID");
+        assert!(response_id.is_some());
+        assert_eq!(response_id.unwrap().to_str().unwrap(), "health-check-id");
     }
 
     #[tokio::test]
