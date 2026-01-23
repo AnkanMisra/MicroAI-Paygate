@@ -55,7 +55,7 @@ curl http://localhost:3002/health
 {
   "status": "healthy",
   "service": "verifier",
-  "version": "0.1.0"
+  "version": "<cargo pkg version>"
 }
 ```
 

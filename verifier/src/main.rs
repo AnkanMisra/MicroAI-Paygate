@@ -31,18 +31,23 @@ struct HealthResponse {
     version: &'static str,
 }
 
-async fn health(headers: HeaderMap) -> (HeaderMap, Json<HealthResponse>) {
-    // Extract ID
+fn correlation_id_headers(headers: &HeaderMap) -> (String, HeaderMap) {
+    // Extract correlation ID
     let correlation_id = headers
         .get("X-Correlation-ID")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown");
 
-    // Prepare response header
     let mut res_headers = HeaderMap::new();
     if let Ok(header_value) = correlation_id.parse() {
         res_headers.insert("X-Correlation-ID", header_value);
     }
+
+    (correlation_id.to_string(), res_headers)
+}
+
+async fn health(headers: HeaderMap) -> (HeaderMap, Json<HealthResponse>) {
+    let (_correlation_id, res_headers) = correlation_id_headers(&headers);
 
     (
         res_headers,
@@ -81,17 +86,7 @@ async fn verify_signature(
     headers: HeaderMap,
     Json(payload): Json<VerifyRequest>,
 ) -> (StatusCode, HeaderMap, Json<VerifyResponse>) {
-    // Extract ID
-    let correlation_id = headers
-        .get("X-Correlation-ID")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown");
-
-    // Prepare response header
-    let mut res_headers = HeaderMap::new();
-    if let Ok(header_value) = correlation_id.parse() {
-        res_headers.insert("X-Correlation-ID", header_value);
-    }
+    let (correlation_id, res_headers) = correlation_id_headers(&headers);
 
     println!(
         "[CorrelationID: {}] Received verification request for nonce: {}",
