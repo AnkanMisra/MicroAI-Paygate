@@ -23,12 +23,16 @@ import (
 	"sync"
 	"time"
 
+	"gateway/middleware"
+
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 )
+
+/* -------------------- Types -------------------- */
 
 type PaymentContext struct {
 	Recipient string `json:"recipient"`
@@ -53,6 +57,10 @@ type SummarizeRequest struct {
 	Text string `json:"text"`
 }
 
+/* -------------------- Main -------------------- */
+
+func main() {
+	_ = godotenv.Load("../.env")
 func validateConfig() error {
 	required := []string{
 		"OPENROUTER_API_KEY",
@@ -112,6 +120,14 @@ func main() {
 		fmt.Println("[WARN] CHAIN_ID not set, using default: 8453(base)")
 	}
 
+	// Init structured logging
+	middleware.InitLogger()
+
+	r := gin.New()
+	r.Use(
+		gin.Recovery(),
+		middleware.RequestLogger(),
+	)
 	r := gin.Default()
 
 	// VIBE FIX: Register the Correlation ID Middleware immediately
@@ -211,6 +227,15 @@ func main() {
 	r.Run(":" + port)
 }
 
+/* -------------------- Handlers -------------------- */
+
+func handleHealth(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "ok",
+		"service": "gateway",
+	})
+}
+
 // handleSummarize handles POST /api/ai/summarize requests. It validates
 // payment headers, calls the verifier service to validate the signature, and
 // forwards the text to the AI service. The handler respects context timeouts
@@ -225,6 +250,14 @@ func handleSummarize(c *gin.Context) {
 	signature := c.GetHeader("X-402-Signature")
 	nonce := c.GetHeader("X-402-Nonce")
 
+	if signature == "" || nonce == "" {
+		c.Set("payment_verified", false)
+
+		ctx := createPaymentContext()
+		c.JSON(402, gin.H{
+			"error":          "Payment Required",
+			"paymentContext": ctx,
+		paymentContext := createPaymentContext()
 	// Basic check
 	if signature == "" || nonce == "" {
 		c.JSON(402, gin.H{
@@ -235,6 +268,22 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
+	verifyReq := VerifyRequest{
+		Context: PaymentContext{
+			Recipient: getRecipientAddress(),
+			Token:     "USDC",
+			Amount:    getPaymentAmount(),
+			Nonce:     nonce,
+			ChainID:   getChainID(),
+		},
+		Signature: signature,
+	}
+
+	body, _ := json.Marshal(verifyReq)
+	resp, err := http.Post("http://127.0.0.1:3002/verify", "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		c.JSON(500, gin.H{"error": "verifier unavailable"})
+	// 2. Verify Payment (Call Rust Service)
 	// Check if body already read by middleware
 	if body, exists := c.Get("request_body"); exists {
 		// Cache middleware always sets this as []byte, safe to assert
@@ -362,6 +411,21 @@ func verifyPayment(ctx context.Context, signature, nonce string) (*VerifyRespons
 	}
 
 	var verifyResp VerifyResponse
+	_ = json.NewDecoder(resp.Body).Decode(&verifyResp)
+
+	if !verifyResp.IsValid {
+		c.Set("payment_verified", false)
+		c.JSON(403, gin.H{"error": "invalid signature"})
+		return
+	}
+
+	c.Set("payment_verified", true)
+	c.Set("user_wallet", verifyResp.RecoveredAddress)
+
+	var req SummarizeRequest
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid body"})
+		return
 	if err := json.NewDecoder(resp.Body).Decode(&verifyResp); err != nil {
 		return nil, nil, fmt.Errorf("decode verification response: %w", err)
 	}
@@ -397,6 +461,14 @@ func generateAndSendReceipt(c *gin.Context, paymentCtx PaymentContext, recovered
 
 	receiptJSON, err := json.Marshal(receipt)
 	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		// If the error was due to a timeout, return 504
+		if errors.Is(err, context.DeadlineExceeded) || c.Request.Context().Err() == context.DeadlineExceeded {
+			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "AI request timed out"})
+			return
+		}
+		c.JSON(500, gin.H{"error": "AI Service Failed", "details": err.Error()})
+		return
 		c.JSON(500, gin.H{"error": "Failed to encode receipt"})
 		return err
 	}
@@ -408,7 +480,8 @@ func generateAndSendReceipt(c *gin.Context, paymentCtx PaymentContext, recovered
 	return nil
 }
 
-// createPaymentContext constructs a PaymentContext prefilled with the recipient address (from RECIPIENT_ADDRESS or a fallback), the USDC token, amount "0.001", a newly generated UUID nonce, and chain ID 8453.
+/* -------------------- Helpers -------------------- */
+
 func createPaymentContext() PaymentContext {
 	return PaymentContext{
 		Recipient: getRecipientAddress(),
@@ -419,42 +492,37 @@ func createPaymentContext() PaymentContext {
 	}
 }
 
-// getRecipientAddress retrieves the recipient address from the RECIPIENT_ADDRESS environment variable.
-// If RECIPIENT_ADDRESS is unset, it logs a warning and returns the default address "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219".
 func getRecipientAddress() string {
 	addr := os.Getenv("RECIPIENT_ADDRESS")
 	if addr == "" {
-		log.Println("Warning: RECIPIENT_ADDRESS not set, using default")
 		return "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219"
 	}
 	return addr
 }
 
-// getPaymentAmount returns the payment amount from the PAYMENT_AMOUNT environment variable.
-// If unset, it defaults to "0.001".
 func getPaymentAmount() string {
-	amount := os.Getenv("PAYMENT_AMOUNT")
-	if amount == "" {
+	a := os.Getenv("PAYMENT_AMOUNT")
+	if a == "" {
 		return "0.001"
 	}
-	return amount
+	return a
 }
 
-// getChainID returns the blockchain chain ID from the CHAIN_ID environment variable.
-// If unset or invalid, it defaults to 8453 (Base).
 func getChainID() int {
-	chainIDStr := os.Getenv("CHAIN_ID")
-	if chainIDStr == "" {
+	id := os.Getenv("CHAIN_ID")
+	if id == "" {
 		return 8453
 	}
-	chainID, err := strconv.Atoi(chainIDStr)
+	n, err := strconv.Atoi(id)
 	if err != nil {
-		log.Printf("Warning: Invalid CHAIN_ID '%s', using default 8453", chainIDStr)
 		return 8453
 	}
-	return chainID
+	return n
 }
 
+func callOpenRouter(text string) (string, error) {
+	if text == "" {
+		return "", fmt.Errorf("empty text")
 // callOpenRouter sends the given text to the OpenRouter chat completions API
 // requesting a two-sentence summary and returns the generated summary.
 // It reads OPENROUTER_API_KEY for authorization and OPENROUTER_MODEL to select
@@ -506,6 +574,7 @@ func callOpenRouter(ctx context.Context, text string) (string, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", fmt.Errorf("failed to decode AI response: %w", err)
 	}
+	return "stub summary", nil
 
 	choices, ok := result["choices"].([]interface{})
 	if !ok || len(choices) == 0 {
