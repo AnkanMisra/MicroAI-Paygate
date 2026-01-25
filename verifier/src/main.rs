@@ -54,13 +54,44 @@ struct VerifyResponse {
 async fn verify_signature(
     Json(payload): Json<VerifyRequest>,
 ) -> (StatusCode, Json<VerifyResponse>) {
+
+    // Correlation ID support (optional, for header propagation)
+    let correlation_id = None;
     println!(
         "Received verification request for nonce: {}",
         payload.context.nonce
     );
+
+    // Timestamp validation (preserve feature branch logic)
+    if let Err(err) = validate_timestamp(payload.context.timestamp) {
+        let error_message = match err {
+            VerifyError::SignatureExpired {
+                age_seconds,
+                max_seconds,
+            } => format!(
+                "E007: Signature expired (age={}s, max={}s)",
+                age_seconds, max_seconds
+            ),
+            VerifyError::FutureTimestamp { timestamp, now } => format!(
+                "E008: Future timestamp (timestamp={}, now={})",
+                timestamp, now
+            ),
+            VerifyError::MissingTimestamp => "E009: Missing timestamp field".to_string(),
+        };
+
+        return (
+            StatusCode::OK,
+            Json(VerifyResponse {
+                is_valid: false,
+                recovered_address: None,
+                error: Some(error_message),
+            }),
+        );
+    }
     // Construct the EIP-712 Typed Data
     // Note: In a real production app, we should use the proper EIP-712 struct definitions with ethers-rs macros.
     // For this MVP, we will manually reconstruct the domain and types to match the frontend.
+
     // Domain
     let domain = serde_json::json!({
         "name": "MicroAI Paygate",
@@ -75,7 +106,8 @@ async fn verify_signature(
             { "name": "recipient", "type": "address" },
             { "name": "token", "type": "string" },
             { "name": "amount", "type": "string" },
-            { "name": "nonce", "type": "string" }
+            { "name": "nonce", "type": "string" },
+            { "name": "timestamp", "type": "uint256" }
         ]
     });
 
@@ -84,7 +116,8 @@ async fn verify_signature(
         "recipient": payload.context.recipient,
         "token": payload.context.token,
         "amount": payload.context.amount,
-        "nonce": payload.context.nonce
+        "nonce": payload.context.nonce,
+        "timestamp": payload.context.timestamp
     });
 
     let typed_data = serde_json::json!({
