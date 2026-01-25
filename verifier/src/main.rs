@@ -110,11 +110,18 @@ fn validate_timestamp(timestamp: Option<u64>) -> Result<(), VerifyError> {
 async fn verify_signature(
     Json(payload): Json<VerifyRequest>,
 ) -> (StatusCode, Json<VerifyResponse>) {
+
+    // Correlation ID support (optional, for header propagation)
+    let correlation_id = None;
     println!(
         "Received verification request for nonce: {}",
         payload.context.nonce
     );
 
+<<<<<<< HEAD
+=======
+    // Timestamp validation (preserve feature branch logic)
+>>>>>>> main
     if let Err(err) = validate_timestamp(payload.context.timestamp) {
         let error_message = match err {
             VerifyError::SignatureExpired {
@@ -143,6 +150,7 @@ async fn verify_signature(
     // Construct the EIP-712 Typed Data
     // Note: In a real production app, we should use the proper EIP-712 struct definitions with ethers-rs macros.
     // For this MVP, we will manually reconstruct the domain and types to match the frontend.
+
     // Domain
     let domain = serde_json::json!({
         "name": "MicroAI Paygate",
