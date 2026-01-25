@@ -1,6 +1,6 @@
 use axum::{
     extract::Json,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
     Router,
 };
@@ -25,8 +25,17 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn health() -> &'static str {
-    "Rust Verifier OK"
+async fn health(headers: HeaderMap) -> (HeaderMap, Json<HealthResponse>) {
+    let (_correlation_id, res_headers) = correlation_id_headers(&headers);
+
+    (
+        res_headers,
+        Json(HealthResponse {
+            status: "healthy",
+            service: "verifier",
+            version: env!("CARGO_PKG_VERSION"),
+        }),
+    )
 }
 
 #[derive(Deserialize, Debug)]
@@ -51,6 +60,28 @@ struct VerifyResponse {
     is_valid: bool,
     recovered_address: Option<String>,
     error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+    service: &'static str,
+    version: &'static str,
+}
+
+fn correlation_id_headers(headers: &HeaderMap) -> (String, HeaderMap) {
+    // Extract correlation ID
+    let correlation_id = headers
+        .get("X-Correlation-ID")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+
+    let mut res_headers = HeaderMap::new();
+    if let Ok(header_value) = correlation_id.parse() {
+        res_headers.insert("X-Correlation-ID", header_value);
+    }
+
+    (correlation_id.to_string(), res_headers)
 }
 
 #[derive(Debug)]
@@ -106,15 +137,18 @@ fn validate_timestamp(timestamp: Option<u64>) -> Result<(), VerifyError> {
 }
 
 async fn verify_signature(
+    headers: HeaderMap,
     Json(payload): Json<VerifyRequest>,
-) -> (StatusCode, Json<VerifyResponse>) {
+) -> (StatusCode, HeaderMap, Json<VerifyResponse>) {
+    // Correlation ID propagation
+    let (correlation_id, res_headers) = correlation_id_headers(&headers);
 
     println!(
-        "Received verification request for nonce: {}",
-        payload.context.nonce
+        "[CorrelationID: {}] Received verification request for nonce: {}",
+        correlation_id, payload.context.nonce
     );
 
-    // ✅ Timestamp validation (resolved conflict)
+    // Timestamp validation (HARD security gate)
     if let Err(err) = validate_timestamp(payload.context.timestamp) {
         let error_message = match err {
             VerifyError::SignatureExpired {
@@ -133,6 +167,7 @@ async fn verify_signature(
 
         return (
             StatusCode::OK,
+            res_headers,
             Json(VerifyResponse {
                 is_valid: false,
                 recovered_address: None,
@@ -141,6 +176,9 @@ async fn verify_signature(
         );
     }
 
+    // -------------------------------
+    // Reconstruct EIP-712 Typed Data
+    // -------------------------------
     let domain = serde_json::json!({
         "name": "MicroAI Paygate",
         "version": "1",
@@ -178,12 +216,13 @@ async fn verify_signature(
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
+                res_headers,
                 Json(VerifyResponse {
                     is_valid: false,
                     recovered_address: None,
                     error: Some(format!("Failed to build typed data: {}", e)),
                 }),
-            )
+            );
         }
     };
 
@@ -192,32 +231,51 @@ async fn verify_signature(
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
+                res_headers,
                 Json(VerifyResponse {
                     is_valid: false,
                     recovered_address: None,
                     error: Some(format!("Invalid signature format: {}", e)),
                 }),
-            )
+            );
         }
     };
 
+    // -------------------------------
+    // Final verification
+    // -------------------------------
     match signature.recover_typed_data(&typed_data) {
-        Ok(address) => (
-            StatusCode::OK,
-            Json(VerifyResponse {
-                is_valid: true,
-                recovered_address: Some(format!("{:?}", address)),
-                error: None,
-            }),
-        ),
-        Err(e) => (
-            StatusCode::OK,
-            Json(VerifyResponse {
-                is_valid: false,
-                recovered_address: None,
-                error: Some(format!("Verification failed: {}", e)),
-            }),
-        ),
+        Ok(address) => {
+            println!(
+                "[CorrelationID: {}] Signature valid! Recovered: {:?}",
+                correlation_id, address
+            );
+            (
+                StatusCode::OK,
+                res_headers,
+                Json(VerifyResponse {
+                    is_valid: true,
+                    recovered_address: Some(format!("{:?}", address)),
+                    error: None,
+                }),
+            )
+        }
+        Err(e) => {
+            println!(
+                "[CorrelationID: {}] Verification failed: {}",
+                correlation_id, e
+            );
+            (
+                StatusCode::OK,
+                res_headers,
+                Json(VerifyResponse {
+                    is_valid: false,
+                    recovered_address: None,
+                    error: Some(format!("Verification failed: {}", e)),
+                }),
+            )
+        }
+    }
     }
 }
 
@@ -225,6 +283,15 @@ async fn verify_signature(
 mod tests {
     use super::*;
     use ethers::signers::{LocalWallet, Signer};
+
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn current_timestamp() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    }
 
     #[tokio::test]
     async fn test_verify_signature_valid() {
@@ -262,7 +329,7 @@ mod tests {
                 "token": "USDC",
                 "amount": "100",
                 "nonce": "unique-nonce-123",
-                "timestamp": 1_700_000_000u64
+                "timestamp": current_timestamp()
             }
         });
 
@@ -277,7 +344,7 @@ mod tests {
                 amount: "100".to_string(),
                 nonce: "unique-nonce-123".to_string(),
                 chain_id: 1,
-                timestamp: Some(1_700_000_000u64),
+                timestamp: Some(current_timestamp()),
             },
             signature: signature_str,
         };
@@ -285,5 +352,115 @@ mod tests {
         let (status, Json(response)) = verify_signature(Json(req)).await;
         assert_eq!(status, StatusCode::OK);
         assert!(response.is_valid);
+<<<<<<< HEAD
+=======
+        assert_eq!(response.error, None);
+    }
+
+    #[tokio::test]
+    async fn test_verify_signature_invalid() {
+        let req = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234...".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "nonce".to_string(),
+                chain_id: 1,
+                timestamp: Some(1_700_000_000u64),
+            },
+            signature: "0x1234567890".to_string(),
+        };
+
+        let (status, _) = verify_signature(Json(req)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_validate_timestamp_within_window() {
+        let req = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234...".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "valid-nonce".to_string(),
+                chain_id: 1,
+                timestamp: Some(current_timestamp()),
+            },
+            signature: "0x1234567890".to_string(),
+        };
+
+        let (status, _, Json(response)) =
+            verify_signature(HeaderMap::new(), Json(req)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(response.is_valid);
+    }
+
+    #[tokio::test]
+    async fn test_validate_timestamp_expired() {
+        let expired_ts = current_timestamp() - 1000;
+
+        let req = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234...".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "expired-nonce".to_string(),
+                chain_id: 1,
+                timestamp: Some(expired_ts),
+            },
+            signature: "0x1234567890".to_string(),
+        };
+
+        let (status, _, Json(response)) =
+            verify_signature(HeaderMap::new(), Json(req)).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(!response.is_valid);
+    }
+
+    #[tokio::test]
+    async fn test_validate_timestamp_future() {
+        let future_ts = current_timestamp() + 1000;
+
+        let req = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234...".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "future-nonce".to_string(),
+                chain_id: 1,
+                timestamp: Some(future_ts),
+            },
+            signature: "0x1234567890".to_string(),
+        };
+
+        let (status, _, Json(response)) =
+            verify_signature(HeaderMap::new(), Json(req)).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(!response.is_valid);
+    }
+
+    #[tokio::test]
+    async fn test_validate_timestamp_missing() {
+        let req = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234...".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "missing-ts".to_string(),
+                chain_id: 1,
+                timestamp: None,
+            },
+            signature: "0x1234567890".to_string(),
+        };
+
+        let (status, _, Json(response)) =
+            verify_signature(HeaderMap::new(), Json(req)).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(!response.is_valid);
+>>>>>>> 836a2de (Implement Greptile suggestions: dynamic timestamp in tests, add timestamp validation tests, and fix health endpoint duplication)
     }
 }
