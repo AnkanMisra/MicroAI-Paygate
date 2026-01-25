@@ -2,7 +2,18 @@ name: Rust Lint
 
 on:
   pull_request:
+    paths:
+      - 'verifier/**'
+      - '.github/workflows/rust-lint.yml'
   push:
+    branches: [main]
+    paths:
+      - 'verifier/**'
+      - '.github/workflows/rust-lint.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   rust-lint:

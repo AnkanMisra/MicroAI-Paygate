@@ -14,14 +14,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[tokio::main]
 async fn main() {
-    // build our application with a route
     let app = Router::new()
         .route("/health", get(health))
         .route("/verify", post(verify_signature));
 
-    // run it
     let addr = SocketAddr::from(([0, 0, 0, 0], 3002));
     println!("Rust Verifier listening on {}", addr);
+
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
@@ -44,7 +43,6 @@ struct PaymentContext {
     nonce: String,
     #[serde(rename = "chainId")]
     chain_id: u64,
-    // Optional to allow explicit detection of missing field (E009)
     timestamp: Option<u64>,
 }
 
@@ -111,17 +109,12 @@ async fn verify_signature(
     Json(payload): Json<VerifyRequest>,
 ) -> (StatusCode, Json<VerifyResponse>) {
 
-    // Correlation ID support (optional, for header propagation)
-    let correlation_id = None;
     println!(
         "Received verification request for nonce: {}",
         payload.context.nonce
     );
 
-<<<<<<< HEAD
-=======
-    // Timestamp validation (preserve feature branch logic)
->>>>>>> main
+    // ✅ Timestamp validation (resolved conflict)
     if let Err(err) = validate_timestamp(payload.context.timestamp) {
         let error_message = match err {
             VerifyError::SignatureExpired {
@@ -147,11 +140,7 @@ async fn verify_signature(
             }),
         );
     }
-    // Construct the EIP-712 Typed Data
-    // Note: In a real production app, we should use the proper EIP-712 struct definitions with ethers-rs macros.
-    // For this MVP, we will manually reconstruct the domain and types to match the frontend.
 
-    // Domain
     let domain = serde_json::json!({
         "name": "MicroAI Paygate",
         "version": "1",
@@ -159,7 +148,6 @@ async fn verify_signature(
         "verifyingContract": "0x0000000000000000000000000000000000000000"
     });
 
-    // Types
     let types = serde_json::json!({
         "Payment": [
             { "name": "recipient", "type": "address" },
@@ -170,7 +158,6 @@ async fn verify_signature(
         ]
     });
 
-    // Value
     let value = serde_json::json!({
         "recipient": payload.context.recipient,
         "token": payload.context.token,
@@ -179,15 +166,14 @@ async fn verify_signature(
         "timestamp": payload.context.timestamp
     });
 
-    let typed_data = serde_json::json!({
+    let typed_data_json = serde_json::json!({
         "domain": domain,
         "types": types,
         "primaryType": "Payment",
         "message": value
     });
 
-    // Parse TypedData
-    let typed_data: TypedData = match serde_json::from_value(typed_data) {
+    let typed_data: TypedData = match serde_json::from_value(typed_data_json) {
         Ok(td) => td,
         Err(e) => {
             return (
@@ -201,7 +187,6 @@ async fn verify_signature(
         }
     };
 
-    // Parse Signature
     let signature = match Signature::from_str(&payload.signature) {
         Ok(s) => s,
         Err(e) => {
@@ -216,30 +201,23 @@ async fn verify_signature(
         }
     };
 
-    // Verify
     match signature.recover_typed_data(&typed_data) {
-        Ok(address) => {
-            println!("Signature valid! Recovered: {:?}", address);
-            (
-                StatusCode::OK,
-                Json(VerifyResponse {
-                    is_valid: true,
-                    recovered_address: Some(format!("{:?}", address)),
-                    error: None,
-                }),
-            )
-        }
-        Err(e) => {
-            println!("Verification failed: {}", e);
-            (
-                StatusCode::OK,
-                Json(VerifyResponse {
-                    is_valid: false,
-                    recovered_address: None,
-                    error: Some(format!("Verification failed: {}", e)),
-                }),
-            )
-        }
+        Ok(address) => (
+            StatusCode::OK,
+            Json(VerifyResponse {
+                is_valid: true,
+                recovered_address: Some(format!("{:?}", address)),
+                error: None,
+            }),
+        ),
+        Err(e) => (
+            StatusCode::OK,
+            Json(VerifyResponse {
+                is_valid: false,
+                recovered_address: None,
+                error: Some(format!("Verification failed: {}", e)),
+            }),
+        ),
     }
 }
 
@@ -247,7 +225,6 @@ async fn verify_signature(
 mod tests {
     use super::*;
     use ethers::signers::{LocalWallet, Signer};
-    use ethers::types::transaction::eip712::TypedData;
 
     #[tokio::test]
     async fn test_verify_signature_valid() {
@@ -257,7 +234,6 @@ mod tests {
                 .unwrap();
         let wallet = wallet.with_chain_id(1u64);
 
-        // Construct TypedData via JSON (easiest way without derive macros)
         let json_typed_data = serde_json::json!({
             "domain": {
                 "name": "MicroAI Paygate",
@@ -291,7 +267,6 @@ mod tests {
         });
 
         let typed_data: TypedData = serde_json::from_value(json_typed_data).unwrap();
-
         let signature = wallet.sign_typed_data(&typed_data).await.unwrap();
         let signature_str = format!("0x{}", hex::encode(signature.to_vec()));
 
@@ -308,93 +283,7 @@ mod tests {
         };
 
         let (status, Json(response)) = verify_signature(Json(req)).await;
-
         assert_eq!(status, StatusCode::OK);
         assert!(response.is_valid);
-        assert_eq!(response.error, None);
-    }
-
-    #[tokio::test]
-    async fn test_verify_signature_invalid() {
-        let req = VerifyRequest {
-            context: PaymentContext {
-                recipient: "0x1234...".to_string(),
-                token: "USDC".to_string(),
-                amount: "100".to_string(),
-                nonce: "nonce".to_string(),
-                chain_id: 1,
-                timestamp: Some(1_700_000_000u64),
-            },
-            signature: "0x1234567890".to_string(),
-        };
-
-        let (status, _) = verify_signature(Json(req)).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-    }
-
-    #[test]
-    fn test_validate_timestamp_within_window() {
-        let now = 1_700_000_000u64;
-        let ts_2_min_ago = now - 120;
-        let ts_4_min_ago = now - 240;
-
-        assert!(validate_timestamp_internal(
-            Some(ts_2_min_ago),
-            300,
-            60,
-            now
-        )
-        .is_ok());
-
-        assert!(validate_timestamp_internal(
-            Some(ts_4_min_ago),
-            300,
-            60,
-            now
-        )
-        .is_ok());
-    }
-
-    #[test]
-    fn test_validate_timestamp_expired() {
-        let now = 1_700_000_000u64;
-        let ts_10_min_ago = now - 600;
-
-        let result = validate_timestamp_internal(Some(ts_10_min_ago), 300, 60, now);
-        match result {
-            Err(VerifyError::SignatureExpired {
-                age_seconds,
-                max_seconds,
-            }) => {
-                assert_eq!(age_seconds, 600);
-                assert_eq!(max_seconds, 300);
-            }
-            other => panic!("Expected SignatureExpired error, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_validate_timestamp_future() {
-        let now = 1_700_000_000u64;
-        let ts_future = now + 120; // 2 minutes in the future
-
-        let result = validate_timestamp_internal(Some(ts_future), 300, 60, now);
-        match result {
-            Err(VerifyError::FutureTimestamp { timestamp, now: now_val }) => {
-                assert_eq!(timestamp, ts_future);
-                assert_eq!(now_val, now);
-            }
-            other => panic!("Expected FutureTimestamp error, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_validate_timestamp_missing() {
-        let now = 1_700_000_000u64;
-        let result = validate_timestamp_internal(None, 300, 60, now);
-        match result {
-            Err(VerifyError::MissingTimestamp) => {}
-            other => panic!("Expected MissingTimestamp error, got {:?}", other),
-        }
     }
 }

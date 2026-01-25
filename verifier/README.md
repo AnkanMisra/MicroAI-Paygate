@@ -42,10 +42,30 @@ Current implementation has no required env vars. It uses hardcoded EIP-712 domai
 
 If you change domain parameters in the gateway/frontend, update them here to stay in sync.
 
-## Health and Verification
+## API Endpoints
 
-- Health: `curl http://localhost:3002/health`
-- Verify: `curl -X POST http://localhost:3002/verify -H "Content-Type: application/json" -d '{"context":{...},"signature":"0x..."}'`
+### Health Check
+
+```bash
+curl http://localhost:3002/health
+```
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "service": "verifier",
+  "version": "<cargo pkg version>"
+}
+```
+
+The health endpoint returns the service status, name, and current version from Cargo.toml. Use this endpoint to verify the verifier is running and to detect if the service is down.
+
+### Signature Verification
+
+```bash
+curl -X POST http://localhost:3002/verify -H "Content-Type: application/json" -d '{"context":{...},"signature":"0x..."}'
+```
 
 ## Testing
 
