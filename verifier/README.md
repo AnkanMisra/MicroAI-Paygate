@@ -67,8 +67,45 @@ The health endpoint returns the service status, name, and current version from C
 curl -X POST http://localhost:3002/verify -H "Content-Type: application/json" -d '{"context":{...},"signature":"0x..."}'
 ```
 
+## Error Codes Reference
+
+The verifier returns structured error responses with specific error codes for debugging:
+
+| Code | Message | Details |
+|------|---------|---------|
+| E001 | Missing signature | No signature provided in request |
+| E002 | Malformed signature | Invalid hex format or wrong length |
+| E003 | Recovery failed | ECDSA recovery operation failed |
+| E004 | Address mismatch | Recovered address doesn't match expected address |
+| E005 | Invalid message | Message format or typed data construction failed |
+| E006 | Nonce reused | Duplicate nonce detected (replay attack prevention) |
+
+### Error Response Format
+
+All errors are returned as structured JSON:
+
+```json
+{
+  "is_valid": false,
+  "recovered_address": null,
+  "error": {
+    "code": "E001",
+    "message": "Missing signature",
+    "details": "No X-402-Signature header provided"
+  }
+}
+```
+
 ## Testing
 
 ```bash
 cargo test
 ```
+
+All error codes are covered by unit tests. Run tests to verify each error path:
+
+- `test_error_e001_missing_signature` - E001 error code
+- `test_error_e002_malformed_signature` - E002 error code
+- `test_error_e003_recovery_failed` - E003 error code
+- `test_error_e006_nonce_reused` - E006 error code
+- `test_verify_signature_valid` - Successful verification
