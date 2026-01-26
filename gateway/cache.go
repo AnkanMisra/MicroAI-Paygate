@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"strconv"
 )
 
 // CachedResponse represents the data stored in Redis
@@ -113,7 +114,15 @@ func CacheMiddleware() gin.HandlerFunc {
 
 			// Cache HIT! -> Verify Payment *BEFORE* serving
 			// verifyPayment creates its own timeout context, so pass request context directly
-			verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce)
+			timestampStr := c.GetHeader("X-402-Timestamp")
+			var timestamp uint64
+			if timestampStr != "" {
+				t, err := strconv.ParseUint(timestampStr, 10, 64)
+				if err == nil {
+					timestamp = t
+				}
+			}
+			verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, timestamp)
 			if err != nil {
 				log.Printf("Verification error on cache hit: %v", err)
 				if errors.Is(err, context.DeadlineExceeded) {
