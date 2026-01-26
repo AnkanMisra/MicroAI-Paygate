@@ -154,19 +154,18 @@ async fn verify_signature(
 ) -> (StatusCode, HeaderMap, Json<VerifyResponse>) {
     let (cid, res_headers) = correlation_id_headers(&headers);
 
-    println!(
-        "[CID: {}] Verify nonce={}",
-        cid, payload.context.nonce
-    );
+    println!("[CID: {}] Verify nonce={}", cid, payload.context.nonce);
 
     if let Err(err) = validate_timestamp(payload.context.timestamp) {
         let msg = match err {
-            VerifyError::SignatureExpired { age_seconds, max_seconds } =>
-                format!("E007: expired (age={} max={})", age_seconds, max_seconds),
-            VerifyError::FutureTimestamp { timestamp, now } =>
-                format!("E008: future ts={} now={}", timestamp, now),
-            VerifyError::MissingTimestamp =>
-                "E009: missing timestamp".to_string(),
+            VerifyError::SignatureExpired {
+                age_seconds,
+                max_seconds,
+            } => format!("E007: expired (age={} max={})", age_seconds, max_seconds),
+            VerifyError::FutureTimestamp { timestamp, now } => {
+                format!("E008: future ts={} now={}", timestamp, now)
+            }
+            VerifyError::MissingTimestamp => "E009: missing timestamp".to_string(),
         };
 
         return (
@@ -336,8 +335,7 @@ mod tests {
             signature: format!("0x{}", hex::encode(sig.to_vec())),
         };
 
-        let (status, _, Json(resp)) =
-            verify_signature(HeaderMap::new(), Json(req)).await;
+        let (status, _, Json(resp)) = verify_signature(HeaderMap::new(), Json(req)).await;
 
         assert_eq!(status, StatusCode::OK);
         assert!(resp.is_valid);
