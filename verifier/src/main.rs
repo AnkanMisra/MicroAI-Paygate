@@ -294,6 +294,7 @@ mod tests {
 
         let wallet = wallet.with_chain_id(1u64);
 
+        let ts = now();
         let typed = serde_json::json!({
             "domain": {
                 "name": "MicroAI Paygate",
@@ -316,7 +317,7 @@ mod tests {
                 "token": "USDC",
                 "amount": "100",
                 "nonce": "nonce-1",
-                "timestamp": now()
+                "timestamp": ts
             }
         });
 
@@ -330,7 +331,7 @@ mod tests {
                 amount: "100".into(),
                 nonce: "nonce-1".into(),
                 chain_id: 1,
-                timestamp: Some(now()),
+                timestamp: Some(ts),
             },
             signature: format!("0x{}", hex::encode(sig.to_vec())),
         };
