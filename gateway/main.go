@@ -299,8 +299,10 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	if !verifyResp.IsValid {
-		// If the error is due to timestamp, return 400, else 403 for signature
-		if verifyResp.Error != "" && strings.Contains(verifyResp.Error, "timestamp") {
+		// Check for timestamp-related errors (E007, E008, E009)
+		if strings.HasPrefix(verifyResp.Error, "E007") ||
+			strings.HasPrefix(verifyResp.Error, "E008") ||
+			strings.HasPrefix(verifyResp.Error, "E009") {
 			c.JSON(400, gin.H{"error": "Invalid timestamp", "details": verifyResp.Error})
 		} else {
 			c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
