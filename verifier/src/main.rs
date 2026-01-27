@@ -275,7 +275,8 @@ mod tests {
 
     #[test]
     fn test_timestamp_valid() {
-        assert!(validate_timestamp_internal(Some(now()), 300, 60, now()).is_ok());
+        let n = now();
+        assert!(validate_timestamp_internal(Some(n), 300, 60, n).is_ok());
     }
 
     #[test]
