@@ -286,6 +286,42 @@ mod tests {
         assert!(matches!(res, Err(VerifyError::SignatureExpired { .. })));
     }
 
+    #[test]
+    fn test_timestamp_future() {
+        let n = now();
+        // Timestamp 120 seconds in the future (beyond 60s clock skew grace)
+        let res = validate_timestamp_internal(Some(n + 120), 300, 60, n);
+        assert!(matches!(res, Err(VerifyError::FutureTimestamp { .. })));
+    }
+
+    #[test]
+    fn test_timestamp_missing() {
+        let n = now();
+        // No timestamp provided
+        let res = validate_timestamp_internal(None, 300, 60, n);
+        assert!(matches!(res, Err(VerifyError::MissingTimestamp)));
+    }
+
+    #[test]
+    fn test_timestamp_within_clock_skew() {
+        let n = now();
+        // Timestamp 30 seconds in the future (within 60s grace period) - should be valid
+        let res = validate_timestamp_internal(Some(n + 30), 300, 60, n);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_timestamp_boundary() {
+        let n = now();
+        // Exactly at 300s window boundary - should be valid
+        let res = validate_timestamp_internal(Some(n - 300), 300, 60, n);
+        assert!(res.is_ok());
+
+        // One second past boundary (301s) - should be expired
+        let res = validate_timestamp_internal(Some(n - 301), 300, 60, n);
+        assert!(matches!(res, Err(VerifyError::SignatureExpired { .. })));
+    }
+
     #[tokio::test]
     async fn test_verify_signature_valid() {
         let wallet: LocalWallet =
