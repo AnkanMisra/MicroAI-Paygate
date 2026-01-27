@@ -265,6 +265,7 @@ async fn verify_signature(
 mod tests {
     use super::*;
     use ethers::signers::{LocalWallet, Signer};
+    use ethers::types::transaction::eip712::TypedData;
 
     fn now() -> u64 {
         SystemTime::now()
@@ -377,5 +378,220 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert!(resp.is_valid);
+    }
+
+    #[tokio::test]
+    async fn test_health_endpoint() {
+        let (_headers, Json(response)) = health(HeaderMap::new()).await;
+
+        assert_eq!(response.status, "healthy");
+        assert_eq!(response.service, "verifier");
+        assert_eq!(response.version, env!("CARGO_PKG_VERSION"));
+    }
+
+    #[tokio::test]
+    async fn test_health_endpoint_correlation_id() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Correlation-ID", "health-check-id".parse().unwrap());
+
+        let (res_headers, Json(response)) = health(headers).await;
+
+        assert_eq!(response.status, "healthy");
+
+        let response_id = res_headers.get("X-Correlation-ID");
+        assert!(response_id.is_some());
+        assert_eq!(response_id.unwrap().to_str().unwrap(), "health-check-id");
+    }
+
+    #[tokio::test]
+    async fn test_verify_signature_invalid() {
+        let ts = now();
+        let req = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234567890123456789012345678901234567890".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "nonce".to_string(),
+                chain_id: 1,
+                timestamp: Some(ts),
+            },
+            signature: "0x1234567890".to_string(),
+        };
+
+        let (status, _headers, Json(_response)) =
+            verify_signature(HeaderMap::new(), Json(req)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_correlation_id_preserved_in_response() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Correlation-ID",
+            "test-correlation-id-12345".parse().unwrap(),
+        );
+
+        let ts = now();
+        let req = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234567890123456789012345678901234567890".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "nonce".to_string(),
+                chain_id: 1,
+                timestamp: Some(ts),
+            },
+            signature: "0x1234567890".to_string(),
+        };
+
+        let (_status, response_headers, _json) = verify_signature(headers, Json(req)).await;
+
+        let response_id = response_headers.get("X-Correlation-ID");
+        assert!(
+            response_id.is_some(),
+            "Expected X-Correlation-ID in response headers"
+        );
+        assert_eq!(
+            response_id.unwrap().to_str().unwrap(),
+            "test-correlation-id-12345",
+            "Correlation ID should be preserved from request"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_correlation_id_unknown_when_missing() {
+        let headers = HeaderMap::new();
+
+        let ts = now();
+        let req = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234567890123456789012345678901234567890".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "nonce".to_string(),
+                chain_id: 1,
+                timestamp: Some(ts),
+            },
+            signature: "0x1234567890".to_string(),
+        };
+
+        let (_status, response_headers, _json) = verify_signature(headers, Json(req)).await;
+
+        let response_id = response_headers.get("X-Correlation-ID");
+        assert!(
+            response_id.is_some(),
+            "Expected X-Correlation-ID header even with unknown value"
+        );
+        assert_eq!(
+            response_id.unwrap().to_str().unwrap(),
+            "unknown",
+            "Should use 'unknown' as fallback correlation ID"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_correlation_id_with_valid_signature() {
+        let wallet: LocalWallet =
+            "380eb0f3d505f087e438eca80bc4df9a7faa24f868e69fc0440261a0fc0567dc"
+                .parse()
+                .unwrap();
+        let wallet = wallet.with_chain_id(1u64);
+
+        let ts = now();
+        let json_typed_data = serde_json::json!({
+            "domain": {
+                "name": "MicroAI Paygate",
+                "version": "1",
+                "chainId": 1,
+                "verifyingContract": "0x0000000000000000000000000000000000000000"
+            },
+            "types": {
+                "Payment": [
+                    { "name": "recipient", "type": "address" },
+                    { "name": "token", "type": "string" },
+                    { "name": "amount", "type": "string" },
+                    { "name": "nonce", "type": "string" },
+                    { "name": "timestamp", "type": "uint256" }
+                ]
+            },
+            "primaryType": "Payment",
+            "message": {
+                "recipient": "0x1234567890123456789012345678901234567890",
+                "token": "USDC",
+                "amount": "100",
+                "nonce": "correlation-test-nonce",
+                "timestamp": ts
+            }
+        });
+
+        let typed_data: TypedData = serde_json::from_value(json_typed_data).unwrap();
+        let signature = wallet.sign_typed_data(&typed_data).await.unwrap();
+        let signature_str = format!("0x{}", hex::encode(signature.to_vec()));
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Correlation-ID",
+            "valid-sig-correlation-id".parse().unwrap(),
+        );
+
+        let req = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234567890123456789012345678901234567890".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "correlation-test-nonce".to_string(),
+                chain_id: 1,
+                timestamp: Some(ts),
+            },
+            signature: signature_str,
+        };
+
+        let (status, response_headers, Json(response)) = verify_signature(headers, Json(req)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(response.is_valid);
+
+        let response_id = response_headers.get("X-Correlation-ID");
+        assert!(
+            response_id.is_some(),
+            "Expected X-Correlation-ID in successful response"
+        );
+        assert_eq!(
+            response_id.unwrap().to_str().unwrap(),
+            "valid-sig-correlation-id",
+            "Correlation ID should be preserved in successful response"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_correlation_id_uuid_format() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Correlation-ID",
+            "550e8400-e29b-41d4-a716-446655440000".parse().unwrap(),
+        );
+
+        let ts = now();
+        let req = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234567890123456789012345678901234567890".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "nonce".to_string(),
+                chain_id: 1,
+                timestamp: Some(ts),
+            },
+            signature: "0x1234567890".to_string(),
+        };
+
+        let (_status, response_headers, _json) = verify_signature(headers, Json(req)).await;
+
+        let response_id = response_headers.get("X-Correlation-ID");
+        assert!(response_id.is_some());
+        assert_eq!(
+            response_id.unwrap().to_str().unwrap(),
+            "550e8400-e29b-41d4-a716-446655440000",
+            "UUID correlation ID should be preserved exactly"
+        );
     }
 }

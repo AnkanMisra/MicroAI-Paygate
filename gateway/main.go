@@ -257,8 +257,8 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
-	timestampValue, err := strconv.ParseInt(timestampHeader, 10, 64)
-	if err != nil || timestampValue <= 0 {
+	timestampValue, err := strconv.ParseUint(timestampHeader, 10, 64)
+	if err != nil || timestampValue == 0 {
 		c.JSON(400, gin.H{"error": "Invalid timestamp", "details": "Invalid X-402-Timestamp header"})
 		return
 	}
