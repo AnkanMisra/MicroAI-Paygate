@@ -220,6 +220,20 @@ bun run test:e2e    # E2E (starts services automatically)
 bun run test:all    # Full test suite with E2E
 ```
 
+### Makefile Shortcuts
+
+Use the Makefile to orchestrate builds, tests, and linting across all services:
+
+```bash
+make help    # Show all available Makefile targets
+make all     # Default target (alias for build)
+make build   # Build Gateway, Verifier, Web
+make test    # Run Go, Rust, and Web tests
+make lint    # Run Go vet, Rust clippy, Web lint
+make dev     # Start full stack (via bun run stack)
+make clean   # Clean build artifacts
+```
+
 > **Note:** Do NOT use `bun test` directly - it triggers bun's native test runner without starting services.
 
 ### Environment
