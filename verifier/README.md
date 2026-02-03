@@ -33,14 +33,22 @@ The service listens on port 3002 by default.
 
 ## Configuration
 
-Current implementation has no required env vars. It uses hardcoded EIP-712 domain values:
+The Verifier uses environment variables for security and performance tuning.
 
-- `name`: MicroAI Paygate
-- `version`: 1
-- `chainId`: 1 (tests) / request payload (runtime)
-- `verifyingContract`: 0x0000000000000000000000000000000000000000
+### Environment Variables
 
-If you change domain parameters in the gateway/frontend, update them here to stay in sync.
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `MAX_REQUEST_BODY_BYTES` | The maximum allowed size for JSON payloads in bytes | `1048576` (1MB) |
+
+It also uses hardcoded EIP-712 domain values for cryptographic verification:
+
+- **name**: MicroAI Paygate
+- **version**: 1
+- **chainId**: 1 (tests) / request payload (runtime)
+- **verifyingContract**: `0x0000000000000000000000000000000000000000`
+
+If you change domain parameters in the gateway or frontend, update them here to stay in sync.
 
 ## API Endpoints
 
