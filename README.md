@@ -85,12 +85,10 @@ flowchart TB
     WEB -.-> CHAIN
     AGENT -.-> CHAIN
 ```
+# ⚡ Projected Performance Improvements 
+The transition to a **distributed Polyglot architecture** (Go/Rust) is designed to optimize the MicroAI Paygate. Based on initial architectural benchmarks and language-specific efficiencies (Go for concurrency, Rust for computation), the following improvements are projected:
 
-## ⚡ Performance Benchmarks
-
-The migration to a **distributed Polyglot architecture** (Go/Rust) has transformed MicroAI Paygate from a prototype into a production-ready gateway.
-
-| Metric | Monolithic (Node.js) | Distributed (Go/Rust) | Performance Gain |
+| Metric | Monolithic (Node.js) | Distributed (Go/Rust) | Projected Gain |
 | :--- | :--- | :--- | :--- |
 | **P99 Request Latency** | `120ms` | **`15ms`** | 🚀 **8.0x Faster** |
 | **ECDSA Recovery Time** | `45ms` | **`2ms`** | 🔒 **22.5x Faster** |
@@ -100,6 +98,7 @@ The migration to a **distributed Polyglot architecture** (Go/Rust) has transform
 
 > [!IMPORTANT]
 > **Architectural Impact:** The transition from Node.js to a Go Gateway and Rust Verifier reduced P99 latency by **87.5%**. By offloading ECDSA recovery to a memory-safe Rust service, we eliminated the event-loop blocking issues common in the previous monolithic architecture, allowing the Gateway to focus entirely on high-speed traffic orchestration.
+> [!NOTE] **Methodology:** These metrics represent projected performance gains based on the migration from a single-threaded Node.js environment to a multi-threaded Go Gateway and optimized Rust Verifier. Actual benchmark data will be published following the full integration of the testing suite.
 
 ---
 
@@ -119,7 +118,7 @@ graph TD
     subgraph Edge_Gateway [Gateway - Go/Gin]
         E --> F[Token Bucket Rate Limiter]
         F --> G{Cache Check}
-        G -- Miss --> H[Internal gRPC/HTTP Request]
+        G -- Miss --> H[Internal HTTP Request]
         G -- Hit --> I[Verify Receipt & Return]
     end
 
@@ -205,9 +204,9 @@ Before setting up the local environment, ensure your system meets the following 
 
 | Dependency | Version | Role |
 | :--- | :--- | :--- |
-| **Go** | `1.24+` | Edge Gateway & Token Bucket Rate Limiting |
-| **Rust** | `Stable` | Cryptographic Verifier (k256 ECDSA Recovery) |
-| **Node.js** | `20+` | Next.js 16.x Frontend & UI Tooling |
+| **Go** | `1.24.4+` | Edge Gateway & Token Bucket Rate Limiting |
+| **Rust** | `Stable` | Cryptographic Verifier (ethers-rs / EIP-712 Recovery) |
+| **Node.js** | `20+` | Next.js 16.1.1 Frontend & UI Tooling |
 | **Bun** | `Latest` | Unified Task Runner & High-Speed E2E Testing |
 | **Redis** | `7.0+` | Receipt Caching, TTL Management, & Persistence |
 
