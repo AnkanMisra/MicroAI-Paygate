@@ -28,6 +28,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
+	"github.com/sony/gobreaker"
 )
 
 type PaymentContext struct {
@@ -54,6 +55,12 @@ type SummarizeRequest struct {
 	Text string `json:"text"`
 }
 
+type VerifyResponseInternal struct {
+	IsValid          bool
+	RecoveredAddress string
+	Error            string
+}
+
 func validateConfig() error {
 	required := []string{
 		"OPENROUTER_API_KEY",
@@ -69,6 +76,7 @@ func validateConfig() error {
 	}
 	return nil
 }
+
 func main() {
 	// Try loading .env from current directory first, then fallback to parent
 	err := godotenv.Load(".env")
@@ -326,10 +334,19 @@ func handleSummarize(c *gin.Context) {
 	// 3. Call AI Service
 	summary, err := callOpenRouter(c.Request.Context(), req.Text)
 	if err != nil {
+		// ⭐ Circuit breaker open → 503
+		if err == gobreaker.ErrOpenState {
+			c.JSON(503, gin.H{"error": "Service Unavailable"})
+			return
+		}
+
+		// Existing timeout handling
 		if errors.Is(err, context.DeadlineExceeded) || c.Request.Context().Err() == context.DeadlineExceeded {
 			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "AI request timed out"})
 			return
 		}
+
+		// Fallback
 		c.JSON(500, gin.H{"error": "AI Service Failed", "details": err.Error()})
 		return
 	}
@@ -499,6 +516,7 @@ func getChainID() int {
 // the model (defaults to "z-ai/glm-4.5-air:free" if unset).
 func callOpenRouter(ctx context.Context, text string) (string, error) {
 	apiKey := os.Getenv("OPENROUTER_API_KEY")
+
 	model := os.Getenv("OPENROUTER_MODEL")
 	if model == "" {
 		model = "z-ai/glm-4.5-air:free"
@@ -517,54 +535,52 @@ func callOpenRouter(ctx context.Context, text string) (string, error) {
 	if openRouterURL == "" {
 		openRouterURL = "https://openrouter.ai/api/v1/chat/completions"
 	}
+
 	req, err := http.NewRequestWithContext(ctx, "POST", openRouterURL, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return "", fmt.Errorf("failed to create OpenRouter request: %w", err)
 	}
+
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	// VIBE FIX: Pass Correlation ID to AI Service
-	// (Assuming the context has it, though OpenRouter might not use it, it's good practice)
-	if cid, ok := ctx.Value(correlationIDKey).(string); ok { // Changed to use correlationIDKey
+	if cid, ok := ctx.Value(correlationIDKey).(string); ok {
 		req.Header.Set("X-Correlation-ID", cid)
 	}
 
-	// Use http.DefaultClient and rely on ctx for cancellation/timeouts.
-	resp, err := http.DefaultClient.Do(req)
+	// ✅ Circuit breaker + retry wrapper
+	result, err := openRouterCB.Execute(func() (interface{}, error) {
+		return doRequestWithRetry(req)
+	})
+
 	if err != nil {
+		if err == gobreaker.ErrOpenState {
+			return "", gobreaker.ErrOpenState
+		}
+
 		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
 			return "", context.DeadlineExceeded
 		}
+
 		return "", err
 	}
+
+	resp := result.(*http.Response)
 	defer resp.Body.Close()
 
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	var resultBody map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&resultBody); err != nil {
 		return "", fmt.Errorf("failed to decode AI response: %w", err)
 	}
 
-	choices, ok := result["choices"].([]interface{})
+	choices, ok := resultBody["choices"].([]interface{})
 	if !ok || len(choices) == 0 {
-		log.Printf("OpenRouter response: %+v", result)
-		return "", fmt.Errorf("invalid response from AI provider: no choices")
+		return "", fmt.Errorf("invalid response from AI provider")
 	}
 
-	choice, ok := choices[0].(map[string]interface{})
-	if !ok {
-		return "", fmt.Errorf("invalid response from AI provider: malformed choice")
-	}
-
-	message, ok := choice["message"].(map[string]interface{})
-	if !ok {
-		return "", fmt.Errorf("invalid response from AI provider: malformed message")
-	}
-
-	content, ok := message["content"].(string)
-	if !ok {
-		return "", fmt.Errorf("invalid response from AI provider: missing content")
-	}
+	choice := choices[0].(map[string]interface{})
+	message := choice["message"].(map[string]interface{})
+	content := message["content"].(string)
 
 	return content, nil
 }
