@@ -38,8 +38,8 @@ test:
 	cd web && bun run test
 
 lint:
-	cd gateway && go vet ./...
-	cd verifier && cargo clippy
+	cd gateway && go fmt ./... && go vet ./...
+	cd verifier && cargo fmt -- --check && cargo clippy -- -D warnings
 	cd web && bun run lint
 
 dev:
@@ -48,4 +48,4 @@ dev:
 clean:
 	cd gateway && rm -rf bin/
 	cd verifier && cargo clean
-	cd web && rm -rf .next out node_modules
+	cd web && rm -rf .next out
