@@ -85,22 +85,6 @@ flowchart TB
     WEB -.-> CHAIN
     AGENT -.-> CHAIN
 ```
-# ⚡ Projected Performance Improvements 
-The transition to a **distributed Polyglot architecture** (Go/Rust) is designed to optimize the MicroAI Paygate. Based on initial architectural benchmarks and language-specific efficiencies (Go for concurrency, Rust for computation), the following improvements are projected:
-
-| Metric | Monolithic (Node.js) | Distributed (Go/Rust) | Projected Gain |
-| :--- | :--- | :--- | :--- |
-| **P99 Request Latency** | `120ms` | **`15ms`** | 🚀 **8.0x Faster** |
-| **ECDSA Recovery Time** | `45ms` | **`2ms`** | 🔒 **22.5x Faster** |
-| **Max Concurrent Conns** | `~3,000` | **`~50,000+`** | 📈 **16.6x Scale** |
-| **Memory Consumption** | `150MB` | **`25MB`** | 🍃 **6.0x Leaner** |
-| **Cold Start Time** | `1.5s` | **`<100ms`** | ⚡ **Instant** |
-
-> [!IMPORTANT]
-> **Architectural Impact:** The transition from Node.js to a Go Gateway and Rust Verifier reduced P99 latency by **87.5%**. By offloading ECDSA recovery to a memory-safe Rust service, we eliminated the event-loop blocking issues common in the previous monolithic architecture, allowing the Gateway to focus entirely on high-speed traffic orchestration.
-> [!NOTE] **Methodology:** These metrics represent projected performance gains based on the migration from a single-threaded Node.js environment to a multi-threaded Go Gateway and optimized Rust Verifier. Actual benchmark data will be published following the full integration of the testing suite.
-
----
 
 ### x402 Protocol Flow
 
@@ -332,6 +316,31 @@ VERIFIER_TIMEOUT_SECONDS=2
 HEALTH_CHECK_TIMEOUT_SECONDS=2
 ```
 
+### Caching Configuration
+
+MicroAI Paygate includes an intelligent Redis-backed caching layer to reduce OpenRouter API costs and improve response times for frequently requested content.
+
+**Features:**
+- **Cache-Aside Pattern**: Checks Redis before calling AI provider. If found, data is returned instantly, but **payment verification is still enforced**.
+- **Content-Addressable**: Uses SHA256 of request text as the cache key.
+- **Secure by Design**: Cached responses are ONLY served to requests with valid payment signatures. The latency savings come from avoiding the AI provider call, not from skipping verification.
+- **TTL-Based**: Configurable expiration to ensure content freshness.
+
+**Configuration:**
+Add to `.env`:
+```bash
+# Redis Configuration
+# Use 'redis:6379' for docker-compose, 'localhost:6379' for local run
+REDIS_URL=redis:6379
+REDIS_PASSWORD=
+REDIS_DB=0
+
+# Cache Settings
+CACHE_ENABLED=true
+# Time-to-live for cached items in seconds (default: 3600 = 1 hour)
+CACHE_TTL_SECONDS=3600
+```
+
 ### Docker Deployment (Production)
 
 For production environments, we provide a containerized setup using Docker Compose. This orchestrates all three services in an isolated network.
@@ -415,14 +424,6 @@ cargo test
 - HTTP 402 Payment Required (MDN): https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/402
 - RFC 7231 Section 6.5.2 (Payment Required): https://www.rfc-editor.org/rfc/rfc7231#section-6.5.2
 - EIP-712 Typed Structured Data: https://eips.ethereum.org/EIPS/eip-712
-
-## Contributing
-
-We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and check the [GitHub Issues](https://github.com/AnkanMisra/MicroAI-Paygate/issues) for open tasks.
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
 
 ## Receipt Verification
 
@@ -558,31 +559,6 @@ SERVER_WALLET_PRIVATE_KEY=your_private_key_hex
 RECEIPT_TTL=86400
 ```
 
-### Caching Configuration
-
-MicroAI Paygate includes an intelligent Redis-backed caching layer to reduce OpenRouter API costs and improve response times for frequently requested content.
-
-**Features:**
-- **Cache-Aside Pattern**: Checks Redis before calling AI provider. If found, data is returned instantly, but **payment verification is still enforced**.
-- **Content-Addressable**: Uses SHA256 of request text as the cache key.
-- **Secure by Design**: Cached responses are ONLY served to requests with valid payment signatures. The latency savings come from avoiding the AI provider call, not from skipping verification.
-- **TTL-Based**: Configurable expiration to ensure content freshness.
-
-**Configuration:**
-Add to `.env`:
-```bash
-# Redis Configuration
-# Use 'redis:6379' for docker-compose, 'localhost:6379' for local run
-REDIS_URL=redis:6379
-REDIS_PASSWORD=
-REDIS_DB=0
-
-# Cache Settings
-CACHE_ENABLED=true
-# Time-to-live for cached items in seconds (default: 3600 = 1 hour)
-CACHE_TTL_SECONDS=3600
-```
-
 ## API Reference
 
 ### Endpoints
@@ -627,3 +603,12 @@ Internal endpoint used by the Gateway to verify signatures with the Rust service
   "signature": "0x..."
 }
 ```
+
+## Contributing
+
+We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and check the [GitHub Issues](https://github.com/AnkanMisra/MicroAI-Paygate/issues) for open tasks.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
