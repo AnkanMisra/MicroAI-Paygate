@@ -89,7 +89,7 @@ func main() {
 	}
 	if err := validateConfig(); err != nil {
 		fmt.Println("[Error] Missing required environment variables:")
-		fmt.Println("  -", err.Error())
+		fmt.Println(" 	-", err.Error())
 		fmt.Println()
 		fmt.Println("Copy .env.example to .env and fill in the required values.")
 		fmt.Println("See README.md for more configuration details.")
@@ -97,16 +97,16 @@ func main() {
 	}
 	fmt.Println("[OK] Configuration validated")
 	if port := os.Getenv("PORT"); port != "" {
-		fmt.Printf("    - Port: %s\n", port)
+		fmt.Printf(" 	 	- Port: %s\n", port)
 	}
 	if model := os.Getenv("MODEL"); model != "" {
-		fmt.Printf("    - Model: %s\n", model)
+		fmt.Printf(" 	 	- Model: %s\n", model)
 	}
 	if verifier := os.Getenv("VERIFIER_URL"); verifier != "" {
-		fmt.Printf("    - Verifier: %s\n", verifier)
+		fmt.Printf(" 	 	- Verifier: %s\n", verifier)
 	}
 	if chainID := os.Getenv("CHAIN_ID"); chainID != "" {
-		fmt.Printf("    - Chain ID: %s\n", chainID)
+		fmt.Printf(" 	 	- Chain ID: %s\n", chainID)
 	}
 	if os.Getenv("PORT") == "" {
 		fmt.Println("[WARN] PORT not set, using default: 3000")
@@ -541,7 +541,7 @@ func callOpenRouter(ctx context.Context, text string) (string, error) {
 		return "", fmt.Errorf("failed to create OpenRouter request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Authorization", "Bearer " + apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	if cid, ok := ctx.Value(correlationIDKey).(string); ok {
@@ -578,9 +578,20 @@ func callOpenRouter(ctx context.Context, text string) (string, error) {
 		return "", fmt.Errorf("invalid response from AI provider")
 	}
 
-	choice := choices[0].(map[string]interface{})
-	message := choice["message"].(map[string]interface{})
-	content := message["content"].(string)
+	choice, ok := choices[0].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid response structure: choice")
+	}
+
+	message, ok := choice["message"].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid response structure: message")
+	}
+
+	content, ok := message["content"].(string)
+	if !ok {
+		return "", fmt.Errorf("invalid response structure: content")
+	}
 
 	return content, nil
 }
@@ -1059,7 +1070,7 @@ var checkOpenRouterHealth = func() string {
 	if err != nil {
 		return "unreachable"
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Authorization", "Bearer " + apiKey)
 	resp, err := http.DefaultClient.Do(req)
 
 	if err != nil {
