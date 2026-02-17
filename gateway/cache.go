@@ -117,6 +117,12 @@ func CacheMiddleware() gin.HandlerFunc {
 		if cached, err := getFromCache(c.Request.Context(), cacheKey); err == nil {
 			log.Printf("Cache HIT: %s", cacheKey)
 
+			routePath := c.FullPath()
+			if routePath == "" {
+				routePath = "unknown"
+			}
+			cacheHits.WithLabelValues(routePath).Inc()
+			
 			// Cache HIT! -> Verify Payment *BEFORE* serving
 			// verifyPayment creates its own timeout context, so pass request context directly
 			timestampStr := c.GetHeader("X-402-Timestamp")
@@ -172,6 +178,12 @@ func CacheMiddleware() gin.HandlerFunc {
 
 		// Cache MISS
 		log.Printf("Cache MISS: %s", cacheKey)
+
+		routePath := c.FullPath()
+		if routePath == "" {
+			routePath = "unknown"
+		}
+		cacheHits.WithLabelValues(routePath).Inc()
 
 		// Prepare to capture response
 		writer := &cachedWriter{

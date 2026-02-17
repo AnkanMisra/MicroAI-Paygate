@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"sync"
 	"time"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -278,4 +279,32 @@ func (rws *responseWriterShim) CloseNotify() <-chan bool {
 	close(ch)
 	return ch
 
+}
+func MetricsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		path  := c.FullPath()
+		if path == "" {
+			path = "unknown"
+		}
+
+		activeRequests.Inc()
+		defer activeRequests.Dec()
+
+		c.Next()
+
+		duration := time.Since(start).Seconds()
+		status := strconv.Itoa(c.Writer.Status())
+
+		requestsTotal.WithLabelValues(
+			c.Request.Method,
+			path,
+			status,
+		).Inc()
+
+		requestsDuration.WithLabelValues(
+			c.Request.Method,
+			path,
+		).Observe(duration)
+	}
 }

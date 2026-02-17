@@ -31,6 +31,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type PaymentContext struct {
@@ -265,6 +266,7 @@ func main() {
 
 	r := gin.Default()
 
+
 	// Restrict trusted proxies to prevent X-Forwarded-For spoofing.
 	// IP-based rate limiting relies on c.ClientIP(), which reads
 	// X-Forwarded-For only from proxies in this list. An empty list
@@ -282,6 +284,22 @@ func main() {
 
 	// Register the Correlation ID middleware first so every request,
 	// including those rejected by later middleware, carries an ID for tracing.
+	r.Use(CorrelationIDMiddleware())
+
+	if os.Getenv("METRICS_ENABLED") != "false" {
+		r.Use(MetricsMiddleware())
+		
+		path := os.Getenv("METRICS_PATH")
+		if path == "" {
+			path = "/metrics"
+		}
+		r.GET(path, gin.WrapH(promhttp.Handler()))
+	}
+
+
+	// VIBE FIX: Register the Correlation ID Middleware immediately
+	// This ensures every single request gets an ID before anything else happens.
+>>>>>>> 46836ba (feat(metrics): add Prometheus instrumentation and expose /metrics endpoint)
 	r.Use(CorrelationIDMiddleware())
 
 	// Configure GZIP compression for API responses
@@ -1138,3 +1156,8 @@ var checkOpenRouterHealth = func() string {
 	}
 	return "ok"
 }
+
+// r := gin.New()
+
+// r.use(MetricsMiddleware())
+

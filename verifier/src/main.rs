@@ -9,7 +9,12 @@ use axum::{
 use dashmap::{mapref::entry::Entry, DashMap};
 use ethers::types::transaction::eip712::TypedData;
 use ethers::types::Signature;
+
 use ethers::utils::keccak256;
+
+mod metrics;
+use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::net::SocketAddr;
@@ -108,7 +113,21 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+
+    let recorder = PrometheusBuilder::new()
+        .install_recorder()
+        .expect("failed to install recorder");
+
+    let metrics_route = {
+        let handle = recorder.clone();
+        move || async move {handle.render() }
+    };
+    let app = Router::new()
+        .route("/health", get(health))
+        .route("/verify", post(verify_signature))
+        .route("/metrics", get(metrics_route));
 }
+
 
 async fn health(headers: HeaderMap) -> (HeaderMap, Json<HealthResponse>) {
     let (_, res_headers) = correlation_id_headers(&headers);
@@ -435,6 +454,7 @@ async fn verify_signature(
         }
     };
 
+
     match sig.recover_typed_data(&typed_data) {
         Ok(addr) => {
             if !claim_nonce(&state, &payload.context.nonce, Instant::now()) {
@@ -461,9 +481,22 @@ async fn verify_signature(
                 }),
             )
         }
+
+    let start = std::time::Instant::now();
+    let (status,headers,Json(response)) = match sig.recover_typed_data(&typed_data) {
+        Ok(addr) => (
+            StatusCode::OK,
+            res_headers.clone(),
+            Json(VerifyResponse {
+                is_valid: true,
+                recovered_address: Some(format!("{:?}", addr)),
+                error: None,
+            }),
+        ),
+
         Err(e) => (
             StatusCode::OK,
-            res_headers,
+            res_headers.clone(),
             Json(VerifyResponse {
                 is_valid: false,
                 recovered_address: None,
@@ -471,7 +504,12 @@ async fn verify_signature(
                 error_code: Some("invalid_signature".to_string()),
             }),
         ),
-    }
+    };
+    
+    let duration = start.elapsed().as_secs_f64();
+    metrics::record_verification(response.is_valid, duration, response.error.as_deref());
+    (status, res_headers, Json(response),)
+    
 }
 
 /* =======================
