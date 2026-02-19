@@ -13,7 +13,8 @@ use ethers::types::Signature;
 use ethers::utils::keccak256;
 
 mod metrics;
-use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+
+use metrics_exporter_prometheus::PrometheusBuilder;
 
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -106,10 +107,8 @@ async fn main() {
         .install_recorder()
         .expect("failed to install recorder");
 
-    let metrics_handle = recorder.clone();
-    let metrics_route = {
-        let handle = move || async move { metrics_handle.render() };
-    };
+    let metrics_route = move || async move { recorder.render() };
+
     let app = Router::new()
         .route("/health", get(health))
         .route("/verify", post(verify_signature))
@@ -123,10 +122,6 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 
-    let app = Router::new()
-        .route("/health", get(health))
-        .route("/verify", post(verify_signature))
-        .route("/metrics", get(metrics_route));
 }
 
 async fn health(headers: HeaderMap) -> (HeaderMap, Json<HealthResponse>) {
@@ -483,7 +478,7 @@ async fn verify_signature(
         }
 
     let start = std::time::Instant::now();
-    let (status, headers, Json(response)) = match sig.recover_typed_data(&typed_data) {
+    let (status, _, Json(response)) = match sig.recover_typed_data(&typed_data) {
         Ok(addr) => (
             StatusCode::OK,
             res_headers.clone(),
