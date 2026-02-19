@@ -139,6 +139,10 @@ func CacheMiddleware() gin.HandlerFunc {
 			}
 			verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, timestamp)
 			if err != nil {
+
+				verificationTotal.WithLabelValues("error").Inc()
+				log.Printf("Verification error on cache hit: %v", err)
+
 				if errors.Is(err, context.DeadlineExceeded) {
 					respondError(c, 504, "verifier_timeout", err)
 				} else {
@@ -149,16 +153,28 @@ func CacheMiddleware() gin.HandlerFunc {
 			}
 
 			if !verifyResp.IsValid {
+
 				respondVerificationFailure(c, verifyResp)
 				c.Abort()
 				return
 			}
 			if verifyResp.RecoveredAddress == "" {
 				respondError(c, 502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
+
+				// Check for timestamp-related errors (E007, E008, E009)
+				verificationTotal.WithLabelValues("error").Inc()
+				if strings.HasPrefix(verifyResp.Error, "E007") ||
+					strings.HasPrefix(verifyResp.Error, "E008") ||
+					strings.HasPrefix(verifyResp.Error, "E009") {
+					c.JSON(400, gin.H{"error": "Invalid timestamp", "details": verifyResp.Error})
+				} else {
+					c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
+				}
+
 				c.Abort()
 				return
 			}
-
+			verificationTotal.WithLabelValues("success").Inc()
 			// Payment Verified. Store verification for downstream if needed (though we abort)
 			c.Set("payment_verification", verifyResp)
 			c.Set("payment_context", paymentCtx)
@@ -183,7 +199,7 @@ func CacheMiddleware() gin.HandlerFunc {
 		if routePath == "" {
 			routePath = "unknown"
 		}
-		cacheHits.WithLabelValues(routePath).Inc()
+		cacheMisses.WithLabelValues(routePath).Inc()
 
 		// Prepare to capture response
 		writer := &cachedWriter{

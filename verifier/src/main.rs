@@ -102,9 +102,18 @@ async fn main() {
         signature_expiry_seconds: get_env_u64("SIGNATURE_EXPIRY_SECONDS", 300),
         clock_skew_seconds: get_env_u64("SIGNATURE_CLOCK_SKEW_SECONDS", 60),
     };
+    let recorder = PrometheusBuilder::new()
+        .install_recorder()
+        .expect("failed to install recorder");
+
+    let metrics_handle = recorder.clone();
+    let metrics_route = {
+        let handle = move || async move { metrics_handle.render() };
+    };
     let app = Router::new()
         .route("/health", get(health))
         .route("/verify", post(verify_signature))
+        .route("/metrics", get(metrics_route))
         .layer(DefaultBodyLimit::max(limit))
         .with_state(state);
 
@@ -114,20 +123,11 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 
-    let recorder = PrometheusBuilder::new()
-        .install_recorder()
-        .expect("failed to install recorder");
-
-    let metrics_route = {
-        let handle = recorder.clone();
-        move || async move {handle.render() }
-    };
     let app = Router::new()
         .route("/health", get(health))
         .route("/verify", post(verify_signature))
         .route("/metrics", get(metrics_route));
 }
-
 
 async fn health(headers: HeaderMap) -> (HeaderMap, Json<HealthResponse>) {
     let (_, res_headers) = correlation_id_headers(&headers);
@@ -483,7 +483,7 @@ async fn verify_signature(
         }
 
     let start = std::time::Instant::now();
-    let (status,headers,Json(response)) = match sig.recover_typed_data(&typed_data) {
+    let (status, headers, Json(response)) = match sig.recover_typed_data(&typed_data) {
         Ok(addr) => (
             StatusCode::OK,
             res_headers.clone(),
@@ -505,11 +505,10 @@ async fn verify_signature(
             }),
         ),
     };
-    
+
     let duration = start.elapsed().as_secs_f64();
     metrics::record_verification(response.is_valid, duration, response.error.as_deref());
-    (status, res_headers, Json(response),)
-    
+    (status, res_headers, Json(response))
 }
 
 /* =======================

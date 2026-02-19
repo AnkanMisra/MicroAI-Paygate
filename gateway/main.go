@@ -267,6 +267,7 @@ func main() {
 	r := gin.Default()
 
 
+
 	// Restrict trusted proxies to prevent X-Forwarded-For spoofing.
 	// IP-based rate limiting relies on c.ClientIP(), which reads
 	// X-Forwarded-For only from proxies in this list. An empty list
@@ -299,7 +300,6 @@ func main() {
 
 	// VIBE FIX: Register the Correlation ID Middleware immediately
 	// This ensures every single request gets an ID before anything else happens.
->>>>>>> 46836ba (feat(metrics): add Prometheus instrumentation and expose /metrics endpoint)
 	r.Use(CorrelationIDMiddleware())
 
 	// Configure GZIP compression for API responses
@@ -1157,7 +1157,5 @@ var checkOpenRouterHealth = func() string {
 	return "ok"
 }
 
-// r := gin.New()
 
-// r.use(MetricsMiddleware())
 

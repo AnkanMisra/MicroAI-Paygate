@@ -15,7 +15,7 @@ var (
 	)
 	requestsDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name: "gateway_requests_duration_seconds",
+			Name: "gateway_request_duration_seconds",
 			Help: "Request duration in seconds",
 			Buckets: prometheus.DefBuckets,
 		},
