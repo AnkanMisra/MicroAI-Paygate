@@ -724,19 +724,12 @@ func RateLimitMiddleware(limiters map[string]RateLimiter) gin.HandlerFunc {
 	}
 }
 
-// getRateLimitKey determines the key for rate limiting (nonce/wallet > IP)
+// getRateLimitKey determines the key for rate limiting (always uses IP)
 func getRateLimitKey(c *gin.Context) string {
-	signature := c.GetHeader("X-402-Signature")
-	nonce := c.GetHeader("X-402-Nonce")
-
-	// Only use nonce-based key if BOTH signature and nonce are present
-	// This prevents attackers from bypassing IP rate limits with fake nonces
-	if signature != "" && nonce != "" {
-		hash := sha256.Sum256([]byte(nonce))
-		// Use 32 hex chars (128 bits) for better collision resistance
-		return "nonce:" + hex.EncodeToString(hash[:])[:32]
-	}
-
+	// REMOVED: Nonce-based keying
+	// Nonces must be unique per request (replay attack prevention),
+	// which creates infinite buckets and memory leaks.
+	// ALWAYS use IP for now to prevent infinite-bucket attacks
 	return "ip:" + c.ClientIP()
 }
 

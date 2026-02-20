@@ -246,7 +246,7 @@ func TestGetRateLimitKey(t *testing.T) {
 		nonce       string
 		expectedKey string
 	}{
-		{"With both signature and nonce", "sig123", "test-nonce", "nonce:"},
+		{"With both signature and nonce", "sig123", "test-nonce", "ip:"},
 		{"Only nonce (no signature)", "", "test-nonce", "ip:"},
 		{"Only signature (no nonce)", "sig123", "", "ip:"},
 		{"Neither", "", "", "ip:"},
@@ -258,18 +258,10 @@ func TestGetRateLimitKey(t *testing.T) {
 			r.GET("/test", func(c *gin.Context) {
 				key := getRateLimitKey(c)
 
-				if strings.HasPrefix(tt.expectedKey, "nonce:") {
-					if !strings.HasPrefix(key, "nonce:") {
-						t.Errorf("Expected nonce-based key, got '%s'", key)
-					}
-					hashPart := strings.TrimPrefix(key, "nonce:")
-					if len(hashPart) != 32 {
-						t.Errorf("Expected hash to be 32 chars, got %d", len(hashPart))
-					}
-				} else {
-					if !strings.HasPrefix(key, "ip:") {
-						t.Errorf("Expected IP-based key, got '%s'", key)
-					}
+				// After fix: All keys should be IP-based to prevent
+				// infinite bucket attacks from unique nonces
+				if !strings.HasPrefix(key, "ip:") {
+					t.Errorf("Expected IP-based key, got '%s'", key)
 				}
 				c.JSON(200, gin.H{"key": key})
 			})
