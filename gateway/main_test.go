@@ -246,10 +246,10 @@ func TestGetRateLimitKey(t *testing.T) {
 		nonce       string
 		expectedKey string
 	}{
-		{"With both signature and nonce", "sig123", "test-nonce", "ip:"},
-		{"Only nonce (no signature)", "", "test-nonce", "ip:"},
-		{"Only signature (no nonce)", "sig123", "", "ip:"},
-		{"Neither", "", "", "ip:"},
+		{"IP-based rate limiting (with signature and nonce)", "sig123", "test-nonce", "ip:"},
+		{"IP-based rate limiting (with nonce only)", "", "test-nonce", "ip:"},
+		{"IP-based rate limiting (with signature only)", "sig123", "", "ip:"},
+		{"IP-based rate limiting (without auth headers)", "", "", "ip:"},
 	}
 
 	for _, tt := range tests {
