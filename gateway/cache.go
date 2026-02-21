@@ -103,8 +103,14 @@ func CacheMiddleware() gin.HandlerFunc {
 		}
 
 		// Generate Cache Key (include model to prevent cache collisions)
+		// Get the model from the active provider configuration
 		model := os.Getenv("OPENROUTER_MODEL")
-		if model == "" {
+		if os.Getenv("AI_PROVIDER") == "ollama" {
+			model = os.Getenv("OLLAMA_MODEL")
+			if model == "" {
+				model = "llama2"
+			}
+		} else if model == "" {
 			model = "z-ai/glm-4.5-air:free"
 		}
 		cacheKey := getCacheKey(req.Text, model)

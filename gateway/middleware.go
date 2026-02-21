@@ -17,7 +17,8 @@ import (
 
 type contextKey string
 
-const correlationIDKey contextKey = "correlation_id"
+// CorrelationIDKey is the context key for correlation IDs
+const CorrelationIDKey contextKey = "correlation_id"
 
 // CorrelationIDMiddleware checks for an existing X-Correlation-ID header
 // or generates a new one, ensuring requests can be traced across services.
@@ -31,7 +32,7 @@ func CorrelationIDMiddleware() gin.HandlerFunc {
 		c.Set("correlation_id", id) // Keep this as a string for Gin
 
 		// VIBE FIX: Use the custom typed key for the standard context
-		ctx := context.WithValue(c.Request.Context(), correlationIDKey, id)
+		ctx := context.WithValue(c.Request.Context(), CorrelationIDKey, id)
 		c.Request = c.Request.WithContext(ctx)
 
 		c.Header("X-Correlation-ID", id)

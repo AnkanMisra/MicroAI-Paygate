@@ -62,8 +62,13 @@ type SummarizeRequest struct {
 // Returns an error listing all missing variables if any are not set.
 func validateConfig() error {
 	required := []string{
-		"OPENROUTER_API_KEY",
 		"SERVER_WALLET_PRIVATE_KEY", // Critical for signing receipts
+	}
+
+	// Add provider-specific requirements
+	providerType := os.Getenv("AI_PROVIDER")
+	if providerType == "" || providerType == "openrouter" {
+		required = append(required, "OPENROUTER_API_KEY")
 	}
 
 	// Add REDIS_URL to required if caching is enabled
@@ -496,8 +501,8 @@ func verifyPayment(ctx context.Context, signature, nonce string, timestamp uint6
 	vreq.Header.Set("Content-Type", "application/json")
 
 	// VIBE FIX: Pass Correlation ID to the Verifier Service
-	// CORRECT: Use the constant 'correlationIDKey' to retrieve the value
-	if cid, ok := ctx.Value(correlationIDKey).(string); ok {
+	// CORRECT: Use the constant 'CorrelationIDKey' to retrieve the value
+	if cid, ok := ctx.Value(CorrelationIDKey).(string); ok {
 		vreq.Header.Set("X-Correlation-ID", cid)
 	}
 

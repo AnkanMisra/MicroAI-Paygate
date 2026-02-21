@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 )
@@ -50,14 +51,6 @@ func (p *OllamaProvider) Generate(ctx context.Context, text string) (string, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// Pass Correlation ID if available in context
-	// Note: correlationIDKey is defined in middleware.go as contextKey("correlation_id")
-	type contextKey string
-	const correlationIDKey contextKey = "correlation_id"
-	if cid, ok := ctx.Value(correlationIDKey).(string); ok {
-		req.Header.Set("X-Correlation-ID", cid)
-	}
-
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
@@ -68,7 +61,8 @@ func (p *OllamaProvider) Generate(ctx context.Context, text string) (string, err
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("ollama returned status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("ollama returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var result map[string]interface{}
