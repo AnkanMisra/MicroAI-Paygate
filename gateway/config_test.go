@@ -257,3 +257,44 @@ func TestTimeoutConfigHelpers(t *testing.T) {
 		t.Fatalf("expected request timeout to fall back to 60s on non-positive value, got %v", getRequestTimeout())
 	}
 }
+
+func TestGetMaxBodySize(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		expected int64
+	}{
+		{
+			name:     "default 10MB",
+			envValue: "",
+			expected: 10 * 1024 * 1024,
+		},
+		{
+			name:     "custom 1MB",
+			envValue: "1",
+			expected: 1 * 1024 * 1024,
+		},
+		{
+			name:     "custom 50MB",
+			envValue: "50",
+			expected: 50 * 1024 * 1024,
+		},
+		{
+			name:     "custom 100MB",
+			envValue: "100",
+			expected: 100 * 1024 * 1024,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.envValue != "" {
+				t.Setenv("MAX_REQUEST_BODY_MB", tt.envValue)
+			}
+			result := getMaxBodySize()
+			if result != tt.expected {
+				t.Errorf("expected %d bytes, got %d bytes", tt.expected, result)
+			}
+		})
+	}
+}
