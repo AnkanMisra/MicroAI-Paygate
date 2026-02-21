@@ -208,7 +208,7 @@ func CacheMiddleware() gin.HandlerFunc {
 func getCacheKey(text string, model string) string {
 	// IMPORTANT: This cache key ONLY includes text and model.
 	// Cache version v1 - if parameters change, increment version to invalidate old caches
-	// If callOpenRouter() is modified to accept additional parameters
+	// If the AI provider's Generate() method is modified to accept additional parameters
 	// (temperature, max_tokens, top_p, etc.), those MUST be added to
 	// this cache key to prevent incorrect cache hits.
 	// TODO: Consider accepting a struct with all OpenRouter parameters

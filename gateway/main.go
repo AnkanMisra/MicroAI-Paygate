@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gateway/internal/ai"
 	"io"
 	"log"
 	"net/http"
@@ -158,6 +159,10 @@ func validateRedisURL() error {
 
 	return nil
 }
+
+// Global AI provider instance
+var aiProvider ai.Provider
+
 func main() {
 	// Try loading .env from current directory first, then fallback to parent
 	err := godotenv.Load(".env")
@@ -177,6 +182,19 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("[OK] Configuration validated")
+
+	// Initialize AI provider
+	aiProvider, err = ai.NewProvider()
+	if err != nil {
+		fmt.Printf("[Error] Failed to initialize AI provider: %v\n", err)
+		os.Exit(1)
+	}
+	providerType := os.Getenv("AI_PROVIDER")
+	if providerType == "" {
+		providerType = "openrouter"
+	}
+	fmt.Printf("[OK] AI Provider initialized: %s\n", providerType)
+
 	if port := os.Getenv("PORT"); port != "" {
 		fmt.Printf("    - Port: %s\n", port)
 	}
@@ -420,7 +438,7 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	// 3. Call AI Service
-	summary, err := callOpenRouter(c.Request.Context(), req.Text)
+	summary, err := aiProvider.Generate(c.Request.Context(), req.Text)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || c.Request.Context().Err() == context.DeadlineExceeded {
 			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "AI request timed out"})
@@ -587,82 +605,6 @@ func getChainID() int {
 		return 8453
 	}
 	return chainID
-}
-
-// callOpenRouter sends the given text to the OpenRouter chat completions API
-// requesting a two-sentence summary and returns the generated summary.
-// It reads OPENROUTER_API_KEY for authorization and OPENROUTER_MODEL to select
-// the model (defaults to "z-ai/glm-4.5-air:free" if unset).
-func callOpenRouter(ctx context.Context, text string) (string, error) {
-	apiKey := os.Getenv("OPENROUTER_API_KEY")
-	model := os.Getenv("OPENROUTER_MODEL")
-	if model == "" {
-		model = "z-ai/glm-4.5-air:free"
-	}
-
-	prompt := fmt.Sprintf("Summarize this text in 2 sentences: %s", text)
-
-	reqBody, _ := json.Marshal(map[string]interface{}{
-		"model": model,
-		"messages": []map[string]string{
-			{"role": "user", "content": prompt},
-		},
-	})
-
-	openRouterURL := os.Getenv("OPENROUTER_URL")
-	if openRouterURL == "" {
-		openRouterURL = "https://openrouter.ai/api/v1/chat/completions"
-	}
-	req, err := http.NewRequestWithContext(ctx, "POST", openRouterURL, bytes.NewBuffer(reqBody))
-	if err != nil {
-		return "", fmt.Errorf("failed to create OpenRouter request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	// VIBE FIX: Pass Correlation ID to AI Service
-	// (Assuming the context has it, though OpenRouter might not use it, it's good practice)
-	if cid, ok := ctx.Value(correlationIDKey).(string); ok { // Changed to use correlationIDKey
-		req.Header.Set("X-Correlation-ID", cid)
-	}
-
-	// Use http.DefaultClient and rely on ctx for cancellation/timeouts.
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
-			return "", context.DeadlineExceeded
-		}
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode AI response: %w", err)
-	}
-
-	choices, ok := result["choices"].([]interface{})
-	if !ok || len(choices) == 0 {
-		log.Printf("OpenRouter response: %+v", result)
-		return "", fmt.Errorf("invalid response from AI provider: no choices")
-	}
-
-	choice, ok := choices[0].(map[string]interface{})
-	if !ok {
-		return "", fmt.Errorf("invalid response from AI provider: malformed choice")
-	}
-
-	message, ok := choice["message"].(map[string]interface{})
-	if !ok {
-		return "", fmt.Errorf("invalid response from AI provider: malformed message")
-	}
-
-	content, ok := message["content"].(string)
-	if !ok {
-		return "", fmt.Errorf("invalid response from AI provider: missing content")
-	}
-
-	return content, nil
 }
 
 // Rate Limiting Functions
