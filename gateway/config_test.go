@@ -298,9 +298,8 @@ func TestGetMaxBodySize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.envValue != "" {
-				t.Setenv("MAX_REQUEST_BODY_MB", tt.envValue)
-			}
+			// Always set env to prevent leakage between tests
+			t.Setenv("MAX_REQUEST_BODY_MB", tt.envValue)
 			result := getMaxBodySize()
 			if result != tt.expected {
 				t.Errorf("expected %d bytes, got %d bytes", tt.expected, result)
