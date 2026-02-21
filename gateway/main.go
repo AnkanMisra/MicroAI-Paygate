@@ -374,7 +374,7 @@ func handleSummarize(c *gin.Context) {
 		if err != nil {
 			var maxBytesErr *http.MaxBytesError
 			if errors.As(err, &maxBytesErr) {
-				c.JSON(413, gin.H{"error": "Payload too large", "max_size_mb": getEnvAsInt("MAX_REQUEST_BODY_MB", 10)})
+				c.JSON(413, gin.H{"error": "Payload too large", "max_size_mb": maxBodySize / (1024 * 1024)})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to read request body"})
 			}

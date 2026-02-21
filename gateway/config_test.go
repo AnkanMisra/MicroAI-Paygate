@@ -284,6 +284,16 @@ func TestGetMaxBodySize(t *testing.T) {
 			envValue: "100",
 			expected: 100 * 1024 * 1024,
 		},
+		{
+			name:     "zero falls back to default",
+			envValue: "0",
+			expected: 10 * 1024 * 1024,
+		},
+		{
+			name:     "negative falls back to default",
+			envValue: "-5",
+			expected: 10 * 1024 * 1024,
+		},
 	}
 
 	for _, tt := range tests {

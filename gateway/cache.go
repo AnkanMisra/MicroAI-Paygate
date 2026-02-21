@@ -47,11 +47,11 @@ func CacheMiddleware() gin.HandlerFunc {
 
 		// Read request body to generate cache key
 		// Check Content-Length first to reject oversized requests immediately
-		const maxBodySize = 10 * 1024 * 1024
+		maxBodySize := getMaxBodySize()
 		// ContentLength == -1 means unknown (chunked encoding or no header), proceed to MaxBytesReader
 		if c.Request.ContentLength > maxBodySize {
 			c.Header("Connection", "close")
-			c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
+			c.JSON(413, gin.H{"error": "Payload too large", "max_size_mb": maxBodySize / (1024 * 1024)})
 			c.Abort()
 			return
 		}
@@ -59,14 +59,14 @@ func CacheMiddleware() gin.HandlerFunc {
 		var requestBody []byte
 		var err error
 		if c.Request.Body != nil {
-			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodySize))
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBodySize)
 			requestBody, err = io.ReadAll(c.Request.Body)
 			if err != nil {
 				// If body too large, MaxBytesReader returns error
 				var maxBytesErr *http.MaxBytesError
 				if errors.As(err, &maxBytesErr) {
 					c.Header("Connection", "close")
-					c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
+					c.JSON(413, gin.H{"error": "Payload too large", "max_size_mb": maxBodySize / (1024 * 1024)})
 					c.Abort()
 					return
 				}

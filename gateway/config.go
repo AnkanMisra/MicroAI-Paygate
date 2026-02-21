@@ -24,5 +24,8 @@ func getHealthCheckTimeout() time.Duration {
 // Configurable via MAX_REQUEST_BODY_MB environment variable (default: 10MB).
 func getMaxBodySize() int64 {
 	mb := getEnvAsInt("MAX_REQUEST_BODY_MB", 10)
+	if mb <= 0 {
+		mb = 10
+	}
 	return int64(mb) * 1024 * 1024
 }
