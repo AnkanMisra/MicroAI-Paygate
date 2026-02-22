@@ -66,6 +66,7 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 	t.Setenv("CACHE_ENABLED", "true")
 	t.Setenv("REDIS_URL", "127.0.0.1:6379")
 	t.Setenv("VERIFIER_URL", verifier.URL)
+	t.Setenv("AI_PROVIDER", "openrouter")
 	t.Setenv("OPENROUTER_URL", ai.URL)
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
@@ -79,6 +80,13 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 			redisClient = nil
 		}
 	}()
+
+	// Initialize AI provider for the test
+	var err error
+	aiProvider, err = ai.NewProvider()
+	if err != nil {
+		t.Fatalf("Failed to initialize AI provider: %v", err)
+	}
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
