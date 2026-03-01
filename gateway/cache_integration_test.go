@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"gateway/internal/ai"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -54,19 +55,20 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 	// Mock OpenRouter (AI)
 	// Use small delay to simulate processing so we can verify cache speedup
 	var aiCalls atomic.Int32
-	ai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	aiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		aiCalls.Add(1)
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(200)
 		w.Write([]byte(`{"choices":[{"message":{"content":"AI Summary Result"}}]}`))
 	}))
-	defer ai.Close()
+	defer aiServer.Close()
 
 	// Set Env Vars using t.Setenv for auto-cleanup
 	t.Setenv("CACHE_ENABLED", "true")
 	t.Setenv("REDIS_URL", "127.0.0.1:6379")
 	t.Setenv("VERIFIER_URL", verifier.URL)
-	t.Setenv("OPENROUTER_URL", ai.URL)
+	t.Setenv("AI_PROVIDER", "openrouter")
+	t.Setenv("OPENROUTER_URL", aiServer.URL)
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("RECIPIENT_ADDRESS", "0xTestRecipient")
@@ -79,6 +81,13 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 			redisClient = nil
 		}
 	}()
+
+	// Initialize AI provider for the test
+	var err error
+	aiProvider, err = ai.NewProvider()
+	if err != nil {
+		t.Fatalf("Failed to initialize AI provider: %v", err)
+	}
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

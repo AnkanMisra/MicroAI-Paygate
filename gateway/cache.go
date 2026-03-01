@@ -103,8 +103,14 @@ func CacheMiddleware() gin.HandlerFunc {
 		}
 
 		// Generate Cache Key (include model to prevent cache collisions)
+		// Get the model from the active provider configuration
 		model := os.Getenv("OPENROUTER_MODEL")
-		if model == "" {
+		if os.Getenv("AI_PROVIDER") == "ollama" {
+			model = os.Getenv("OLLAMA_MODEL")
+			if model == "" {
+				model = "llama2"
+			}
+		} else if model == "" {
 			model = "z-ai/glm-4.5-air:free"
 		}
 		cacheKey := getCacheKey(req.Text, model)
@@ -208,7 +214,7 @@ func CacheMiddleware() gin.HandlerFunc {
 func getCacheKey(text string, model string) string {
 	// IMPORTANT: This cache key ONLY includes text and model.
 	// Cache version v1 - if parameters change, increment version to invalidate old caches
-	// If callOpenRouter() is modified to accept additional parameters
+	// If the AI provider's Generate() method is modified to accept additional parameters
 	// (temperature, max_tokens, top_p, etc.), those MUST be added to
 	// this cache key to prevent incorrect cache hits.
 	// TODO: Consider accepting a struct with all OpenRouter parameters
