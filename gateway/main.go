@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdsa"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"

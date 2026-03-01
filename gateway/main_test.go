@@ -179,6 +179,7 @@ func TestRateLimitMiddleware_DifferentKeys(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/test", nil)
 		req.Header.Set("X-402-Signature", "sig1")
 		req.Header.Set("X-402-Nonce", "user1-11111111") // Different first 8 chars
+		req.RemoteAddr = "192.168.1.1:12345"            // Explicit IP for User 1
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		if w.Code != 200 {
@@ -190,6 +191,7 @@ func TestRateLimitMiddleware_DifferentKeys(t *testing.T) {
 	req1, _ := http.NewRequest("GET", "/test", nil)
 	req1.Header.Set("X-402-Signature", "sig1")
 	req1.Header.Set("X-402-Nonce", "user1-11111111")
+	req1.RemoteAddr = "192.168.1.1:12345" // Same IP as User 1
 	w1 := httptest.NewRecorder()
 	r.ServeHTTP(w1, req1)
 	if w1.Code != 429 {
@@ -200,6 +202,7 @@ func TestRateLimitMiddleware_DifferentKeys(t *testing.T) {
 	req2, _ := http.NewRequest("GET", "/test", nil)
 	req2.Header.Set("X-402-Signature", "sig2")
 	req2.Header.Set("X-402-Nonce", "user2-22222222") // Different first 8 chars
+	req2.RemoteAddr = "192.168.1.2:12345"            // Different IP for User 2
 	w2 := httptest.NewRecorder()
 	r.ServeHTTP(w2, req2)
 	if w2.Code != 200 {
