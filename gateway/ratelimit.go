@@ -142,12 +142,14 @@ func (tb *TokenBucket) GetResetTime(key string) int64 {
 	return resetTime.Unix()
 }
 
-// cleanup runs in a background goroutine to remove stale buckets
-// This prevents memory leaks from inactive users
+// Stop stops the background cleanup goroutine. Call this when the
+// TokenBucket is no longer needed to avoid goroutine leaks.
 func (tb *TokenBucket) Stop() {
 	close(tb.stopCh)
 }
 
+// cleanup runs in a background goroutine to remove stale buckets.
+// This prevents memory leaks from inactive users.
 func (tb *TokenBucket) cleanup() {
 	ticker := time.NewTicker(tb.cleanupTTL)
 	defer ticker.Stop()

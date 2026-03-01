@@ -204,6 +204,20 @@ func main() {
 
 	r := gin.Default()
 
+	// Restrict trusted proxies to prevent X-Forwarded-For spoofing.
+	// IP-based rate limiting relies on c.ClientIP(), which reads
+	// X-Forwarded-For only from proxies in this list. An empty list
+	// means only the direct remote address is trusted.
+	// Set TRUSTED_PROXIES env var (comma-separated CIDRs) for production.
+	if trustedProxies := getTrustedProxies(); len(trustedProxies) > 0 {
+		if err := r.SetTrustedProxies(trustedProxies); err != nil {
+			log.Printf("[WARN] invalid TRUSTED_PROXIES value: %v", err)
+		}
+	} else {
+		// Trust no proxies: always use direct RemoteAddr for ClientIP.
+		_ = r.SetTrustedProxies(nil)
+	}
+
 	// VIBE FIX: Register the Correlation ID Middleware immediately
 	// This ensures every single request gets an ID before anything else happens.
 	r.Use(CorrelationIDMiddleware())
@@ -778,6 +792,24 @@ func getLimitForTier(tier string) int {
 func getRateLimitEnabled() bool {
 	enabled := strings.ToLower(os.Getenv("RATE_LIMIT_ENABLED"))
 	return enabled == "true" || enabled == "1"
+}
+
+// getTrustedProxies returns the list of trusted proxy CIDRs/IPs from the
+// TRUSTED_PROXIES environment variable (comma-separated). Returns nil when
+// the variable is unset so the caller can disable proxy trust entirely.
+func getTrustedProxies() []string {
+	raw := strings.TrimSpace(os.Getenv("TRUSTED_PROXIES"))
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	trusted := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			trusted = append(trusted, trimmed)
+		}
+	}
+	return trusted
 }
 
 // getEnvAsInt retrieves an environment variable as an integer with a default value
