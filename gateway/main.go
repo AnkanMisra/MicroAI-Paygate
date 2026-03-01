@@ -233,7 +233,8 @@ func main() {
 	// Set TRUSTED_PROXIES env var (comma-separated CIDRs) for production.
 	if trustedProxies := getTrustedProxies(); len(trustedProxies) > 0 {
 		if err := r.SetTrustedProxies(trustedProxies); err != nil {
-			log.Printf("[WARN] invalid TRUSTED_PROXIES value: %v", err)
+			_ = r.SetTrustedProxies(nil)
+			log.Printf("[WARN] invalid TRUSTED_PROXIES value, falling back to no trusted proxies: %v", err)
 		}
 	} else {
 		// Trust no proxies: always use direct RemoteAddr for ClientIP.

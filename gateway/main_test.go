@@ -155,7 +155,7 @@ func TestRateLimitMiddleware_StandardUser(t *testing.T) {
 }
 
 func TestRateLimitMiddleware_DifferentKeys(t *testing.T) {
-	// Verify that different users have separate rate limit buckets
+	// Verify that different IPs have separate rate limit buckets
 	os.Setenv("RATE_LIMIT_ENABLED", "true")
 	os.Setenv("RATE_LIMIT_STANDARD_RPM", "60")
 	os.Setenv("RATE_LIMIT_STANDARD_BURST", "2")
@@ -178,8 +178,8 @@ func TestRateLimitMiddleware_DifferentKeys(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		req, _ := http.NewRequest("GET", "/test", nil)
 		req.Header.Set("X-402-Signature", "sig1")
-		req.Header.Set("X-402-Nonce", "user1-11111111") // Different first 8 chars
-		req.RemoteAddr = "192.168.1.1:12345"            // Explicit IP for User 1
+		req.Header.Set("X-402-Nonce", "user1-11111111")
+		req.RemoteAddr = "192.168.1.1:12345" // Explicit IP for User 1
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		if w.Code != 200 {
@@ -201,8 +201,8 @@ func TestRateLimitMiddleware_DifferentKeys(t *testing.T) {
 	// User 2 should still be allowed (different bucket)
 	req2, _ := http.NewRequest("GET", "/test", nil)
 	req2.Header.Set("X-402-Signature", "sig2")
-	req2.Header.Set("X-402-Nonce", "user2-22222222") // Different first 8 chars
-	req2.RemoteAddr = "192.168.1.2:12345"            // Different IP for User 2
+	req2.Header.Set("X-402-Nonce", "user2-22222222")
+	req2.RemoteAddr = "192.168.1.2:12345" // Different IP for User 2
 	w2 := httptest.NewRecorder()
 	r.ServeHTTP(w2, req2)
 	if w2.Code != 200 {
