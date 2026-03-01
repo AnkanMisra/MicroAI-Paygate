@@ -31,7 +31,8 @@ type TokenBucket struct {
 	burst      int           // Maximum tokens in bucket
 	buckets    sync.Map      // map[string]*bucket - thread-safe map of user buckets
 	cleanupTTL time.Duration // Time after which inactive buckets are cleaned up
-	stopCh     chan struct{} // Channel to stop cleanup goroutine
+	stopCh     chan struct{}  // Channel to stop cleanup goroutine
+	stopOnce   sync.Once     // Ensures Stop() is safe to call multiple times
 }
 
 // NewTokenBucket creates a new TokenBucket rate limiter
@@ -144,8 +145,9 @@ func (tb *TokenBucket) GetResetTime(key string) int64 {
 
 // Stop stops the background cleanup goroutine. Call this when the
 // TokenBucket is no longer needed to avoid goroutine leaks.
+// Safe to call multiple times.
 func (tb *TokenBucket) Stop() {
-	close(tb.stopCh)
+	tb.stopOnce.Do(func() { close(tb.stopCh) })
 }
 
 // cleanup runs in a background goroutine to remove stale buckets.
