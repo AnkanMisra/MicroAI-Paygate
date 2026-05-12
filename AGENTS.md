@@ -24,6 +24,7 @@
 - Follow language idioms: Go fmt/vet, Rust fmt/clippy, TypeScript ESLint.
 - Use Bun (not npm/node) for JS/TS runtime commands in this repo.
 - Commit prefixes: `feat:`, `fix:`, `docs:`, `chore:`.
+- For Codex-authored commits, add `Co-authored-by: codex <codex@users.noreply.github.com>` to the commit message.
 - No secrets in code/logs; use `.env` files and placeholders in `.env.example`.
 - Keep changes minimal and focused; add tests for new behavior.
 - Ports: gateway=3000, web=3001, verifier=3002.
