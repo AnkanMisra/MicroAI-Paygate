@@ -14,6 +14,14 @@ These guidelines keep the project maintainable and secure.
 - Keep branches up to date with `main`/`ops` before requesting review.
 - Do not force-push shared branches without coordination.
 
+## Codex / AI Review Expectations
+- Codex reviews must be strict, specific, and actionable; do not limit feedback to only major bugs.
+- Review the whole affected flow across gateway, verifier, web, tests, docs, CI, Docker/Compose, and dependency manifests when a PR touches cross-service behavior.
+- Call out small correctness and maintainability issues such as missing negative tests, edge cases, stale docs, stale OpenAPI examples, wrong CI path filters, package/lockfile drift, unclear PR descriptions, and broken local setup commands.
+- Treat x402 payment verification, EIP-712 field parity, nonce/timestamp replay protection, receipt/cache behavior, rate limits, request timeouts, CORS, and secret handling as security-sensitive review areas.
+- Require docs/config updates for changed env vars, ports, headers, status codes, API responses, Docker service names, or frontend wallet behavior.
+- Prefer concise findings with file/line references, user impact, and the smallest safe fix; skip purely subjective style comments unless they affect reliability or maintainability.
+
 ## Security
 - Never commit private keys or API tokens.
 - Report vulnerabilities privately (see CONTRIBUTING for disclosure guidance).
