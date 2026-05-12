@@ -241,8 +241,8 @@ func main() {
 		_ = r.SetTrustedProxies(nil)
 	}
 
-	// VIBE FIX: Register the Correlation ID Middleware immediately
-	// This ensures every single request gets an ID before anything else happens.
+	// Register the Correlation ID middleware first so every request,
+	// including those rejected by later middleware, carries an ID for tracing.
 	r.Use(CorrelationIDMiddleware())
 
 	// Configure GZIP compression for API responses
@@ -514,8 +514,6 @@ func verifyPayment(ctx context.Context, signature, nonce string, timestamp uint6
 	}
 	vreq.Header.Set("Content-Type", "application/json")
 
-	// VIBE FIX: Pass Correlation ID to the Verifier Service
-	// CORRECT: Use the constant 'CorrelationIDKey' to retrieve the value
 	if cid, ok := ctx.Value(CorrelationIDKey).(string); ok {
 		vreq.Header.Set("X-Correlation-ID", cid)
 	}

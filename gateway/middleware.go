@@ -31,7 +31,8 @@ func CorrelationIDMiddleware() gin.HandlerFunc {
 
 		c.Set("correlation_id", id) // Keep this as a string for Gin
 
-		// VIBE FIX: Use the custom typed key for the standard context
+		// Use a typed context key (not a bare string) to avoid collisions with
+		// other packages writing to the same request context.
 		ctx := context.WithValue(c.Request.Context(), CorrelationIDKey, id)
 		c.Request = c.Request.WithContext(ctx)
 
