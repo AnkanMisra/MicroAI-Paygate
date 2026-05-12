@@ -5,7 +5,6 @@ on:
     paths:
       - 'gateway/**'
       - 'verifier/**'
-      - 'src/**'
       - 'tests/**'
       - 'run_e2e.sh'
       - 'package.json'
@@ -17,7 +16,6 @@ on:
     paths:
       - 'gateway/**'
       - 'verifier/**'
-      - 'src/**'
       - 'tests/**'
       - 'run_e2e.sh'
       - 'package.json'

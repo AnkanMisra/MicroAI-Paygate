@@ -1,13 +1,9 @@
 {
   "name": "microai-paygate",
   "version": "1.0.0",
+  "private": true,
   "description": "x402-powered API monetization layer",
-  "main": "src/index.ts",
   "scripts": {
-    "start": "bun run src/index.ts",
-    "dev": "bun run --watch src/index.ts",
-    "agent": "bun run agent/bot.ts",
-    "dev:all": "concurrently \"bun run dev\" \"sleep 2 && bun run agent\"",
     "stack": "concurrently -n \"VERIFIER,GATEWAY,WEB\" -c \"red,cyan,green\" \"cd verifier && cargo run\" \"cd gateway && go run .\" \"cd web && bun run dev\"",
     "test:unit": "cd gateway && go test ./... && cd ../verifier && cargo test",
     "test:go": "cd gateway && go test ./...",
@@ -16,15 +12,9 @@
     "test:all": "./run_e2e.sh"
   },
   "dependencies": {
-    "cors": "^2.8.5",
-    "ethers": "^6.10.0",
-    "express": "^4.18.2",
-    "uuid": "^9.0.1"
+    "ethers": "^6.10.0"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^4.17.21",
-    "@types/uuid": "^11.0.0",
     "bun-types": "latest",
     "concurrently": "^9.2.1"
   }
