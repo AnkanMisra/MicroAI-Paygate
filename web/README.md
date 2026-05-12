@@ -5,7 +5,7 @@ The Web Frontend is the user-facing interface for MicroAI Paygate. Built with Ne
 ## Role & Responsibilities
 
 - **User Interface**: Provides a clean, responsive UI for text summarization.
-- **Wallet Integration**: Connects to browser wallets (MetaMask, Phantom) using `ethers.js`.
+- **Wallet Integration**: Connects to EVM-compatible browser wallets (MetaMask, Rabby, Coinbase Wallet) using `ethers.js`.
 - **Payment Flow Handling**:
     1.  Sends initial request.
     2.  Catches `402 Payment Required` errors.
@@ -15,7 +15,7 @@ The Web Frontend is the user-facing interface for MicroAI Paygate. Built with Ne
 
 ## Technology Stack
 
-- **Framework**: Next.js 14 (App Router)
+- **Framework**: Next.js 16 (App Router)
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS
 - **Blockchain Interaction**: Ethers.js v6

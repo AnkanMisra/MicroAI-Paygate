@@ -4,6 +4,16 @@
     <p>A high-performance, crypto-monetized AI microservice architecture implementing the x402 Protocol.</p>
 </div>
 
+<p align="center">
+  <a href="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/go-tests.yml"><img alt="Go Tests" src="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/go-tests.yml/badge.svg"></a>
+  <a href="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/rust-tests.yml"><img alt="Rust Tests" src="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/rust-tests.yml/badge.svg"></a>
+  <a href="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/web-lint-build.yml"><img alt="Web Build" src="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/web-lint-build.yml/badge.svg"></a>
+  <a href="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/e2e.yml"><img alt="E2E" src="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/e2e.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg"></a>
+</p>
+
+> Open-sourced and maintained as a solo project — ~15 distinct external contributors merged via PR review across ~3 months, with the architecture, design, and merges owned by [@AnkanMisra](https://github.com/AnkanMisra). No formal program affiliation.
+
 ## Documentation
 
 - [Getting Started](README.md#getting-started-local)
@@ -112,9 +122,9 @@ graph TD
         K -- Yes --> L[Sign Receipt]
     end
 
-    subgraph Storage [Persistence]
+    subgraph Storage
         L --> M[(Redis Cache)]
-        L --> N[(Receipt Store)]
+        L --> N[(In-memory Receipt Map)]
     end
 
     %% Component Styling
@@ -171,13 +181,27 @@ The client signs this data using EIP-712 and resends with headers:
 The Gateway service utilizes Go's lightweight goroutines to handle high-throughput HTTP traffic. Unlike the Node.js event loop which can be blocked by CPU-intensive tasks, the Go scheduler efficiently distributes requests across available CPU cores.
 - **Framework**: Gin (High-performance HTTP web framework)
 - **Concurrency Model**: CSP (Communicating Sequential Processes)
-- **Proxy Logic**: Uses `httputil.ReverseProxy` for zero-copy forwarding.
+- **Upstream Calls**: Plain `net/http` clients with per-call `context.Context` deadlines. The gateway is not a transparent reverse proxy — it owns the verify → AI → receipt-sign flow and shapes the response (including the `X-402-Receipt` header) before returning to the client.
 
 ### The Verifier (Rust)
 The Verifier is a specialized computation unit designed for one task: Elliptic Curve Digital Signature Algorithm (ECDSA) recovery.
 - **Safety**: Rust's ownership model guarantees memory safety without a garbage collector.
 - **Cryptography**: Uses `ethers-rs` bindings to `k256` for hardware-accelerated math.
 - **Isolation**: Running as a separate binary ensures that cryptographic load never impacts the API gateway's latency.
+
+## Limitations & What's Next
+
+This section exists because every honest project has rough edges, and pretending otherwise is the fastest way to lose credibility in a code review. These are the things I know are imperfect today:
+
+- **Receipts are stored in an in-memory map**, not in Redis. The gateway already has Redis wired for the cache layer, so this is small to fix — but as-shipped, restarting the gateway loses all outstanding receipts and a second gateway replica can't see receipts issued by the first. Single-instance only.
+- **A valid signature is not a settled payment.** The verifier proves the signer authorized the payment context; it does not check that USDC actually moved on Base. A production deployment would either (a) require pre-paid balances tracked off-chain, (b) poll an indexer for on-chain settlement before fulfilling, or (c) accept the float risk for tiny micropayments. This system does (c) implicitly, which is acceptable for a demo but not for real money at scale.
+- **Single-chain hardcoded to Base / Base Sepolia.** Multi-chain support would require dynamic EIP-712 domains and per-chain recipient/token configs. Not difficult, just not done.
+- **Replay protection relies on a 5-minute timestamp window**, not a persistent nonce store. Inside the window, the same `(signature, nonce, timestamp)` triple is technically reusable. A nonce-set in Redis would close this gap; the timestamp window is a deliberate "good enough for low-value demo traffic" choice.
+- **Rate limiter is per-process and in-memory.** Horizontal scaling of the gateway would silently weaken the limits, since each replica has its own token buckets. Distributed rate limiting (e.g., Redis-backed sliding window) is a known follow-up.
+- **CORS allowed origins are hardcoded** to `http://localhost:3001` in `gateway/main.go`. Deploying the frontend anywhere else requires patching this. An `ALLOWED_ORIGINS` env var is the planned fix.
+- **Demo runs against free OpenRouter models** (`z-ai/glm-4.5-air:free`). Summaries are mediocre by design — this is a deliberate cost tradeoff to keep the public demo at zero recurring spend.
+
+If you find more, open an issue — but note that PR reviews are paused for the current placement season and will resume after.
 
 ## Installation & Deployment
 
