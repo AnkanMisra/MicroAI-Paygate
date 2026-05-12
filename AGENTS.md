@@ -30,13 +30,15 @@
 - Never put try/catch blocks around imports.
 
 ## Strict Codex Review Guidelines
-When asked to review a PR, inspect the diff and the surrounding code deeply enough to find small, actionable issues. Do **not** stop at “no major issues” if there are concrete edge cases, missing tests, docs drift, CI gaps, or maintainability risks.
+When asked to review a PR, act like a senior engineer doing a pre-merge review. Inspect every changed file and enough surrounding code to trace the affected behavior. Do **not** stop at “no major issues” if there are concrete edge cases, missing tests, docs drift, CI gaps, or maintainability risks.
 
 ### Review Scope and Triage
 - Verify the PR against the current code, not only the changed lines. Follow call paths across `gateway/`, `verifier/`, `web/`, tests, docs, workflows, and Docker/Compose files when they are affected.
-- Prefer precise, fixable findings with file/line references and explain the user impact. Avoid vague style opinions unless they affect correctness, security, maintainability, or contributor experience.
+- Verify the change matches the PR title, description, issue context, and surrounding behavior. For bug fixes, confirm the root cause is fixed; for refactors, confirm behavior is preserved; for features, check happy path, failure path, loading/empty states, and invalid input.
+- Prioritize correctness, security, regressions, tests, performance, reliability, and maintainability. Explicitly consider null/undefined values, empty or invalid input, duplicates, async/race behavior, failed requests, missing permissions, and bad state.
+- Prefer precise, fixable findings with file/line references and explain the user impact. Avoid vague style opinions unless they affect correctness, security, maintainability, or contributor experience. Do not flag normal async usage, formatter-managed formatting, or personal preference.
 - Flag PR hygiene issues: broad/unrelated diffs, stale generated files, lockfile/package manifest mismatches, missing migration notes, broken badges/links, inconsistent service names, or unmentioned breaking changes.
-- Confirm that docs and config changes stay evergreen. Move temporal project status notes out of the main README when possible and keep `.env.example`, service READMEs, OpenAPI, Docker, Makefile, and workflows synchronized.
+- Confirm that docs and config changes stay evergreen. Move temporal project status notes out of the main README when possible and keep `.env.example`, service READMEs, OpenAPI, Docker, Makefile, and workflows synchronized. Treat typos and grammar mistakes in docs, comments, logs, errors, and UI text as reviewable user-facing defects.
 - Check CI path filters whenever files move between services. A change to `gateway/**`, `verifier/**`, `web/**`, `tests/**`, dependency manifests/lockfiles, `run_e2e.sh`, Docker/Compose, or workflows should trigger the relevant safe checks.
 
 ### Gateway Review Checklist (`gateway/`)
@@ -69,6 +71,14 @@ When asked to review a PR, inspect the diff and the surrounding code deeply enou
 - Documentation-only PRs still deserve review for stale commands, inconsistent versions, broken anchors, wrong ports, temporal claims, and mismatch with code/workflows.
 
 ### Expected Review Output
-- Include findings for small but real issues: off-by-one TTL/expiry mistakes, missing negative tests, inconsistent env names, path filters that skip CI, docs that would mislead setup, and security footguns.
-- For each finding, state severity, affected file/line, why it matters, and the smallest safe fix.
+- Include findings for small but real issues: off-by-one TTL/expiry mistakes, missing negative tests, inconsistent env names, path filters that skip CI, docs that would mislead setup, and security footguns. Only flag real issues; if unsure, state the assumption clearly.
+- Use these severities: `P0` critical security/data-loss/build/deploy failure; `P1` real bug, broken behavior, important edge case, bad error handling, or user-facing typo; `P2` maintainability, readability, missing tests, or moderate performance issue; `P3` optional cleanup or polish.
+- Format each finding exactly as:
+  - `[P0/P1/P2/P3] Short title`
+  - `File: path`
+  - `Problem: ...`
+  - `Impact: ...`
+  - `Fix: ...`
+- If you find a bug, keep feedback constructive and include a brief encouraging note.
+- End every review with `Verdict: approve`, `approve with comments`, or `request changes`, plus the biggest risk and the tests run or recommended.
 - If no actionable issues remain after this checklist, say what areas were checked and why no findings were raised.
