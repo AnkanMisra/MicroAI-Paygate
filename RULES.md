@@ -11,6 +11,7 @@ These guidelines keep the project maintainable and secure.
 ## Git & Reviews
 - Prefer small, reviewable PRs.
 - Write meaningful commits (`feat:`, `fix:`, `docs:`, `chore:`).
+- Every commit created, amended, or explicitly drafted by Codex must include `Co-authored-by: codex <codex@users.noreply.github.com>`.
 - Keep branches up to date with `main`/`ops` before requesting review.
 - Do not force-push shared branches without coordination.
 

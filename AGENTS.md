@@ -24,11 +24,15 @@
 - Follow language idioms: Go fmt/vet, Rust fmt/clippy, TypeScript ESLint.
 - Use Bun (not npm/node) for JS/TS runtime commands in this repo.
 - Commit prefixes: `feat:`, `fix:`, `docs:`, `chore:`.
-- For Codex-authored commits, add `Co-authored-by: codex <codex@users.noreply.github.com>` to the commit message.
 - No secrets in code/logs; use `.env` files and placeholders in `.env.example`.
 - Keep changes minimal and focused; add tests for new behavior.
 - Ports: gateway=3000, web=3001, verifier=3002.
 - Never put try/catch blocks around imports.
+
+## Commit Attribution
+- Every commit that Codex creates, amends, or explicitly drafts for this repo must include this exact trailer in the commit message:
+  `Co-authored-by: codex <codex@users.noreply.github.com>`
+- Keep the trailer in addition to any human or tool co-authors. Do not omit it from docs-only, review-followup, or small cleanup commits when Codex performed the work.
 
 ## Strict Codex Review Guidelines
 When asked to review a PR, act like a senior engineer doing a pre-merge review. Inspect every changed file and enough surrounding code to trace the affected behavior. Do **not** stop at “no major issues” if there are concrete edge cases, missing tests, docs drift, CI gaps, or maintainability risks.
