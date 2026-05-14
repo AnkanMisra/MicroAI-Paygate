@@ -27,7 +27,8 @@ RESULTS_FILE=bench/RESULTS-2026-05-13.txt bench/bench.sh
 Useful overrides:
 
 ```bash
-THREADS=4 CONNECTIONS=64 DURATION=60s PAYLOAD_COUNT=5000 bench/bench.sh
+THREADS=4 CONNECTIONS=64 DURATION=60s EXPECTED_MAX_RPS=3000 bench/bench.sh
+PAYLOAD_COUNT=200000 bench/bench.sh
 VERIFIER_URL=http://127.0.0.1:3002 bench/bench.sh
 SIGNATURE_EXPIRY_SECONDS=300 bench/bench.sh
 BENCH_REVEAL_HOST=true bench/bench.sh
@@ -35,7 +36,7 @@ BENCH_REVEAL_HOST=true bench/bench.sh
 
 ## Method
 
-`bench.sh` pre-generates unique EIP-712 payment payloads with Bun and `ethers`, writes them to a temporary JSONL file, then gives `wrk` a Lua script that rotates request bodies across the generated payloads. This avoids benchmarking one repeated nonce/signature pair.
+`bench.sh` pre-generates one-time EIP-712 payment payloads with Bun and `ethers`, writes them to a temporary JSONL file, then gives `wrk` a Lua script that consumes each signed nonce at most once. This avoids benchmarking replay rejection instead of signature verification. By default, `PAYLOAD_COUNT` is derived from `DURATION * EXPECTED_MAX_RPS`; increase either value if the validity check reports exhausted payloads.
 
 The script refuses runs where `DURATION` plus payload age would approach `SIGNATURE_EXPIRY_SECONDS`, and the Lua script aggregates per-thread counts for non-200 or `is_valid:false` responses. Set `SIGNATURE_EXPIRY_SECONDS` to the same value used by the verifier when benchmarking a non-default verifier configuration.
 

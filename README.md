@@ -52,7 +52,7 @@ MicroAI Paygate is designed to be frictionless and trustless:
 
 The reproducible verifier micro-benchmark lives in [`bench/`](bench/README.md) and measures only the Rust `/verify` endpoint. It does not measure gateway, wallet UI, Redis, OpenRouter, or end-to-end x402 latency.
 
-Latest local run: `bench/RESULTS-2026-05-13.txt` on Apple M2, 8 cores, 8GB RAM with `wrk 4.2.0`, 2 threads, 32 connections, 30 seconds, and 1000 rotated signed payloads.
+Latest local run: `bench/RESULTS-2026-05-13.txt` on Apple M2, 8 cores, 8GB RAM with `wrk 4.2.0`, 2 threads, 32 connections, and 30 seconds. Current reruns should use enough one-time signed payloads for the full run because verifier nonces are replay-protected.
 
 | Metric | Result |
 | :--- | :--- |
@@ -195,7 +195,7 @@ This section exists because every honest project has rough edges, and pretending
 - **Receipts now default to Redis-backed storage** (`RECEIPT_STORE=redis`) with the same TTL used by the receipt lookup API. `RECEIPT_STORE=memory` is still available for tests and local experiments, but memory mode loses receipts on restart and should not be used for multi-replica deployments.
 - **A valid signature is not a settled payment.** The verifier proves the signer authorized the payment context; it does not check that USDC actually moved on Base. A production deployment would either (a) require pre-paid balances tracked off-chain, (b) poll an indexer for on-chain settlement before fulfilling, or (c) accept the float risk for tiny micropayments. This system does (c) implicitly, which is acceptable for a demo but not for real money at scale.
 - **Single-chain hardcoded to Base / Base Sepolia.** Multi-chain support would require dynamic EIP-712 domains and per-chain recipient/token configs. Not difficult, just not done.
-- **Replay protection relies on a 5-minute timestamp window**, not a persistent nonce store. Inside the window, the same `(signature, nonce, timestamp)` triple is technically reusable. A nonce-set in Redis would close this gap; the timestamp window is a deliberate "good enough for low-value demo traffic" choice.
+- **Replay protection is in-memory inside one verifier instance.** The verifier rejects reused nonce hashes during the signature window, which is enough for this single-instance demo. Production multi-replica deployment still needs Redis or another shared nonce store so all verifier replicas reject the same replayed nonce.
 - **Rate limiter is per-process and in-memory.** Horizontal scaling of the gateway would silently weaken the limits, since each replica has its own token buckets. Distributed rate limiting (e.g., Redis-backed sliding window) is a known follow-up.
 - **Demo runs against free OpenRouter models** (`z-ai/glm-4.5-air:free`). Summaries are mediocre by design — this is a deliberate cost tradeoff to keep the public demo at zero recurring spend.
 

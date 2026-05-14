@@ -6,21 +6,29 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use dashmap::{mapref::entry::Entry, DashMap};
 use ethers::types::transaction::eip712::TypedData;
 use ethers::types::Signature;
+use ethers::utils::keccak256;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_BODY_SIZE: usize = 1024 * 1024; // 1MB
 const DEFAULT_EXPECTED_CHAIN_ID: u64 = 84532;
+const NONCE_SWEEP_INTERVAL_SECONDS: u64 = 60;
 
 #[derive(Clone)]
 struct AppState {
     max_body_size: usize,
     expected_chain_id: u64,
+    used_nonces: Arc<DashMap<[u8; 32], Instant>>,
+    last_nonce_sweep: Arc<Mutex<Instant>>,
+    signature_expiry_seconds: u64,
+    clock_skew_seconds: u64,
 }
 
 fn get_max_body_size() -> usize {
@@ -76,6 +84,10 @@ async fn main() {
     let state = AppState {
         max_body_size: limit,
         expected_chain_id,
+        used_nonces: Arc::new(DashMap::new()),
+        last_nonce_sweep: Arc::new(Mutex::new(Instant::now())),
+        signature_expiry_seconds: get_env_u64("SIGNATURE_EXPIRY_SECONDS", 300),
+        clock_skew_seconds: get_env_u64("SIGNATURE_CLOCK_SKEW_SECONDS", 60),
     };
     let app = Router::new()
         .route("/health", get(health))
@@ -107,13 +119,13 @@ async fn health(headers: HeaderMap) -> (HeaderMap, Json<HealthResponse>) {
    Request / Response
 ======================= */
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct VerifyRequest {
     context: PaymentContext,
     signature: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct PaymentContext {
     recipient: String,
     token: String,
@@ -199,16 +211,66 @@ fn validate_timestamp_internal(
     Ok(())
 }
 
-fn validate_timestamp(timestamp: Option<u64>) -> Result<(), VerifyError> {
-    let window = get_env_u64("SIGNATURE_EXPIRY_SECONDS", 300);
-    let skew = get_env_u64("SIGNATURE_CLOCK_SKEW_SECONDS", 60);
-
+fn validate_timestamp(
+    timestamp: Option<u64>,
+    window_seconds: u64,
+    clock_skew_seconds: u64,
+) -> Result<(), VerifyError> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs();
 
-    validate_timestamp_internal(timestamp, window, skew, now)
+    validate_timestamp_internal(timestamp, window_seconds, clock_skew_seconds, now)
+}
+
+fn evict_expired_nonces(store: &DashMap<[u8; 32], Instant>, now: Instant, ttl: Duration) {
+    store.retain(|_, inserted_at| now.saturating_duration_since(*inserted_at) <= ttl);
+}
+
+fn nonce_retention_ttl(state: &AppState) -> Duration {
+    Duration::from_secs(
+        state
+            .signature_expiry_seconds
+            .saturating_add(state.clock_skew_seconds)
+            .saturating_add(1),
+    )
+}
+
+fn maybe_evict_expired_nonces(state: &AppState, now: Instant, ttl: Duration) {
+    let mut last_sweep = state
+        .last_nonce_sweep
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if now.saturating_duration_since(*last_sweep)
+        < Duration::from_secs(NONCE_SWEEP_INTERVAL_SECONDS)
+    {
+        return;
+    }
+    *last_sweep = now;
+    drop(last_sweep);
+    evict_expired_nonces(&state.used_nonces, now, ttl);
+}
+
+fn claim_nonce(state: &AppState, nonce: &str, now: Instant) -> bool {
+    let ttl = nonce_retention_ttl(state);
+    maybe_evict_expired_nonces(state, now, ttl);
+
+    // Single-instance replay protection. Multi-replica production needs Redis.
+    match state.used_nonces.entry(keccak256(nonce.as_bytes())) {
+        Entry::Occupied(mut entry) => {
+            if now.saturating_duration_since(*entry.get()) > ttl {
+                entry.insert(now);
+                true
+            } else {
+                false
+            }
+        }
+        Entry::Vacant(entry) => {
+            entry.insert(now);
+            true
+        }
+    }
 }
 
 /* =======================
@@ -273,16 +335,26 @@ async fn verify_signature(
         );
     }
 
-    if let Err(err) = validate_timestamp(payload.context.timestamp) {
-        let msg = match err {
+    if let Err(err) = validate_timestamp(
+        payload.context.timestamp,
+        state.signature_expiry_seconds,
+        state.clock_skew_seconds,
+    ) {
+        let (msg, error_code) = match err {
             VerifyError::SignatureExpired {
                 age_seconds,
                 max_seconds,
-            } => format!("E007: expired (age={} max={})", age_seconds, max_seconds),
-            VerifyError::FutureTimestamp { timestamp, now } => {
-                format!("E008: future ts={} now={}", timestamp, now)
+            } => (
+                format!("E007: expired (age={} max={})", age_seconds, max_seconds),
+                "timestamp_expired",
+            ),
+            VerifyError::FutureTimestamp { timestamp, now } => (
+                format!("E008: future ts={} now={}", timestamp, now),
+                "timestamp_future",
+            ),
+            VerifyError::MissingTimestamp => {
+                ("E009: missing timestamp".to_string(), "timestamp_missing")
             }
-            VerifyError::MissingTimestamp => "E009: missing timestamp".to_string(),
         };
 
         return (
@@ -292,7 +364,7 @@ async fn verify_signature(
                 is_valid: false,
                 recovered_address: None,
                 error: Some(msg),
-                error_code: None,
+                error_code: Some(error_code.to_string()),
             }),
         );
     }
@@ -349,23 +421,38 @@ async fn verify_signature(
                     is_valid: false,
                     recovered_address: None,
                     error: Some(format!("bad signature: {}", e)),
-                    error_code: None,
+                    error_code: Some("invalid_signature".to_string()),
                 }),
             );
         }
     };
 
     match sig.recover_typed_data(&typed_data) {
-        Ok(addr) => (
-            StatusCode::OK,
-            res_headers,
-            Json(VerifyResponse {
-                is_valid: true,
-                recovered_address: Some(format!("{:?}", addr)),
-                error: None,
-                error_code: None,
-            }),
-        ),
+        Ok(addr) => {
+            if !claim_nonce(&state, &payload.context.nonce, Instant::now()) {
+                return (
+                    StatusCode::CONFLICT,
+                    res_headers,
+                    Json(VerifyResponse {
+                        is_valid: false,
+                        recovered_address: None,
+                        error: Some("nonce already used".to_string()),
+                        error_code: Some("nonce_already_used".to_string()),
+                    }),
+                );
+            }
+
+            (
+                StatusCode::OK,
+                res_headers,
+                Json(VerifyResponse {
+                    is_valid: true,
+                    recovered_address: Some(format!("{:?}", addr)),
+                    error: None,
+                    error_code: None,
+                }),
+            )
+        }
         Err(e) => (
             StatusCode::OK,
             res_headers,
@@ -373,7 +460,7 @@ async fn verify_signature(
                 is_valid: false,
                 recovered_address: None,
                 error: Some(e.to_string()),
-                error_code: None,
+                error_code: Some("invalid_signature".to_string()),
             }),
         ),
     }
@@ -386,15 +473,25 @@ async fn verify_signature(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dashmap::DashMap;
     use ethers::signers::{LocalWallet, Signer};
     use ethers::types::transaction::eip712::TypedData;
+    use std::sync::Arc;
 
     const BASE_SEPOLIA_CHAIN_ID: u64 = 84532;
 
     fn app_state() -> AppState {
+        app_state_with_window(300, 60)
+    }
+
+    fn app_state_with_window(signature_expiry_seconds: u64, clock_skew_seconds: u64) -> AppState {
         AppState {
             max_body_size: MAX_BODY_SIZE,
             expected_chain_id: BASE_SEPOLIA_CHAIN_ID,
+            used_nonces: Arc::new(DashMap::new()),
+            last_nonce_sweep: Arc::new(Mutex::new(Instant::now())),
+            signature_expiry_seconds,
+            clock_skew_seconds,
         }
     }
 
@@ -403,6 +500,55 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
+    }
+
+    async fn signed_request(nonce: &str, chain_id: u64, timestamp: u64) -> VerifyRequest {
+        let wallet: LocalWallet =
+            "380eb0f3d505f087e438eca80bc4df9a7faa24f868e69fc0440261a0fc0567dc"
+                .parse()
+                .unwrap();
+        let wallet = wallet.with_chain_id(chain_id);
+
+        let typed = serde_json::json!({
+            "domain": {
+                "name": "MicroAI Paygate",
+                "version": "1",
+                "chainId": chain_id,
+                "verifyingContract": "0x0000000000000000000000000000000000000000"
+            },
+            "types": {
+                "Payment": [
+                    { "name": "recipient", "type": "address" },
+                    { "name": "token", "type": "string" },
+                    { "name": "amount", "type": "string" },
+                    { "name": "nonce", "type": "string" },
+                    { "name": "timestamp", "type": "uint256" }
+                ]
+            },
+            "primaryType": "Payment",
+            "message": {
+                "recipient": "0x1234567890123456789012345678901234567890",
+                "token": "USDC",
+                "amount": "100",
+                "nonce": nonce,
+                "timestamp": timestamp
+            }
+        });
+
+        let typed: TypedData = serde_json::from_value(typed).unwrap();
+        let sig = wallet.sign_typed_data(&typed).await.unwrap();
+
+        VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234567890123456789012345678901234567890".into(),
+                token: "USDC".into(),
+                amount: "100".into(),
+                nonce: nonce.into(),
+                chain_id,
+                timestamp: Some(timestamp),
+            },
+            signature: format!("0x{}", hex::encode(sig.to_vec())),
+        }
     }
 
     #[test]
@@ -571,6 +717,143 @@ mod tests {
         assert_eq!(resp.recovered_address, None);
         assert_eq!(resp.error.as_deref(), Some("chain ID mismatch"));
         assert_eq!(resp.error_code.as_deref(), Some("chain_id_mismatch"));
+    }
+
+    #[tokio::test]
+    async fn test_verify_signature_returns_timestamp_error_codes() {
+        let state = app_state();
+        let cases = [
+            (None, "timestamp_missing"),
+            (Some(now() - 301), "timestamp_expired"),
+            (Some(now() + 120), "timestamp_future"),
+        ];
+
+        for (timestamp, expected_code) in cases {
+            let req = VerifyRequest {
+                context: PaymentContext {
+                    recipient: "0x1234567890123456789012345678901234567890".to_string(),
+                    token: "USDC".to_string(),
+                    amount: "100".to_string(),
+                    nonce: format!("timestamp-{expected_code}"),
+                    chain_id: BASE_SEPOLIA_CHAIN_ID,
+                    timestamp,
+                },
+                signature: "0x1234567890".to_string(),
+            };
+
+            let (status, _, Json(resp)) =
+                verify_signature(State(state.clone()), HeaderMap::new(), Ok(Json(req))).await;
+
+            assert_eq!(status, StatusCode::OK);
+            assert!(!resp.is_valid);
+            assert_eq!(resp.error_code.as_deref(), Some(expected_code));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_verify_signature_rejects_replayed_nonce() {
+        let state = app_state();
+        let req = signed_request("replay-nonce", BASE_SEPOLIA_CHAIN_ID, now()).await;
+
+        let (first_status, _, Json(first_resp)) = verify_signature(
+            State(state.clone()),
+            HeaderMap::new(),
+            Ok(Json(req.clone())),
+        )
+        .await;
+        let (second_status, _, Json(second_resp)) =
+            verify_signature(State(state), HeaderMap::new(), Ok(Json(req))).await;
+
+        assert_eq!(first_status, StatusCode::OK);
+        assert!(first_resp.is_valid);
+        assert_eq!(second_status, StatusCode::CONFLICT);
+        assert!(!second_resp.is_valid);
+        assert_eq!(
+            second_resp.error_code.as_deref(),
+            Some("nonce_already_used")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verify_signature_allows_one_concurrent_duplicate_nonce() {
+        let state = app_state();
+        let req = signed_request("concurrent-replay-nonce", BASE_SEPOLIA_CHAIN_ID, now()).await;
+        let mut handles = Vec::new();
+
+        for _ in 0..100 {
+            let state = state.clone();
+            let req = req.clone();
+            handles.push(tokio::spawn(async move {
+                let (status, _, Json(resp)) =
+                    verify_signature(State(state), HeaderMap::new(), Ok(Json(req))).await;
+                (status, resp.error_code)
+            }));
+        }
+
+        let mut successes = 0;
+        let mut conflicts = 0;
+        for handle in handles {
+            let (status, error_code) = handle.await.unwrap();
+            match status {
+                StatusCode::OK => successes += 1,
+                StatusCode::CONFLICT => {
+                    assert_eq!(error_code.as_deref(), Some("nonce_already_used"));
+                    conflicts += 1;
+                }
+                other => panic!("unexpected status: {}", other),
+            }
+        }
+
+        assert_eq!(successes, 1);
+        assert_eq!(conflicts, 99);
+    }
+
+    #[test]
+    fn test_claim_nonce_retains_entries_through_clock_skew_window() {
+        let state = app_state_with_window(1, 2);
+        let start = Instant::now();
+
+        assert!(claim_nonce(&state, "ttl-replay-nonce", start));
+        assert!(!claim_nonce(
+            &state,
+            "ttl-replay-nonce",
+            start + Duration::from_millis(1100)
+        ));
+        assert!(!claim_nonce(
+            &state,
+            "ttl-replay-nonce",
+            start + Duration::from_millis(3100)
+        ));
+        assert!(!claim_nonce(
+            &state,
+            "ttl-replay-nonce",
+            start + Duration::from_millis(4000)
+        ));
+        assert!(claim_nonce(
+            &state,
+            "ttl-replay-nonce",
+            start + Duration::from_millis(4100)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_verify_signature_invalid_signature_does_not_burn_nonce() {
+        let state = app_state();
+        let mut bad_req =
+            signed_request("invalid-does-not-burn", BASE_SEPOLIA_CHAIN_ID, now()).await;
+        let good_req = bad_req.clone();
+        bad_req.signature = format!("0x{}", "00".repeat(65));
+
+        let (bad_status, _, Json(bad_resp)) =
+            verify_signature(State(state.clone()), HeaderMap::new(), Ok(Json(bad_req))).await;
+        let (good_status, _, Json(good_resp)) =
+            verify_signature(State(state), HeaderMap::new(), Ok(Json(good_req))).await;
+
+        assert_eq!(bad_status, StatusCode::OK);
+        assert!(!bad_resp.is_valid);
+        assert_eq!(bad_resp.error_code.as_deref(), Some("invalid_signature"));
+        assert_eq!(good_status, StatusCode::OK);
+        assert!(good_resp.is_valid);
     }
 
     #[tokio::test]
@@ -820,6 +1103,10 @@ mod tests {
         let state = AppState {
             max_body_size: limit,
             expected_chain_id: BASE_SEPOLIA_CHAIN_ID,
+            used_nonces: Arc::new(DashMap::new()),
+            last_nonce_sweep: Arc::new(Mutex::new(Instant::now())),
+            signature_expiry_seconds: 300,
+            clock_skew_seconds: 60,
         };
         let app = Router::new()
             .route("/verify", post(verify_signature))

@@ -13,6 +13,7 @@ hex = "0.4"
 # Combined tower entries into one line
 tower = { version = "0.5", features = ["util"] } 
 tower-http = { version = "0.6", features = ["limit"] }
+dashmap = "6.1.0"
 
 [dev-dependencies]
 # Optional: move testing-only tools here if they aren't needed for the main build

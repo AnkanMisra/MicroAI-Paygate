@@ -7,7 +7,8 @@ TARGET_URL="${VERIFIER_URL%/}/verify"
 THREADS="${THREADS:-2}"
 CONNECTIONS="${CONNECTIONS:-32}"
 DURATION="${DURATION:-30s}"
-PAYLOAD_COUNT="${PAYLOAD_COUNT:-1000}"
+PAYLOAD_COUNT="${PAYLOAD_COUNT:-}"
+EXPECTED_MAX_RPS="${EXPECTED_MAX_RPS:-3000}"
 SIGNATURE_EXPIRY_SECONDS="${SIGNATURE_EXPIRY_SECONDS:-300}"
 EXPIRY_SAFETY_SECONDS="${EXPIRY_SAFETY_SECONDS:-15}"
 CHAIN_ID="${CHAIN_ID:-84532}"
@@ -71,6 +72,11 @@ duration_to_seconds() {
 
 assert_validity_check() {
   local output_file="$1"
+  if grep -Eq '^validity_check_payload_exhausted_requests=[1-9][0-9]*$' "$output_file"; then
+    echo "Benchmark validity check failed: generated payloads were exhausted before the run finished" >&2
+    echo "Increase PAYLOAD_COUNT or EXPECTED_MAX_RPS so each request uses a one-time nonce." >&2
+    return 1
+  fi
   if grep -Eq '^validity_check_(invalid|non_200)_responses=[1-9][0-9]*$' "$output_file"; then
     echo "Benchmark validity check failed: verifier returned invalid or non-200 responses" >&2
     return 1
@@ -86,6 +92,10 @@ require_cmd() {
 
 DURATION_SECONDS="$(duration_to_seconds "$DURATION")"
 require_positive_int "THREADS" "$THREADS"
+require_positive_int "EXPECTED_MAX_RPS" "$EXPECTED_MAX_RPS"
+if [[ -z "$PAYLOAD_COUNT" ]]; then
+  PAYLOAD_COUNT=$((DURATION_SECONDS * EXPECTED_MAX_RPS + THREADS))
+fi
 require_positive_int "CONNECTIONS" "$CONNECTIONS"
 require_positive_int "PAYLOAD_COUNT" "$PAYLOAD_COUNT"
 require_positive_int "SIGNATURE_EXPIRY_SECONDS" "$SIGNATURE_EXPIRY_SECONDS"
@@ -211,11 +221,16 @@ end
 counter = 0
 invalid_responses = 0
 non_200_responses = 0
+payload_exhausted_requests = 0
 
 request = function()
   counter = counter + 1
   local offset = ((counter - 1) * thread_total) + (thread_id - 1)
-  local body = payloads[(offset % #payloads) + 1]
+  local body = payloads[offset + 1]
+  if body == nil then
+    payload_exhausted_requests = payload_exhausted_requests + 1
+    return wrk.format("GET", "/__payloads_exhausted__", {}, "")
+  end
   return wrk.format("POST", "/verify", {["Content-Type"] = "application/json"}, body)
 end
 
@@ -231,10 +246,13 @@ end
 done = function(summary, latency, requests)
   local total_invalid = 0
   local total_non_200 = 0
+  local total_payload_exhausted = 0
   for _, thread in ipairs(threads) do
     total_invalid = total_invalid + (thread:get("invalid_responses") or 0)
     total_non_200 = total_non_200 + (thread:get("non_200_responses") or 0)
+    total_payload_exhausted = total_payload_exhausted + (thread:get("payload_exhausted_requests") or 0)
   end
+  io.write(string.format("validity_check_payload_exhausted_requests=%d\\n", total_payload_exhausted))
   io.write(string.format("validity_check_invalid_responses=%d\\n", total_invalid))
   io.write(string.format("validity_check_non_200_responses=%d\\n", total_non_200))
 end
@@ -259,6 +277,7 @@ run_benchmark() {
   echo "duration=$DURATION"
   echo "duration_seconds=$DURATION_SECONDS"
   echo "payload_count=$PAYLOAD_COUNT"
+  echo "expected_max_rps=$EXPECTED_MAX_RPS"
   echo "signature_expiry_seconds=$SIGNATURE_EXPIRY_SECONDS"
   echo "expiry_safety_seconds=$EXPIRY_SAFETY_SECONDS"
   echo "payload_timestamp=$BENCH_TIMESTAMP"

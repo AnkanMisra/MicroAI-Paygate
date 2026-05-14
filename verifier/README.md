@@ -7,6 +7,7 @@ The Verifier is a specialized microservice dedicated to cryptographic operations
 - **Signature Validation**: Receives a payment context and a signature from the Gateway.
 - **ECDSA Recovery**: Uses the `ethers-rs` library to recover the signer's address from the cryptographic signature.
 - **Chain Enforcement**: Rejects signatures for any chain other than the configured verifier chain.
+- **Replay Protection**: Tracks recently used nonce hashes in memory for a single verifier instance.
 
 ## Technology Stack
 
@@ -41,6 +42,8 @@ The Verifier uses environment variables for security and performance tuning.
 | :--- | :--- | :--- |
 | `MAX_REQUEST_BODY_BYTES` | The maximum allowed size for JSON payloads in bytes | `1048576` (1MB) |
 | `EXPECTED_CHAIN_ID` | Chain ID enforced before signature recovery | `84532` (Base Sepolia) |
+| `SIGNATURE_EXPIRY_SECONDS` | Signature freshness window and nonce retention TTL | `300` |
+| `SIGNATURE_CLOCK_SKEW_SECONDS` | Allowed client clock skew for future timestamps | `60` |
 
 It also uses hardcoded EIP-712 domain values for cryptographic verification:
 
@@ -50,6 +53,8 @@ It also uses hardcoded EIP-712 domain values for cryptographic verification:
 - **verifyingContract**: `0x0000000000000000000000000000000000000000`
 
 If you change domain parameters in the gateway or frontend, update them here to stay in sync.
+
+Nonce replay protection is in-memory and protects a single verifier instance. Multi-replica production deployments need Redis or another shared nonce store so all verifier replicas reject the same replayed nonce.
 
 ## API Endpoints
 
