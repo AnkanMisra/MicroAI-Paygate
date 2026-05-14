@@ -68,6 +68,29 @@ func TestCorrelationIDMiddleware_PreservesExistingID(t *testing.T) {
 	}
 }
 
+func TestCorrelationIDMiddleware_ReplacesUnsafeID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(CorrelationIDMiddleware())
+	r.GET("/test", func(c *gin.Context) {
+		c.JSON(200, gin.H{"ok": true})
+	})
+
+	unsafeID := strings.Repeat("a", 65)
+	req, _ := http.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-Correlation-ID", unsafeID)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	responseID := w.Header().Get("X-Correlation-ID")
+	if responseID == unsafeID {
+		t.Fatal("expected unsafe correlation ID to be replaced")
+	}
+	if len(responseID) > 64 {
+		t.Fatalf("replacement correlation ID should be capped, got %q", responseID)
+	}
+}
+
 // TestCorrelationIDMiddleware_SetsInGinContext verifies that the correlation ID
 // is stored in Gin's context for handler access.
 func TestCorrelationIDMiddleware_SetsInGinContext(t *testing.T) {

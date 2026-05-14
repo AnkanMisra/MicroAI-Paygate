@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -71,8 +70,7 @@ func CacheMiddleware() gin.HandlerFunc {
 					return
 				}
 				// Other read errors - don't continue to handler since body is corrupted
-				log.Printf("[ERROR] Failed to read request body: %v", err)
-				c.JSON(500, gin.H{"error": "Failed to read request body"})
+				respondError(c, 500, "request_body_read_failed", err)
 				c.Abort()
 				return
 			}
@@ -123,37 +121,34 @@ func CacheMiddleware() gin.HandlerFunc {
 			// verifyPayment creates its own timeout context, so pass request context directly
 			timestampStr := c.GetHeader("X-402-Timestamp")
 			if timestampStr == "" {
-				c.JSON(400, gin.H{"error": "Invalid timestamp", "details": "Missing X-402-Timestamp header"})
+				respondError(c, 400, "invalid_timestamp", fmt.Errorf("missing X-402-Timestamp header"))
 				c.Abort()
 				return
 			}
 			timestamp, err := strconv.ParseUint(timestampStr, 10, 64)
 			if err != nil || timestamp == 0 {
-				c.JSON(400, gin.H{"error": "Invalid timestamp", "details": "Invalid X-402-Timestamp header"})
+				respondError(c, 400, "invalid_timestamp", fmt.Errorf("invalid X-402-Timestamp header"))
 				c.Abort()
 				return
 			}
 			verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, timestamp)
 			if err != nil {
-				log.Printf("Verification error on cache hit: %v", err)
 				if errors.Is(err, context.DeadlineExceeded) {
-					c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "Verifier request timed out"})
+					respondError(c, 504, "verifier_timeout", err)
 				} else {
-					c.JSON(500, gin.H{"error": "Verification Service Failed", "message": "An internal error occurred"})
+					respondError(c, 502, "verification_unavailable", err)
 				}
 				c.Abort()
 				return
 			}
 
 			if !verifyResp.IsValid {
-				// Check for timestamp-related errors (E007, E008, E009)
-				if strings.HasPrefix(verifyResp.Error, "E007") ||
-					strings.HasPrefix(verifyResp.Error, "E008") ||
-					strings.HasPrefix(verifyResp.Error, "E009") {
-					c.JSON(400, gin.H{"error": "Invalid timestamp", "details": verifyResp.Error})
-				} else {
-					c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
-				}
+				respondVerificationFailure(c, verifyResp)
+				c.Abort()
+				return
+			}
+			if verifyResp.RecoveredAddress == "" {
+				respondError(c, 502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
 				c.Abort()
 				return
 			}

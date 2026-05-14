@@ -117,6 +117,21 @@ paths:
                         description: Unix timestamp in seconds used in EIP-712 payment message
                         example: 1700000000
 
+        "400":
+          description: Invalid timestamp, chain mismatch, or request body
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum: [invalid_timestamp, chain_id_mismatch, "Invalid request body", "Invalid request"]
+                    example: invalid_timestamp
+                  correlation_id:
+                    type: string
+                    example: "550e8400-e29b-41d4-a716-446655440000"
+
         "403":
           description: Invalid signature
           content:
@@ -126,11 +141,13 @@ paths:
                 properties:
                   error:
                     type: string
-                  details:
+                    example: invalid_signature
+                  correlation_id:
                     type: string
+                    example: "550e8400-e29b-41d4-a716-446655440000"
 
-        "500":
-          description: Server error
+        "409":
+          description: Nonce already used
           content:
             application/json:
               schema:
@@ -138,5 +155,50 @@ paths:
                 properties:
                   error:
                     type: string
-                  details:
+                    example: nonce_already_used
+                  correlation_id:
                     type: string
+                    example: "550e8400-e29b-41d4-a716-446655440000"
+
+        "502":
+          description: Upstream AI or verification service unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: upstream_unavailable
+                  correlation_id:
+                    type: string
+                    example: "550e8400-e29b-41d4-a716-446655440000"
+
+        "504":
+          description: Verifier or upstream AI timeout
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum: [verifier_timeout, upstream_timeout]
+                    example: verifier_timeout
+                  correlation_id:
+                    type: string
+                    example: "550e8400-e29b-41d4-a716-446655440000"
+
+        "500":
+          description: Sanitized internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: receipt_generation_failed
+                  correlation_id:
+                    type: string
+                    example: "550e8400-e29b-41d4-a716-446655440000"

@@ -5,7 +5,7 @@ The Gateway is the high-performance entry point for the MicroAI Paygate architec
 ## Role & Responsibilities
 
 - **Traffic Entry Point**: Listens on port 3000 and accepts all incoming API requests.
-- **x402 Enforcement**: Inspects headers for `X-402-Signature` and `X-402-Nonce`. If missing, it rejects the request with a 402 status and payment context.
+- **x402 Enforcement**: Inspects headers for `X-402-Signature`, `X-402-Nonce`, and `X-402-Timestamp`. If missing, it rejects the request with a 402 status and payment context.
 - **Verification Orchestration**: Communicates with the internal Rust Verifier service to validate cryptographic signatures.
 - **Proxying**: Forwards authenticated requests to the OpenRouter API and returns the response to the client.
 

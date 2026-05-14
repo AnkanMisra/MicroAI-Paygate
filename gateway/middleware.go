@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid" // Added this import for the ID generation
+	"github.com/google/uuid"
 )
 
 type contextKey string
@@ -20,14 +20,25 @@ type contextKey string
 // CorrelationIDKey is the context key for correlation IDs
 const CorrelationIDKey contextKey = "correlation_id"
 
+const maxCorrelationIDLength = 64
+
+func safeCorrelationID(id string) string {
+	if id == "" || len(id) > maxCorrelationIDLength {
+		return uuid.New().String()
+	}
+	for _, r := range id {
+		if r < 0x20 || r == 0x7f {
+			return uuid.New().String()
+		}
+	}
+	return id
+}
+
 // CorrelationIDMiddleware checks for an existing X-Correlation-ID header
 // or generates a new one, ensuring requests can be traced across services.
 func CorrelationIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id := c.GetHeader("X-Correlation-ID")
-		if id == "" {
-			id = uuid.New().String()
-		}
+		id := safeCorrelationID(c.GetHeader("X-Correlation-ID"))
 
 		c.Set("correlation_id", id) // Keep this as a string for Gin
 

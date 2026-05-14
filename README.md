@@ -165,7 +165,8 @@ When a `402 Payment Required` response is returned, it includes the payment cont
     "token": "USDC",
     "amount": "0.001",
     "nonce": "9c311e31-eb30-420a-bced-c0d68bc89cea",
-    "chainId": 84532
+    "chainId": 84532,
+    "timestamp": 1700000000
   }
 }
 ```
@@ -173,6 +174,7 @@ When a `402 Payment Required` response is returned, it includes the payment cont
 The client signs this data using EIP-712 and resends with headers:
 - `X-402-Signature`: The cryptographic signature
 - `X-402-Nonce`: The nonce from the payment context
+- `X-402-Timestamp`: The timestamp from the payment context
 
 ---
 
@@ -272,7 +274,7 @@ Create a `.env` (or use `.env.example`) with at least:
 > **Note:** The gateway validates required environment variables at startup. If `OPENROUTER_API_KEY` is missing, the server will exit with a helpful error message.
 
 **Optional Configuration:**
-- `USDC_TOKEN_ADDRESS` — USDC contract address (default: Base USDC)
+- `USDC_TOKEN_ADDRESS` — reserved for future on-chain settlement; the current gateway/verifier use `USDC` in the signed payment context
 - `PAYMENT_AMOUNT` — cost per request in USDC (default: `0.001`)
 - `VERIFIER_URL` — URL of verifier service (default: `http://127.0.0.1:3002`)
 
