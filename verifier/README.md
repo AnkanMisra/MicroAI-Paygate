@@ -6,7 +6,7 @@ The Verifier is a specialized microservice dedicated to cryptographic operations
 
 - **Signature Validation**: Receives a payment context and a signature from the Gateway.
 - **ECDSA Recovery**: Uses the `ethers-rs` library to recover the signer's address from the cryptographic signature.
-- **Stateless Operation**: Performs pure computation without requiring database access or session state.
+- **Chain Enforcement**: Rejects signatures for any chain other than the configured verifier chain.
 
 ## Technology Stack
 
@@ -40,12 +40,13 @@ The Verifier uses environment variables for security and performance tuning.
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `MAX_REQUEST_BODY_BYTES` | The maximum allowed size for JSON payloads in bytes | `1048576` (1MB) |
+| `EXPECTED_CHAIN_ID` | Chain ID enforced before signature recovery | `84532` (Base Sepolia) |
 
 It also uses hardcoded EIP-712 domain values for cryptographic verification:
 
 - **name**: MicroAI Paygate
 - **version**: 1
-- **chainId**: 1 (tests) / request payload (runtime)
+- **chainId**: `EXPECTED_CHAIN_ID` (default `84532` for Base Sepolia)
 - **verifyingContract**: `0x0000000000000000000000000000000000000000`
 
 If you change domain parameters in the gateway or frontend, update them here to stay in sync.

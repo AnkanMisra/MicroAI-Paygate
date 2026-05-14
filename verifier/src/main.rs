@@ -15,10 +15,12 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_BODY_SIZE: usize = 1024 * 1024; // 1MB
+const DEFAULT_EXPECTED_CHAIN_ID: u64 = 84532;
 
 #[derive(Clone)]
 struct AppState {
     max_body_size: usize,
+    expected_chain_id: u64,
 }
 
 fn get_max_body_size() -> usize {
@@ -44,11 +46,36 @@ fn get_max_body_size() -> usize {
     }
 }
 
+fn get_expected_chain_id() -> u64 {
+    match std::env::var("EXPECTED_CHAIN_ID") {
+        Ok(v) => match v.parse() {
+            Ok(chain_id) if chain_id > 0 => chain_id,
+            Ok(_) => {
+                eprintln!(
+                    "Warning: EXPECTED_CHAIN_ID must be > 0, using default {}",
+                    DEFAULT_EXPECTED_CHAIN_ID
+                );
+                DEFAULT_EXPECTED_CHAIN_ID
+            }
+            Err(_) => {
+                eprintln!(
+                    "Warning: Invalid EXPECTED_CHAIN_ID '{}', using default {}",
+                    v, DEFAULT_EXPECTED_CHAIN_ID
+                );
+                DEFAULT_EXPECTED_CHAIN_ID
+            }
+        },
+        Err(_) => DEFAULT_EXPECTED_CHAIN_ID,
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let limit = get_max_body_size();
+    let expected_chain_id = get_expected_chain_id();
     let state = AppState {
         max_body_size: limit,
+        expected_chain_id,
     };
     let app = Router::new()
         .route("/health", get(health))
@@ -102,6 +129,8 @@ struct VerifyResponse {
     is_valid: bool,
     recovered_address: Option<String>,
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_code: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -209,6 +238,7 @@ async fn verify_signature(
                         "Request body too large (max {} bytes)",
                         state.max_body_size
                     )),
+                    error_code: None,
                 }),
             );
         }
@@ -221,6 +251,7 @@ async fn verify_signature(
                     is_valid: false,
                     recovered_address: None,
                     error: Some(format!("Invalid request: {}", e)),
+                    error_code: None,
                 }),
             );
         }
@@ -228,6 +259,19 @@ async fn verify_signature(
 
     // 3. Now that we have a safe payload, proceed with your existing logic
     println!("[CID: {}] Verify nonce={}", cid, payload.context.nonce);
+
+    if payload.context.chain_id != state.expected_chain_id {
+        return (
+            StatusCode::BAD_REQUEST,
+            res_headers,
+            Json(VerifyResponse {
+                is_valid: false,
+                recovered_address: None,
+                error: Some("chain ID mismatch".to_string()),
+                error_code: Some("chain_id_mismatch".to_string()),
+            }),
+        );
+    }
 
     if let Err(err) = validate_timestamp(payload.context.timestamp) {
         let msg = match err {
@@ -248,6 +292,7 @@ async fn verify_signature(
                 is_valid: false,
                 recovered_address: None,
                 error: Some(msg),
+                error_code: None,
             }),
         );
     }
@@ -288,6 +333,7 @@ async fn verify_signature(
                     is_valid: false,
                     recovered_address: None,
                     error: Some(format!("typed data error: {}", e)),
+                    error_code: None,
                 }),
             );
         }
@@ -303,6 +349,7 @@ async fn verify_signature(
                     is_valid: false,
                     recovered_address: None,
                     error: Some(format!("bad signature: {}", e)),
+                    error_code: None,
                 }),
             );
         }
@@ -316,6 +363,7 @@ async fn verify_signature(
                 is_valid: true,
                 recovered_address: Some(format!("{:?}", addr)),
                 error: None,
+                error_code: None,
             }),
         ),
         Err(e) => (
@@ -325,6 +373,7 @@ async fn verify_signature(
                 is_valid: false,
                 recovered_address: None,
                 error: Some(e.to_string()),
+                error_code: None,
             }),
         ),
     }
@@ -340,9 +389,12 @@ mod tests {
     use ethers::signers::{LocalWallet, Signer};
     use ethers::types::transaction::eip712::TypedData;
 
+    const BASE_SEPOLIA_CHAIN_ID: u64 = 84532;
+
     fn app_state() -> AppState {
         AppState {
             max_body_size: MAX_BODY_SIZE,
+            expected_chain_id: BASE_SEPOLIA_CHAIN_ID,
         }
     }
 
@@ -409,14 +461,14 @@ mod tests {
                 .parse()
                 .unwrap();
 
-        let wallet = wallet.with_chain_id(1u64);
+        let wallet = wallet.with_chain_id(BASE_SEPOLIA_CHAIN_ID);
 
         let ts = now();
         let typed = serde_json::json!({
             "domain": {
                 "name": "MicroAI Paygate",
                 "version": "1",
-                "chainId": 1,
+                "chainId": BASE_SEPOLIA_CHAIN_ID,
                 "verifyingContract": "0x0000000000000000000000000000000000000000"
             },
             "types": {
@@ -447,7 +499,7 @@ mod tests {
                 token: "USDC".into(),
                 amount: "100".into(),
                 nonce: "nonce-1".into(),
-                chain_id: 1,
+                chain_id: BASE_SEPOLIA_CHAIN_ID,
                 timestamp: Some(ts),
             },
             signature: format!("0x{}", hex::encode(sig.to_vec())),
@@ -458,6 +510,67 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert!(resp.is_valid);
+    }
+
+    #[tokio::test]
+    async fn test_verify_signature_rejects_wrong_chain_id() {
+        let wallet: LocalWallet =
+            "380eb0f3d505f087e438eca80bc4df9a7faa24f868e69fc0440261a0fc0567dc"
+                .parse()
+                .unwrap();
+
+        let wallet = wallet.with_chain_id(1u64);
+
+        let ts = now();
+        let typed = serde_json::json!({
+            "domain": {
+                "name": "MicroAI Paygate",
+                "version": "1",
+                "chainId": 1,
+                "verifyingContract": "0x0000000000000000000000000000000000000000"
+            },
+            "types": {
+                "Payment": [
+                    { "name": "recipient", "type": "address" },
+                    { "name": "token", "type": "string" },
+                    { "name": "amount", "type": "string" },
+                    { "name": "nonce", "type": "string" },
+                    { "name": "timestamp", "type": "uint256" }
+                ]
+            },
+            "primaryType": "Payment",
+            "message": {
+                "recipient": "0x1234567890123456789012345678901234567890",
+                "token": "USDC",
+                "amount": "100",
+                "nonce": "wrong-chain-nonce",
+                "timestamp": ts
+            }
+        });
+
+        let typed: TypedData = serde_json::from_value(typed).unwrap();
+        let sig = wallet.sign_typed_data(&typed).await.unwrap();
+
+        let req = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234567890123456789012345678901234567890".into(),
+                token: "USDC".into(),
+                amount: "100".into(),
+                nonce: "wrong-chain-nonce".into(),
+                chain_id: 1,
+                timestamp: Some(ts),
+            },
+            signature: format!("0x{}", hex::encode(sig.to_vec())),
+        };
+
+        let (status, _, Json(resp)) =
+            verify_signature(State(app_state()), HeaderMap::new(), Ok(Json(req))).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(!resp.is_valid);
+        assert_eq!(resp.recovered_address, None);
+        assert_eq!(resp.error.as_deref(), Some("chain ID mismatch"));
+        assert_eq!(resp.error_code.as_deref(), Some("chain_id_mismatch"));
     }
 
     #[tokio::test]
@@ -492,7 +605,7 @@ mod tests {
                 token: "USDC".to_string(),
                 amount: "100".to_string(),
                 nonce: "nonce".to_string(),
-                chain_id: 1,
+                chain_id: BASE_SEPOLIA_CHAIN_ID,
                 timestamp: Some(ts),
             },
             signature: "0x1234567890".to_string(),
@@ -518,7 +631,7 @@ mod tests {
                 token: "USDC".to_string(),
                 amount: "100".to_string(),
                 nonce: "nonce".to_string(),
-                chain_id: 1,
+                chain_id: BASE_SEPOLIA_CHAIN_ID,
                 timestamp: Some(ts),
             },
             signature: "0x1234567890".to_string(),
@@ -550,7 +663,7 @@ mod tests {
                 token: "USDC".to_string(),
                 amount: "100".to_string(),
                 nonce: "nonce".to_string(),
-                chain_id: 1,
+                chain_id: BASE_SEPOLIA_CHAIN_ID,
                 timestamp: Some(ts),
             },
             signature: "0x1234567890".to_string(),
@@ -577,14 +690,14 @@ mod tests {
             "380eb0f3d505f087e438eca80bc4df9a7faa24f868e69fc0440261a0fc0567dc"
                 .parse()
                 .unwrap();
-        let wallet = wallet.with_chain_id(1u64);
+        let wallet = wallet.with_chain_id(BASE_SEPOLIA_CHAIN_ID);
 
         let ts = now();
         let json_typed_data = serde_json::json!({
             "domain": {
                 "name": "MicroAI Paygate",
                 "version": "1",
-                "chainId": 1,
+                "chainId": BASE_SEPOLIA_CHAIN_ID,
                 "verifyingContract": "0x0000000000000000000000000000000000000000"
             },
             "types": {
@@ -622,7 +735,7 @@ mod tests {
                 token: "USDC".to_string(),
                 amount: "100".to_string(),
                 nonce: "correlation-test-nonce".to_string(),
-                chain_id: 1,
+                chain_id: BASE_SEPOLIA_CHAIN_ID,
                 timestamp: Some(ts),
             },
             signature: signature_str,
@@ -661,7 +774,7 @@ mod tests {
                 token: "USDC".to_string(),
                 amount: "100".to_string(),
                 nonce: "nonce".to_string(),
-                chain_id: 1,
+                chain_id: BASE_SEPOLIA_CHAIN_ID,
                 timestamp: Some(ts),
             },
             signature: "0x1234567890".to_string(),
@@ -706,6 +819,7 @@ mod tests {
         let limit = MAX_BODY_SIZE;
         let state = AppState {
             max_body_size: limit,
+            expected_chain_id: BASE_SEPOLIA_CHAIN_ID,
         };
         let app = Router::new()
             .route("/verify", post(verify_signature))

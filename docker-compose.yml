@@ -12,12 +12,12 @@ services:
       - CACHE_ENABLED=${CACHE_ENABLED:-false}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3001}
       - RECEIPT_STORE=${RECEIPT_STORE:-redis}
+      - CHAIN_ID=${CHAIN_ID:-84532}
       # Pass through from .env file
       - OPENROUTER_API_KEY
       - OPENROUTER_MODEL
       - SERVER_WALLET_PRIVATE_KEY
       - RECIPIENT_ADDRESS
-      - CHAIN_ID
       - PAYMENT_AMOUNT
       - REDIS_PASSWORD
       - REDIS_DB
@@ -34,6 +34,10 @@ services:
     build: ./verifier
     ports:
       - "3002:3002"
+    environment:
+      - EXPECTED_CHAIN_ID=${EXPECTED_CHAIN_ID:-${CHAIN_ID:-84532}}
+      - SIGNATURE_EXPIRY_SECONDS=${SIGNATURE_EXPIRY_SECONDS:-300}
+      - SIGNATURE_CLOCK_SKEW_SECONDS=${SIGNATURE_CLOCK_SKEW_SECONDS:-60}
     networks:
       - microai-net
 

@@ -165,7 +165,7 @@ When a `402 Payment Required` response is returned, it includes the payment cont
     "token": "USDC",
     "amount": "0.001",
     "nonce": "9c311e31-eb30-420a-bced-c0d68bc89cea",
-    "chainId": 8453
+    "chainId": 84532
   }
 }
 ```
@@ -267,7 +267,7 @@ Create a `.env` (or use `.env.example`) with at least:
 - `OPENROUTER_MODEL` — model name (default: `z-ai/glm-4.5-air:free`)
 - `SERVER_WALLET_PRIVATE_KEY` — private key for the server wallet (recipient of payments)
 - `RECIPIENT_ADDRESS` — wallet address for receiving payments
-- `CHAIN_ID` — chain used in signatures (default: `8453` for Base)
+- `CHAIN_ID` — chain used in signatures (default: `84532` for Base Sepolia)
 
 > **Note:** The gateway validates required environment variables at startup. If `OPENROUTER_API_KEY` is missing, the server will exit with a helpful error message.
 

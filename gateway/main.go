@@ -225,7 +225,7 @@ func main() {
 		fmt.Println("[WARN] VERIFIER_URL not set, using default verifier")
 	}
 	if os.Getenv("CHAIN_ID") == "" {
-		fmt.Println("[WARN] CHAIN_ID not set, using default: 8453(base)")
+		fmt.Println("[WARN] CHAIN_ID not set, using default: 84532(Base Sepolia)")
 	}
 
 	r := gin.Default()
@@ -585,7 +585,7 @@ func generateAndSendReceipt(c *gin.Context, paymentCtx PaymentContext, recovered
 	return nil
 }
 
-// createPaymentContext constructs a PaymentContext prefilled with the recipient address (from RECIPIENT_ADDRESS or a fallback), the USDC token, amount "0.001", a newly generated UUID nonce, and chain ID 8453.
+// createPaymentContext constructs a PaymentContext prefilled with the recipient address (from RECIPIENT_ADDRESS or a fallback), the USDC token, amount "0.001", a newly generated UUID nonce, and the configured chain ID.
 func createPaymentContext() PaymentContext {
 	return PaymentContext{
 		Recipient: getRecipientAddress(),
@@ -619,16 +619,16 @@ func getPaymentAmount() string {
 }
 
 // getChainID returns the blockchain chain ID from the CHAIN_ID environment variable.
-// If unset or invalid, it defaults to 8453 (Base).
+// If unset or invalid, it defaults to 84532 (Base Sepolia).
 func getChainID() int {
 	chainIDStr := os.Getenv("CHAIN_ID")
 	if chainIDStr == "" {
-		return 8453
+		return 84532
 	}
 	chainID, err := strconv.Atoi(chainIDStr)
 	if err != nil {
-		log.Printf("Warning: Invalid CHAIN_ID '%s', using default 8453", chainIDStr)
-		return 8453
+		log.Printf("Warning: Invalid CHAIN_ID '%s', using default 84532", chainIDStr)
+		return 84532
 	}
 	return chainID
 }

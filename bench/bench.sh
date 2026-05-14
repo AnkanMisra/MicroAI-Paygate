@@ -10,7 +10,7 @@ DURATION="${DURATION:-30s}"
 PAYLOAD_COUNT="${PAYLOAD_COUNT:-1000}"
 SIGNATURE_EXPIRY_SECONDS="${SIGNATURE_EXPIRY_SECONDS:-300}"
 EXPIRY_SAFETY_SECONDS="${EXPIRY_SAFETY_SECONDS:-15}"
-CHAIN_ID="${CHAIN_ID:-8453}"
+CHAIN_ID="${CHAIN_ID:-84532}"
 RECIPIENT_ADDRESS="${RECIPIENT_ADDRESS:-0x1234567890123456789012345678901234567890}"
 PAYMENT_TOKEN="${PAYMENT_TOKEN:-USDC}"
 PAYMENT_AMOUNT="${PAYMENT_AMOUNT:-0.001}"
@@ -121,7 +121,7 @@ if (!Number.isInteger(count) || count <= 0) {
   throw new Error("PAYLOAD_COUNT must be a positive integer");
 }
 
-const chainId = Number.parseInt(process.env.CHAIN_ID ?? "8453", 10);
+const chainId = Number.parseInt(process.env.CHAIN_ID ?? "84532", 10);
 const wallet = new Wallet(process.env.BENCH_WALLET_PRIVATE_KEY);
 const domain = {
   name: "MicroAI Paygate",

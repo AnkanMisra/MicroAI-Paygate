@@ -45,6 +45,14 @@ func TestHandleSummarize_NoHeaders(t *testing.T) {
 	}
 }
 
+func TestGetChainIDDefaultBaseSepolia(t *testing.T) {
+	t.Setenv("CHAIN_ID", "")
+
+	if got := getChainID(); got != 84532 {
+		t.Fatalf("expected Base Sepolia default chain ID 84532, got %d", got)
+	}
+}
+
 // Rate Limiting Integration Tests
 
 func TestRateLimitMiddleware_AnonymousUser(t *testing.T) {

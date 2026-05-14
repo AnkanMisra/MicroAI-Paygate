@@ -11,7 +11,7 @@ The Web Frontend is the user-facing interface for MicroAI Paygate. Built with Ne
     2.  Catches `402 Payment Required` errors.
     3.  Prompts user to sign EIP-712 typed data.
     4.  Retries request with signature headers.
-- **Network Management**: Automatically detects network mismatches and prompts switching to the Base network.
+- **Network Management**: Automatically detects network mismatches and prompts switching to the Base Sepolia network.
 
 ## Technology Stack
 

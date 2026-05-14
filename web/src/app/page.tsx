@@ -66,13 +66,30 @@ export default function Home() {
           } catch (switchError: unknown) {
             // This error code indicates that the chain has not been added to MetaMask.
             if ((switchError as { code?: number }).code === 4902) {
+              const chainMetadata =
+                paymentContext.chainId === 84532
+                  ? {
+                      chainName: "Base Sepolia",
+                      rpcUrls: ["https://sepolia.base.org"],
+                      blockExplorerUrls: ["https://sepolia.basescan.org"],
+                    }
+                  : {
+                      chainName: "Base",
+                      rpcUrls: ["https://mainnet.base.org"],
+                      blockExplorerUrls: ["https://basescan.org"],
+                    };
+
               await window.ethereum.request({
                 method: "wallet_addEthereumChain",
                 params: [
                   {
                     chainId: "0x" + paymentContext.chainId.toString(16),
-                    chainName: "Base",
-                    rpcUrls: ["https://mainnet.base.org"],
+                    nativeCurrency: {
+                      name: "Ether",
+                      symbol: "ETH",
+                      decimals: 18,
+                    },
+                    ...chainMetadata,
                   },
                 ],
               });
