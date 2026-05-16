@@ -15,7 +15,12 @@ import {
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 
-const EXPECTED_CHAIN = 84532;
+// Honors NEXT_PUBLIC_EXPECTED_CHAIN_ID so deployments using gateway CHAIN_ID
+// other than Base Sepolia (e.g. mainnet Base 8453) don't see the widget fight
+// every payment-context the gateway issues. Defaults to Base Sepolia (84532).
+const EXPECTED_CHAIN = Number(process.env.NEXT_PUBLIC_EXPECTED_CHAIN_ID ?? "84532");
+const EXPECTED_CHAIN_NAME =
+  process.env.NEXT_PUBLIC_EXPECTED_CHAIN_NAME ?? "Base Sepolia";
 
 type State =
   | { kind: "loading" }
@@ -111,8 +116,12 @@ export function WalletWidget() {
             const addr = await connectWallet();
             const chain = await getCurrentChainId();
             setState({ kind: "connected", address: addr, chainId: chain ?? 0 });
-          } catch {
-            /* user dismissed */
+          } catch (err) {
+            // Only silently swallow explicit user-rejection (EIP-1193 4001).
+            // Anything else (provider crash, network failure) should be surfaced.
+            if (!isUserRejection(err)) {
+              console.error("wallet-widget: connect failed", err);
+            }
           }
         }}
       >
@@ -142,16 +151,31 @@ export function WalletWidget() {
             setSwitching(true);
             try {
               await switchOrAddChain(EXPECTED_CHAIN);
-            } catch {
-              /* user dismissed */
+            } catch (err) {
+              if (!isUserRejection(err)) {
+                console.error("wallet-widget: chain switch failed", err);
+              }
             } finally {
               setSwitching(false);
             }
           }}
         >
-          {switching ? "Switching…" : "Switch to Base Sepolia"}
+          {switching ? "Switching…" : `Switch to ${EXPECTED_CHAIN_NAME}`}
         </Button>
       )}
     </div>
+  );
+}
+
+function isUserRejection(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as { code?: number | string; message?: string };
+  if (e.code === 4001 || e.code === "ACTION_REJECTED") return true;
+  const m = (e.message ?? "").toLowerCase();
+  return (
+    m.includes("user rejected") ||
+    m.includes("user denied") ||
+    m.includes("rejected the request") ||
+    m.includes("action_rejected")
   );
 }

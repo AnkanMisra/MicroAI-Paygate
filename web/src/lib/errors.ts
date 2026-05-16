@@ -7,6 +7,7 @@ export type ErrorKind =
   | "rate-limited"
   | "ai-timeout"
   | "ai-unavailable"
+  | "verifier-timeout"
   | "network"
   | "unknown";
 
@@ -58,6 +59,11 @@ const COPY: Record<ErrorKind, { title: string; message: string }> = {
     title: "AI provider unavailable",
     message: "The upstream model is down right now. Try again in a minute.",
   },
+  "verifier-timeout": {
+    title: "Verifier timed out",
+    message:
+      "The signature verifier didn't respond in time. Your signature wasn't accepted — no payment occurred. Retry.",
+  },
   network: {
     title: "Network error",
     message: "Couldn't reach the gateway. Check your connection and retry.",
@@ -77,10 +83,23 @@ function build(kind: ErrorKind, detail?: string): ClassifiedError {
   };
 }
 
+// Maps gateway HTTP status + sanitized error body to a user-facing kind.
+// The gateway's public error codes (gateway/errors.go) are stable strings
+// like "chain_id_mismatch", "invalid_timestamp", "verifier_timeout",
+// "upstream_timeout", "nonce_already_used".
 function statusToKind(status: number, body: string): ErrorKind {
+  if (status === 400) {
+    if (body.includes("chain_id_mismatch")) return "wrong-chain";
+    if (body.includes("invalid_timestamp")) return "expired";
+    return "invalid-signature";
+  }
   if (status === 402) return "expired";
   if (status === 403) return "invalid-signature";
-  if (status === 408 || status === 504) return "ai-timeout";
+  if (status === 408) return "ai-timeout";
+  if (status === 504) {
+    // Verifier timeout means we never reached the AI — different copy.
+    return body.includes("verifier_timeout") ? "verifier-timeout" : "ai-timeout";
+  }
   if (status === 409) {
     return body.includes("nonce_already_used") ? "expired" : "invalid-signature";
   }
@@ -88,6 +107,18 @@ function statusToKind(status: number, body: string): ErrorKind {
   if (status === 502) return "ai-unavailable";
   if (status >= 500) return "ai-unavailable";
   return "unknown";
+}
+
+function looksWrongChain(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("wrong network") ||
+    m.includes("wrong chain") ||
+    m.includes("chain mismatch") ||
+    m.includes("unsupported chain") ||
+    m.includes("incorrect network") ||
+    m.includes("did not switch to chain")
+  );
 }
 
 function looksRejected(message: string, code?: number | string): boolean {
@@ -110,6 +141,7 @@ export function classifyError(err: unknown, ctx?: ErrorContext): ClassifiedError
     const e = err as { message?: string; code?: number | string; shortMessage?: string };
     const message = e.shortMessage ?? e.message ?? "";
     if (looksRejected(message, e.code)) return build("user-rejected", message);
+    if (looksWrongChain(message)) return build("wrong-chain", message);
     if (message.toLowerCase().includes("no wallet") || message.toLowerCase().includes("no crypto wallet")) {
       return build("no-wallet", message);
     }

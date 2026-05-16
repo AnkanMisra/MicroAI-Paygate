@@ -10,6 +10,13 @@ import { ErrorBanner } from "./error-banner";
 const SAMPLE_PROMPT =
   "Bitcoin: A Peer-to-Peer Electronic Cash System. A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution. Digital signatures provide part of the solution, but the main benefits are lost if a trusted third party is still required to prevent double-spending. We propose a solution to the double-spending problem using a peer-to-peer network. The network timestamps transactions by hashing them into an ongoing chain of hash-based proof-of-work, forming a record that cannot be changed without redoing the proof-of-work.";
 
+// The actual fee is whatever the gateway embeds in the 402 paymentContext.
+// This pre-challenge label is informational only; we read it from env so a
+// deployer who sets PAYMENT_AMOUNT to something other than the default doesn't
+// mislead users before the wallet opens.
+const DISPLAY_AMOUNT = process.env.NEXT_PUBLIC_PAYMENT_AMOUNT ?? "0.001";
+const DISPLAY_TOKEN = process.env.NEXT_PUBLIC_PAYMENT_TOKEN ?? "USDC";
+
 export function SummarizeForm() {
   const [input, setInput] = useState("");
   const { submit, reset, step, summary, receipt, error, isRunning } = useX402();
@@ -61,7 +68,7 @@ export function SummarizeForm() {
             </span>
             <span className="flex items-center gap-2">
               <span>cost</span>
-              <span className="text-ink">0.001 USDC</span>
+              <span className="text-ink">{DISPLAY_AMOUNT} {DISPLAY_TOKEN}</span>
             </span>
           </div>
         </div>
