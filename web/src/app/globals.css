@@ -158,3 +158,18 @@ input:focus-visible,
   0%   { transform: translate3d(0, 0, 0); }
   100% { transform: translate3d(-33.3333%, 0, 0); }
 }
+
+/* Honor the OS reduce-motion preference for continuous / decorative
+   animations. The ticker intentionally keeps moving because the user
+   asked for it explicitly and overrode the play-state above; everything
+   else stops at 0.01s so screens with vestibular triggers don't loop. */
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot,
+  .stripe-shift,
+  .copied-pop,
+  .reveal-up {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

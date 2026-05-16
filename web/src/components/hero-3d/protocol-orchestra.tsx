@@ -287,8 +287,15 @@ export function ProtocolOrchestra3D() {
         </div>
       </div>
 
-      {/* Live caption — OUTSIDE the SVG, never overlaps a node */}
-      <div className="flex w-full items-baseline justify-center gap-3" aria-live="polite">
+      {/* Live caption — OUTSIDE the SVG, never overlaps a node.
+          aria-hidden because the strip auto-advances every second; assistive
+          tech announcing it on a loop would be hostile. The sr-only span
+          above gives one static description of the diagram. */}
+      <span className="sr-only">
+        Live x402 protocol diagram showing six steps — request, challenge, sign,
+        verify, generate, receipt — cycling continuously.
+      </span>
+      <div className="flex w-full items-baseline justify-center gap-3" aria-hidden>
         <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-soft">
           now ·
         </span>

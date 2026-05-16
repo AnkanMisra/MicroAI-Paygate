@@ -34,7 +34,10 @@ export function ReceiptCard({ signed, savedAt, promptPreview }: Props) {
           <div className="flex flex-wrap items-center gap-2">
             <code className="font-mono text-xs text-ink tnum">{r.id}</code>
             <Badge tone="muted">{meta.name}</Badge>
-            <time className="font-mono text-[10px] uppercase tracking-[0.12em] tnum text-ink-soft">
+            <time
+              dateTime={new Date(savedAt).toISOString()}
+              className="font-mono text-[10px] uppercase tracking-[0.12em] tnum text-ink-soft"
+            >
               {formatRelative(savedAt)}
             </time>
           </div>

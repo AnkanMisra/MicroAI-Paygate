@@ -9,7 +9,7 @@ type Props = {
 
 export function ErrorBanner({ error, onRetry, onDismiss }: Props) {
   return (
-    <div className="reveal-up relative border border-alert bg-alert-soft p-5 pl-7">
+    <div role="alert" className="reveal-up relative border border-alert bg-alert-soft p-5 pl-7">
       <div aria-hidden className="absolute inset-y-0 left-0 w-2 bg-alert" />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1 space-y-2">

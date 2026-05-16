@@ -16,7 +16,9 @@ export function OutputCard({ summary, receipt }: Props) {
           <span className="font-mono text-[10px] uppercase tracking-[0.16em] tnum text-ink-soft">
             Output
           </span>
-          <span className="font-display text-sm italic text-ink-soft">verified</span>
+          {receipt && (
+            <span className="font-display text-sm italic text-ok">verified</span>
+          )}
         </div>
         <CopyButton value={summary} label="Copy summary" />
       </header>
