@@ -36,25 +36,37 @@ export function WalletWidget() {
     }
 
     async function load() {
-      const [addr, chain] = await Promise.all([getCurrentAccount(), getCurrentChainId()]);
-      if (!mounted) return;
-      if (addr && chain != null) {
-        setState({ kind: "connected", address: addr, chainId: chain });
-      } else {
+      try {
+        const [addr, chain] = await Promise.all([getCurrentAccount(), getCurrentChainId()]);
+        if (!mounted) return;
+        if (addr && chain != null) {
+          setState({ kind: "connected", address: addr, chainId: chain });
+        } else {
+          setState({ kind: "disconnected" });
+        }
+      } catch (err) {
+        if (!mounted) return;
+        // Provider hiccup during hydration must never leave the widget stuck
+        // showing "Checking wallet…" forever.
+        console.warn("wallet-widget: initial load failed", err);
         setState({ kind: "disconnected" });
       }
     }
     void load();
 
-    const unsubAcc = subscribeAccountsChanged((accounts) => {
+    const unsubAcc = subscribeAccountsChanged(async (accounts) => {
       if (!accounts[0]) {
         setState({ kind: "disconnected" });
         return;
       }
+      // Read the live chainId — otherwise an external connect lands us in
+      // `chainId: 0`, which is never a real EVM chain and triggers the
+      // wrong-chain CTA even when the wallet is already correct.
+      const chain = await getCurrentChainId();
       setState((prev) =>
         prev.kind === "connected"
           ? { ...prev, address: accounts[0] }
-          : { kind: "connected", address: accounts[0], chainId: 0 },
+          : { kind: "connected", address: accounts[0], chainId: chain ?? 0 },
       );
     });
 

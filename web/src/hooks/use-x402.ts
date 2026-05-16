@@ -93,6 +93,15 @@ export function useX402() {
       const currentChain = await getCurrentChainId();
       if (currentChain !== context.chainId) {
         await switchOrAddChain(context.chainId);
+        // EIP-3085 (wallet_addEthereumChain) only ADDS a chain; some wallets
+        // (e.g. Brave) won't auto-switch after adding. Re-check before signing
+        // so we never embed the wrong chainId in EIP-712 typed data.
+        const postSwitch = await getCurrentChainId();
+        if (postSwitch !== context.chainId) {
+          throw new Error(
+            `Wallet did not switch to chain ${context.chainId} (still on ${postSwitch}). Switch manually and retry.`,
+          );
+        }
       }
 
       const refreshedProvider = new ethers.BrowserProvider(window.ethereum!);

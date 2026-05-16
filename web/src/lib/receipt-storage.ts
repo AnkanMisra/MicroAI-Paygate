@@ -68,6 +68,10 @@ export function listReceipts(): StoredReceiptEntry[] {
   return parse(readRaw());
 }
 
+// All writes are best-effort. A localStorage throw (quota exceeded, private
+// browsing, Safari ITP) MUST NOT propagate — useX402.submit calls saveReceipt
+// on the success path, and a bubble would discard a paid summary the user
+// already signed for.
 export function saveReceipt(receipt: SignedReceipt, promptPreview: string): void {
   if (!isBrowser()) return;
   const entries = listReceipts();
@@ -78,19 +82,31 @@ export function saveReceipt(receipt: SignedReceipt, promptPreview: string): void
     promptPreview: promptPreview.slice(0, 80),
   };
   const trimmed = [next, ...filtered].slice(0, MAX);
-  window.localStorage.setItem(KEY, JSON.stringify(trimmed));
-  notify();
+  try {
+    window.localStorage.setItem(KEY, JSON.stringify(trimmed));
+    notify();
+  } catch (err) {
+    console.warn("receipt-storage: failed to save receipt", err);
+  }
 }
 
 export function removeReceipt(id: string): void {
   if (!isBrowser()) return;
   const entries = listReceipts().filter((e) => e.receipt.receipt.id !== id);
-  window.localStorage.setItem(KEY, JSON.stringify(entries));
-  notify();
+  try {
+    window.localStorage.setItem(KEY, JSON.stringify(entries));
+    notify();
+  } catch (err) {
+    console.warn("receipt-storage: failed to remove receipt", err);
+  }
 }
 
 export function clearReceipts(): void {
   if (!isBrowser()) return;
-  window.localStorage.removeItem(KEY);
-  notify();
+  try {
+    window.localStorage.removeItem(KEY);
+    notify();
+  } catch (err) {
+    console.warn("receipt-storage: failed to clear receipts", err);
+  }
 }
