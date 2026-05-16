@@ -1,0 +1,119 @@
+"use client";
+
+import { useState } from "react";
+import { useX402 } from "@/hooks/use-x402";
+import { Button } from "./ui/button";
+import { StatusStrip } from "./status-strip";
+import { OutputCard } from "./output-card";
+import { ErrorBanner } from "./error-banner";
+
+const SAMPLE_PROMPT =
+  "Bitcoin: A Peer-to-Peer Electronic Cash System. A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution. Digital signatures provide part of the solution, but the main benefits are lost if a trusted third party is still required to prevent double-spending. We propose a solution to the double-spending problem using a peer-to-peer network. The network timestamps transactions by hashing them into an ongoing chain of hash-based proof-of-work, forming a record that cannot be changed without redoing the proof-of-work.";
+
+export function SummarizeForm() {
+  const [input, setInput] = useState("");
+  const { submit, reset, step, summary, receipt, error, isRunning } = useX402();
+
+  const wordCount = input.trim() ? input.trim().split(/\s+/).length : 0;
+  const charCount = input.length;
+  const canSubmit = wordCount > 0 && !isRunning;
+
+  function handleSubmit() {
+    if (!canSubmit) return;
+    void submit(input);
+  }
+
+  function handleReset() {
+    reset();
+  }
+
+  return (
+    <div className="grid gap-8 lg:grid-cols-[1.05fr_1fr]">
+      {/* INPUT COLUMN */}
+      <section aria-labelledby="input-heading" className="space-y-3">
+        <div className="border border-ink bg-paper">
+          <div className="flex items-center justify-between border-b border-ink px-4 py-2">
+            <h3
+              id="input-heading"
+              className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-soft"
+            >
+              01 — Your text
+            </h3>
+            <button
+              type="button"
+              onClick={() => setInput(SAMPLE_PROMPT)}
+              className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:text-accent"
+            >
+              Use sample
+            </button>
+          </div>
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Paste any text. The summary returns after a Base Sepolia signature."
+            rows={9}
+            aria-label="Text to summarize"
+            className="block w-full resize-none bg-paper p-4 font-sans text-base leading-relaxed text-ink placeholder:text-ink-faint focus:outline-none"
+          />
+          <div className="flex items-center justify-between border-t border-ink bg-paper-deep px-4 py-2 font-mono text-[10px] uppercase tracking-[0.12em] tnum text-ink-soft">
+            <span>
+              {wordCount} word{wordCount === 1 ? "" : "s"} · {charCount} chars
+            </span>
+            <span className="flex items-center gap-2">
+              <span>cost</span>
+              <span className="text-ink">0.001 USDC</span>
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-md font-sans text-xs leading-relaxed text-ink-soft">
+            Wallet signs the EIP-712 challenge — no on-chain transaction, no gas. Receipt is signed
+            by the gateway and verifiable in your browser.
+          </p>
+          <div className="flex items-center gap-2">
+            {(summary || error) && (
+              <Button size="sm" variant="ghost" onClick={handleReset}>
+                Reset
+              </Button>
+            )}
+            <Button onClick={handleSubmit} disabled={!canSubmit}>
+              {isRunning ? "Working…" : "Sign & summarize"}
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {/* RESULT COLUMN */}
+      <section aria-labelledby="result-heading" className="space-y-4">
+        <h3 id="result-heading" className="sr-only">
+          Payment flow and result
+        </h3>
+        <StatusStrip step={step} hasError={!!error} />
+        {error && <ErrorBanner error={error} onRetry={handleSubmit} onDismiss={handleReset} />}
+        {summary && <OutputCard summary={summary} receipt={receipt} />}
+        {!summary && !error && step === "idle" && <PlaceholderCard />}
+      </section>
+    </div>
+  );
+}
+
+function PlaceholderCard() {
+  return (
+    <div className="border border-dashed border-ink-faint bg-paper p-10">
+      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-soft">
+        Awaiting input
+      </p>
+      <p className="mt-2 font-display text-2xl leading-tight text-ink">
+        Sign once.
+        <br />
+        Get a signed answer back.
+      </p>
+      <p className="mt-3 font-sans text-sm text-ink-soft">
+        The gateway returns <code className="font-mono text-xs text-ink">402 Payment Required</code>{" "}
+        with a payment context. Your wallet signs it, the verifier checks the signature, the AI runs
+        the request, and a signed receipt is returned in the response header.
+      </p>
+    </div>
+  );
+}
