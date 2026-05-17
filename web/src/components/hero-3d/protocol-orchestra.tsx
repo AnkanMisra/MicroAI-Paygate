@@ -349,7 +349,11 @@ export function ProtocolOrchestra3D() {
         <span
           aria-hidden
           className="inline-block size-1.5 bg-accent"
-          style={{ animation: "live-blink 1.6s ease-in-out infinite" }}
+          style={
+            prefersReduced
+              ? undefined
+              : { animation: "live-blink 1.6s ease-in-out infinite" }
+          }
         />
         <span className="font-mono text-[10px] uppercase tracking-[0.18em] tnum text-ink">
           TX {String(txCount).padStart(4, "0")} · LIVE
