@@ -18,15 +18,56 @@ function readRaw(): string | null {
   }
 }
 
+// Full SignedReceipt shape check — guards every field the UI later reads
+// against malformed / stale-schema entries from older builds. A single missing
+// field (e.g. payment.payer in a v0 receipt) would otherwise crash
+// receipt-card on shortenAddress(undefined).
 function isValidEntry(entry: unknown): entry is StoredReceiptEntry {
   if (typeof entry !== "object" || entry === null) return false;
-  const e = entry as { receipt?: { receipt?: { id?: unknown } }; savedAt?: unknown };
-  return (
-    typeof e.savedAt === "number" &&
-    !!e.receipt &&
-    !!e.receipt.receipt &&
-    typeof e.receipt.receipt.id === "string"
-  );
+  const e = entry as { receipt?: unknown; savedAt?: unknown };
+  if (typeof e.savedAt !== "number" || !Number.isFinite(e.savedAt)) return false;
+
+  if (typeof e.receipt !== "object" || e.receipt === null) return false;
+  const sr = e.receipt as {
+    receipt?: unknown;
+    signature?: unknown;
+    server_public_key?: unknown;
+  };
+  if (typeof sr.signature !== "string" || !sr.signature.startsWith("0x")) return false;
+  if (typeof sr.server_public_key !== "string" || !sr.server_public_key.startsWith("0x")) {
+    return false;
+  }
+
+  if (typeof sr.receipt !== "object" || sr.receipt === null) return false;
+  const r = sr.receipt as {
+    id?: unknown;
+    payment?: unknown;
+    service?: unknown;
+  };
+  if (typeof r.id !== "string") return false;
+
+  if (typeof r.payment !== "object" || r.payment === null) return false;
+  const p = r.payment as {
+    payer?: unknown;
+    recipient?: unknown;
+    amount?: unknown;
+    token?: unknown;
+  };
+  if (typeof p.payer !== "string" || typeof p.recipient !== "string") return false;
+  if (typeof p.amount !== "string" || typeof p.token !== "string") return false;
+
+  if (typeof r.service !== "object" || r.service === null) return false;
+  const s = r.service as {
+    endpoint?: unknown;
+    request_hash?: unknown;
+    response_hash?: unknown;
+  };
+  if (typeof s.endpoint !== "string") return false;
+  if (typeof s.request_hash !== "string" || typeof s.response_hash !== "string") {
+    return false;
+  }
+
+  return true;
 }
 
 function parse(raw: string | null): StoredReceiptEntry[] {

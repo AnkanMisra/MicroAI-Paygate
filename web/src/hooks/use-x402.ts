@@ -113,21 +113,28 @@ export function useX402() {
       update({ step: "verify" });
 
       // Start the verify -> ai bump BEFORE awaiting the retry so the timer can
-      // actually fire mid-flight. Previously it was created AFTER the await
-      // returned and immediately cleared, so the strip never visibly reached
-      // the "ai" step. ~700ms is a reasonable verifier round-trip ceiling.
+      // actually fire mid-flight. ~700ms is a reasonable verifier round-trip
+      // ceiling. Wrapped in try/finally so a thrown fetch (network drop,
+      // offline) doesn't leave the timer running — it would otherwise fire
+      // after the outer catch already set state to "error" and incorrectly
+      // bump the strip to "ai" on a dead run.
       const aiStepTimer = setTimeout(() => update({ step: "ai" }), 700);
-
-      const retry = await postSummarize(text, buildSignedHeaders(context, signature));
-      clearTimeout(aiStepTimer);
+      let retry: Response;
+      try {
+        retry = await postSummarize(text, buildSignedHeaders(context, signature));
+      } finally {
+        clearTimeout(aiStepTimer);
+      }
 
       if (!retry.ok) {
         const bodyText = await safeText(retry);
         const classified = classifyError(null, { status: retry.status, bodyText });
         // If the gateway returned an AI-side failure (upstream timeout /
-        // unavailable / verifier-timeout), the signature was already accepted
-        // by the verifier — show the strip at the AI step so the failure UI
-        // doesn't misattribute the problem to verification.
+        // unavailable), the signature was accepted by the verifier — show the
+        // strip at the AI step so the failure UI doesn't misattribute the
+        // problem to verification. Verifier-side failures (verifier-timeout /
+        // verifier-unavailable) DO mean signing failed, so leave the strip
+        // at "verify" where the failure actually occurred.
         if (
           classified.kind === "ai-timeout" ||
           classified.kind === "ai-unavailable"

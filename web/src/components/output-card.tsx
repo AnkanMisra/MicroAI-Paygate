@@ -17,7 +17,11 @@ export function OutputCard({ summary, receipt }: Props) {
             Output
           </span>
           {receipt && (
-            <span className="font-display text-sm italic text-ok">verified</span>
+            // Neutral copy — receipt presence proves the gateway sent one, not
+            // that it has been cryptographically verified. Green "✓ Valid"
+            // lives on the receipt-card after the user clicks Verify signature
+            // and the keccak/ECDSA recovery actually runs.
+            <span className="font-display text-sm italic text-ink-soft">receipt returned</span>
           )}
         </div>
         <CopyButton value={summary} label="Copy summary" />

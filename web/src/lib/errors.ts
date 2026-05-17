@@ -8,6 +8,7 @@ export type ErrorKind =
   | "ai-timeout"
   | "ai-unavailable"
   | "verifier-timeout"
+  | "verifier-unavailable"
   | "network"
   | "unknown";
 
@@ -65,6 +66,11 @@ const COPY: Record<ErrorKind, { title: string; message: string }> = {
     message:
       "The signature verifier didn't respond in time. Your signature wasn't accepted — no payment occurred. Retry.",
   },
+  "verifier-unavailable": {
+    title: "Verifier unavailable",
+    message:
+      "The signature verifier is down. Your signature wasn't accepted — no payment occurred. Retry in a moment.",
+  },
   network: {
     title: "Network error",
     message: "Couldn't reach the gateway. Check your connection and retry.",
@@ -105,7 +111,12 @@ function statusToKind(status: number, body: string): ErrorKind {
     return body.includes("nonce_already_used") ? "expired" : "invalid-signature";
   }
   if (status === 429) return "rate-limited";
-  if (status === 502) return "ai-unavailable";
+  if (status === 502) {
+    // Gateway returns 502 + verification_unavailable when the verifier didn't
+    // respond (gateway/main.go:409,419) — signing never succeeded. The
+    // upstream_unavailable case is post-payment AI-provider failure.
+    return body.includes("verification_unavailable") ? "verifier-unavailable" : "ai-unavailable";
+  }
   if (status >= 500) return "ai-unavailable";
   return "unknown";
 }
