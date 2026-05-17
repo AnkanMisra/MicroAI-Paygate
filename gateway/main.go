@@ -268,30 +268,10 @@ func main() {
 		log.Fatalf("Receipt store initialization failed: %v", err)
 	}
 
-	r.StaticFile("/openapi.yaml", "openapi.yaml")
-
-	r.GET("/docs", func(c *gin.Context) {
-		c.Header("Content-Type", "text/html")
-		c.String(200, `
-<!DOCTYPE html>
-<html>
-<head>
-  <title>MicroAI Paygate Docs</title>
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css" />
-</head>
-<body>
-  <div id="swagger-ui"></div>
-  <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js"></script>
-  <script>
-    SwaggerUIBundle({
-      url: '/openapi.yaml',
-      dom_id: '#swagger-ui'
-    });
-  </script>
-</body>
-</html>
-`)
-	})
+	// Documentation routes are registered before CORS / rate-limit / timeout
+	// middleware so the Swagger UI and raw spec are served without those
+	// constraints.
+	registerDocRoutes(r)
 
 	r.Use(cors.New(cors.Config{
 		AllowOrigins: getAllowedOrigins(),
@@ -329,25 +309,12 @@ func main() {
 	// deadline when nested timeouts are present to avoid surprising behavior.
 	r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
 
-	//health check if server is up
-	r.GET("/healthz", handleHealthz)
-
-	//readiness check
-	r.GET("/readyz", handleReadyz)
-
-	// AI endpoints with AI-specific timeout (30s)
-	aiGroup := r.Group("/api/ai")
-	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
-	if getCacheEnabled() {
-		aiGroup.POST("/summarize", CacheMiddleware(), handleSummarize)
-	} else {
-		aiGroup.POST("/summarize", handleSummarize)
-	}
-
-	// Receipt lookup endpoint
-	// Note: Rate limiting applies only if enabled globally via RATE_LIMIT_ENABLED=true
-	// Random 12-char receipt IDs (2^48 space) make brute-force enumeration impractical
-	r.GET("/api/receipts/:id", handleGetReceipt)
+	// Public API routes. Kept in registerAPIRoutes so the OpenAPI coverage
+	// test in openapi_test.go can introspect them without booting middleware.
+	// Rate limiting (if enabled) applies via the global r.Use above; random
+	// 12-char receipt IDs (2^48 space) make /api/receipts/:id brute-force
+	// enumeration impractical.
+	registerAPIRoutes(r)
 
 	// Initialize receipt cleanup goroutine
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
