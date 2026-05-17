@@ -30,7 +30,9 @@ export function Hero() {
       <Ticker />
 
       <div className="relative mx-auto flex w-full max-w-[1280px] flex-1 flex-col justify-center px-6 py-6 lg:px-12 lg:py-8">
-        {/* Giant editorial watermark — pure paper depth, never interactive */}
+        {/* Editorial paper watermarks — pure depth, never interactive.
+            All three are aria-hidden, pointer-events-none, ~4-6% ink so they
+            read as ghosted-print under the foreground copy. */}
         <div
           aria-hidden
           className="pointer-events-none absolute -left-2 -top-2 select-none lg:-top-6"
@@ -46,6 +48,39 @@ export function Hero() {
           01
         </div>
 
+        {/* X402 — bottom-right, italic, mirrors the 01 weight */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-4 bottom-0 select-none lg:-bottom-2"
+          style={{
+            fontFamily: "var(--font-display)",
+            fontStyle: "italic",
+            fontWeight: 400,
+            lineHeight: 0.8,
+            fontSize: "clamp(120px, 18vw, 260px)",
+            color: "color-mix(in srgb, var(--ink) 4%, transparent)",
+          }}
+        >
+          x402
+        </div>
+
+        {/* Vertical spine text on the far left — magazine binding cue */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute left-2 top-1/2 hidden -translate-y-1/2 select-none lg:block"
+          style={{
+            writingMode: "vertical-rl",
+            transform: "translateY(-50%) rotate(180deg)",
+            fontFamily: "var(--font-geist-mono)",
+            fontSize: "10px",
+            letterSpacing: "0.32em",
+            textTransform: "uppercase",
+            color: "color-mix(in srgb, var(--ink) 32%, transparent)",
+          }}
+        >
+          MicroAI Paygate · Issue 01 · 2026
+        </div>
+
         <div className="reveal-up relative">
           <span className="inline-block font-mono text-[10px] uppercase tracking-[0.22em] text-ink-soft">
             Issue 01 · 2026 · x402 reference implementation
@@ -54,7 +89,7 @@ export function Hero() {
 
         <div className="relative mt-4 grid items-center gap-6 lg:mt-6 lg:grid-cols-[1.05fr_0.95fr] lg:gap-10">
           {/* LEFT — copy column */}
-          <div className="relative lg:border-l-2 lg:border-accent lg:pl-6">
+          <div className="relative">
             <p
               className="reveal-up mb-3 font-display italic text-ink-soft"
               style={{
