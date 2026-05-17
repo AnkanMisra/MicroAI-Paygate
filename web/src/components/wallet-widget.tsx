@@ -175,6 +175,14 @@ export function WalletWidget() {
                 setActionError(
                   `Switch to ${EXPECTED_CHAIN_NAME} didn't take. Open your wallet and switch manually.`,
                 );
+              } else {
+                // Close the chainChanged race window — update state immediately
+                // so the badge flips to ok instead of waiting on the event.
+                setState((prev) =>
+                  prev.kind === "connected"
+                    ? { ...prev, chainId: EXPECTED_CHAIN }
+                    : prev,
+                );
               }
             } catch (err) {
               if (!isUserRejection(err)) {
@@ -199,7 +207,7 @@ function ActionErrorChip({ msg }: { msg: string }) {
     <span
       role="alert"
       title={msg}
-      className="hidden max-w-[240px] truncate border border-alert bg-alert-soft px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-alert md:inline-block"
+      className="inline-block max-w-[140px] truncate border border-alert bg-alert-soft px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-alert sm:max-w-[240px]"
     >
       ! {msg}
     </span>

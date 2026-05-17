@@ -412,6 +412,21 @@ export function ProtocolOrchestra3D() {
           7%      { opacity: 0; }
         }
 
+        /* globals.css covers the cross-page keyframes (pulse-dot, stripe-shift,
+           reveal-up, copied-pop) but these four are defined locally inside
+           styled-jsx and that block isn't reachable from a global @media rule.
+           Repeat the reduce-motion guard here so arc-fill / spoke / flash /
+           outline don't loop on a vestibular-sensitive OS setting. The SMIL
+           animations are already gated via motionRepeat above. */
+        @media (prefers-reduced-motion: reduce) {
+          :global(.arc-fill),
+          :global(.spoke),
+          :global(.node-flash),
+          :global(.node-outline) {
+            animation: none !important;
+          }
+        }
+
         .caption-fade {
           animation: caption-in 480ms cubic-bezier(0.2, 0.7, 0.2, 1);
         }
