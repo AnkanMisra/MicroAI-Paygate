@@ -30,7 +30,7 @@
   --color-ok-soft: var(--ok-soft);
   --color-alert: var(--alert);
   --color-alert-soft: var(--alert-soft);
-  --font-display: var(--font-instrument-serif);
+  --font-display: var(--font-clash-display);
   --font-sans: var(--font-satoshi);
   --font-mono: var(--font-geist-mono);
 }
