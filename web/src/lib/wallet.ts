@@ -82,7 +82,16 @@ export async function switchOrAddChain(chainId: number): Promise<void> {
     await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hex }] });
     return;
   } catch (err: unknown) {
-    if ((err as { code?: number }).code !== 4902) throw err;
+    // EIP-3085 says 4902 means "chain not added". MetaMask v11+ sometimes
+    // returns a text-based error before settling on 4902 — match both so the
+    // wallet_addEthereumChain fallback fires for first-time chain setup.
+    const e = err as { code?: number; message?: string };
+    const isUnknownChain =
+      e.code === 4902 ||
+      String(e.message ?? "")
+        .toLowerCase()
+        .includes("chain not supported");
+    if (!isUnknownChain) throw err;
   }
 
   const meta = getChainMeta(chainId);

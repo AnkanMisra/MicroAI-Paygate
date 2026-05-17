@@ -18,11 +18,26 @@ function readRaw(): string | null {
   }
 }
 
+function isValidEntry(entry: unknown): entry is StoredReceiptEntry {
+  if (typeof entry !== "object" || entry === null) return false;
+  const e = entry as { receipt?: { receipt?: { id?: unknown } }; savedAt?: unknown };
+  return (
+    typeof e.savedAt === "number" &&
+    !!e.receipt &&
+    !!e.receipt.receipt &&
+    typeof e.receipt.receipt.id === "string"
+  );
+}
+
 function parse(raw: string | null): StoredReceiptEntry[] {
   if (!raw) return EMPTY;
   try {
-    const parsed = JSON.parse(raw) as StoredReceiptEntry[];
-    return Array.isArray(parsed) ? parsed : EMPTY;
+    const parsed = JSON.parse(raw) as unknown;
+    // Drop any stale entries from previous schema versions — without this,
+    // ReceiptHistory dereferences entry.receipt.receipt.id as a React key and
+    // would crash the page on undefined, locking users out until they clear
+    // localStorage manually.
+    return Array.isArray(parsed) ? parsed.filter(isValidEntry) : EMPTY;
   } catch {
     return EMPTY;
   }
