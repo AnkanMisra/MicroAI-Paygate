@@ -1,12 +1,19 @@
 import { ProtocolOrchestra3D } from "./hero-3d/protocol-orchestra";
 
+const DISPLAY_AMOUNT = process.env.NEXT_PUBLIC_PAYMENT_AMOUNT ?? "0.001";
+const DISPLAY_TOKEN = process.env.NEXT_PUBLIC_PAYMENT_TOKEN ?? "USDC";
+const DISPLAY_CHAIN_NAME =
+  process.env.NEXT_PUBLIC_EXPECTED_CHAIN_NAME ?? "Base Sepolia";
+const DISPLAY_CHAIN_ID =
+  process.env.NEXT_PUBLIC_EXPECTED_CHAIN_ID ?? "84532";
+
 const TICKER_ITEMS = [
   "x402",
   "pay-per-call AI",
-  "0.001 USDC per request",
+  `${DISPLAY_AMOUNT} ${DISPLAY_TOKEN} per request`,
   "EIP-712 typed data",
   "ECDSA receipts",
-  "Base Sepolia · 84532",
+  `${DISPLAY_CHAIN_NAME} · ${DISPLAY_CHAIN_ID}`,
   "open source · MIT",
   "keccak-256 hashing",
   "verified client-side",
@@ -123,8 +130,8 @@ export function Hero() {
 
       <div className="border-t border-ink">
         <div className="mx-auto flex max-w-[1280px] divide-x divide-ink">
-          <Stat label="Fee per call" value="0.001 USDC" />
-          <Stat label="Chain" value="Base Sepolia · 84532" />
+          <Stat label="Fee per call" value={`${DISPLAY_AMOUNT} ${DISPLAY_TOKEN}`} />
+          <Stat label="Chain" value={`${DISPLAY_CHAIN_NAME} · ${DISPLAY_CHAIN_ID}`} />
           <Stat label="Auth" value="EIP-712 typed data" hideOnMobile />
           <Stat label="Receipt" value="ECDSA · keccak-256" hideOnMobile />
         </div>

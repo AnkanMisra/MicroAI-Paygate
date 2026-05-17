@@ -1,6 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+
+// SSR-safe subscription to the OS's prefers-reduced-motion preference.
+// useSyncExternalStore avoids the set-state-in-effect anti-pattern flagged
+// by react-hooks/set-state-in-effect.
+function subscribeReducedMotion(cb: () => void): () => void {
+  if (typeof window === "undefined" || !window.matchMedia) return () => {};
+  const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
+}
+function getReducedMotionSnapshot(): boolean {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+function getReducedMotionServerSnapshot(): boolean {
+  return false;
+}
 
 const STEPS = [
   { n: "01", name: "Request", verb: "sending request" },
@@ -42,9 +59,20 @@ const CHEVRON_D = "M -9 -7 Q -4 0 -9 7 L 12 0 Z";
 export function ProtocolOrchestra3D() {
   const [stepIdx, setStepIdx] = useState(0);
   const [txCount, setTxCount] = useState(42);
+  // CSS @media handles class-based keyframes, but SVG SMIL (<animateMotion>,
+  // <animate>) is invisible to CSS reduce-motion rules. We read the OS
+  // preference and pass repeatCount="1" so the chevron and pulse rings play
+  // once then settle. Also freezes the JS-driven caption + TX counter.
+  const prefersReduced = useSyncExternalStore(
+    subscribeReducedMotion,
+    getReducedMotionSnapshot,
+    getReducedMotionServerSnapshot,
+  );
 
-  // Live caption + tx counter
+  // Live caption + tx counter — paused when reduce-motion is on so screens
+  // with vestibular triggers don't see content swap every second.
   useEffect(() => {
+    if (prefersReduced) return;
     const start = Date.now();
     let lastCycle = 0;
 
@@ -61,9 +89,11 @@ export function ProtocolOrchestra3D() {
       }
     }, 200);
     return () => window.clearInterval(id);
-  }, []);
+  }, [prefersReduced]);
 
   const current = STEPS[stepIdx];
+  // Plays once + freezes vs loops indefinitely.
+  const motionRepeat = prefersReduced ? "1" : "indefinite";
 
   return (
     <div className="relative flex h-full min-h-[380px] w-full flex-col items-center justify-center gap-2 px-3 pb-3 pt-3">
@@ -152,7 +182,7 @@ export function ProtocolOrchestra3D() {
                     to="118"
                     dur="6s"
                     begin={`${delay}s`}
-                    repeatCount="indefinite"
+                    repeatCount={motionRepeat}
                   />
                   <animate
                     attributeName="opacity"
@@ -160,7 +190,7 @@ export function ProtocolOrchestra3D() {
                     to="0"
                     dur="6s"
                     begin={`${delay}s`}
-                    repeatCount="indefinite"
+                    repeatCount={motionRepeat}
                   />
                   <animate
                     attributeName="stroke-width"
@@ -168,7 +198,7 @@ export function ProtocolOrchestra3D() {
                     to="0.4"
                     dur="6s"
                     begin={`${delay}s`}
-                    repeatCount="indefinite"
+                    repeatCount={motionRepeat}
                   />
                 </circle>
               ))}
@@ -213,7 +243,7 @@ export function ProtocolOrchestra3D() {
             >
               <animateMotion
                 dur={`${CYCLE_SEC}s`}
-                repeatCount="indefinite"
+                repeatCount={motionRepeat}
                 rotate="auto"
               >
                 <mpath href="#hex-path" />

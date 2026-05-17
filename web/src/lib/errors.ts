@@ -117,6 +117,7 @@ function looksWrongChain(message: string): boolean {
     m.includes("wrong chain") ||
     m.includes("chain mismatch") ||
     m.includes("unsupported chain") ||
+    m.includes("chain not supported") ||
     m.includes("incorrect network") ||
     m.includes("did not switch to chain")
   );
