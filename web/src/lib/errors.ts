@@ -31,7 +31,8 @@ const COPY: Record<ErrorKind, { title: string; message: string }> = {
   },
   "wrong-chain": {
     title: "Wrong network",
-    message: "Your wallet isn't on Base Sepolia. Use the switch button above to fix it.",
+    message:
+      "Your wallet isn't on the expected network. Use the switch button in the wallet widget to fix it.",
   },
   "user-rejected": {
     title: "You cancelled the signature",

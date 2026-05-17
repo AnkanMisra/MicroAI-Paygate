@@ -16,6 +16,7 @@ const SAMPLE_PROMPT =
 // mislead users before the wallet opens.
 const DISPLAY_AMOUNT = process.env.NEXT_PUBLIC_PAYMENT_AMOUNT ?? "0.001";
 const DISPLAY_TOKEN = process.env.NEXT_PUBLIC_PAYMENT_TOKEN ?? "USDC";
+const DISPLAY_CHAIN_NAME = process.env.NEXT_PUBLIC_EXPECTED_CHAIN_NAME ?? "Base Sepolia";
 
 export function SummarizeForm() {
   const [input, setInput] = useState("");
@@ -57,7 +58,7 @@ export function SummarizeForm() {
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Paste any text. The summary returns after a Base Sepolia signature."
+            placeholder={`Paste any text. The summary returns after a ${DISPLAY_CHAIN_NAME} signature.`}
             rows={9}
             aria-label="Text to summarize"
             className="block w-full resize-none bg-paper p-4 font-sans text-base leading-relaxed text-ink placeholder:text-ink-faint focus:outline-none"

@@ -14,13 +14,17 @@ The web app is a Next.js/Bun frontend on port `3001`. It lets users submit text 
 
 ## Current Configuration
 
-The current frontend reads one public environment variable:
+The frontend reads these `NEXT_PUBLIC_*` environment variables at build time:
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `NEXT_PUBLIC_GATEWAY_URL` | `http://localhost:3000` | Gateway base URL used by browser fetch calls. |
+| `NEXT_PUBLIC_GATEWAY_URL` | `http://localhost:3000` | Gateway base URL the browser fetches `/api/ai/summarize` and `/api/receipts/:id` from. |
+| `NEXT_PUBLIC_EXPECTED_CHAIN_ID` | `84532` | Chain id the wallet widget expects. Must match the gateway's `CHAIN_ID`. Deployments on Base mainnet should set `8453` so the widget doesn't fight every payment context. |
+| `NEXT_PUBLIC_EXPECTED_CHAIN_NAME` | `Base Sepolia` | Display name used by the wallet widget's `Switch to <name>` button and the summarize form's placeholder copy. |
+| `NEXT_PUBLIC_PAYMENT_AMOUNT` | `0.001` | Pre-challenge fee label shown under the summarize form. **Informational only** — the actual signed amount is whatever the gateway embeds in the 402 payment context. |
+| `NEXT_PUBLIC_PAYMENT_TOKEN` | `USDC` | Token symbol shown next to `NEXT_PUBLIC_PAYMENT_AMOUNT`. Same caveat — display-only. |
 
-The current app does not read `NEXT_PUBLIC_CHAIN_ID`, `NEXT_PUBLIC_RPC_URL`, or `NEXT_PUBLIC_RECIPIENT`. Chain ID, recipient, amount, nonce, and timestamp come from the gateway payment context.
+The signed amount, recipient, chain id, nonce, and timestamp at signing time **always come from the gateway's payment context**, not from these vars. The `NEXT_PUBLIC_*` values are display defaults so deployers running with non-default `CHAIN_ID` / `PAYMENT_AMOUNT` don't see the UI mislead users before the wallet opens.
 
 ## Payment Signing Shape
 

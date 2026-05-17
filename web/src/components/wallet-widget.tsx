@@ -21,6 +21,7 @@ import { Button } from "./ui/button";
 const EXPECTED_CHAIN = Number(process.env.NEXT_PUBLIC_EXPECTED_CHAIN_ID ?? "84532");
 const EXPECTED_CHAIN_NAME =
   process.env.NEXT_PUBLIC_EXPECTED_CHAIN_NAME ?? "Base Sepolia";
+const ACTION_ERROR_TTL_MS = 6000;
 
 type State =
   | { kind: "loading" }
@@ -31,6 +32,16 @@ type State =
 export function WalletWidget() {
   const [state, setState] = useState<State>({ kind: "loading" });
   const [switching, setSwitching] = useState(false);
+  // Visible inline error chip for non-rejection provider failures (provider
+  // crash, network error, silent no-op switch). Auto-clears after a few
+  // seconds so it doesn't linger forever.
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!actionError) return;
+    const id = window.setTimeout(() => setActionError(null), ACTION_ERROR_TTL_MS);
+    return () => window.clearTimeout(id);
+  }, [actionError]);
 
   useEffect(() => {
     let mounted = true;
@@ -108,25 +119,28 @@ export function WalletWidget() {
 
   if (state.kind === "disconnected") {
     return (
-      <Button
-        size="sm"
-        variant="secondary"
-        onClick={async () => {
-          try {
-            const addr = await connectWallet();
-            const chain = await getCurrentChainId();
-            setState({ kind: "connected", address: addr, chainId: chain ?? 0 });
-          } catch (err) {
-            // Only silently swallow explicit user-rejection (EIP-1193 4001).
-            // Anything else (provider crash, network failure) should be surfaced.
-            if (!isUserRejection(err)) {
-              console.error("wallet-widget: connect failed", err);
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={async () => {
+            setActionError(null);
+            try {
+              const addr = await connectWallet();
+              const chain = await getCurrentChainId();
+              setState({ kind: "connected", address: addr, chainId: chain ?? 0 });
+            } catch (err) {
+              if (!isUserRejection(err)) {
+                console.error("wallet-widget: connect failed", err);
+                setActionError("Couldn't connect to wallet — try again or refresh.");
+              }
             }
-          }
-        }}
-      >
-        Connect wallet
-      </Button>
+          }}
+        >
+          Connect wallet
+        </Button>
+        {actionError && <ActionErrorChip msg={actionError} />}
+      </div>
     );
   }
 
@@ -149,11 +163,23 @@ export function WalletWidget() {
           disabled={switching}
           onClick={async () => {
             setSwitching(true);
+            setActionError(null);
             try {
               await switchOrAddChain(EXPECTED_CHAIN);
+              // EIP-3085 (wallet_addEthereumChain) only ADDS — Brave and some
+              // injected providers don't auto-switch after adding. Verify so
+              // the user gets explicit feedback instead of a silently-no-op
+              // button click.
+              const postSwitch = await getCurrentChainId();
+              if (postSwitch !== EXPECTED_CHAIN) {
+                setActionError(
+                  `Switch to ${EXPECTED_CHAIN_NAME} didn't take. Open your wallet and switch manually.`,
+                );
+              }
             } catch (err) {
               if (!isUserRejection(err)) {
                 console.error("wallet-widget: chain switch failed", err);
+                setActionError(`Couldn't switch to ${EXPECTED_CHAIN_NAME} — check your wallet.`);
               }
             } finally {
               setSwitching(false);
@@ -163,7 +189,20 @@ export function WalletWidget() {
           {switching ? "Switching…" : `Switch to ${EXPECTED_CHAIN_NAME}`}
         </Button>
       )}
+      {actionError && <ActionErrorChip msg={actionError} />}
     </div>
+  );
+}
+
+function ActionErrorChip({ msg }: { msg: string }) {
+  return (
+    <span
+      role="alert"
+      title={msg}
+      className="hidden max-w-[240px] truncate border border-alert bg-alert-soft px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-alert md:inline-block"
+    >
+      ! {msg}
+    </span>
   );
 }
 
