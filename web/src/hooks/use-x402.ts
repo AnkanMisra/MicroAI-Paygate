@@ -111,22 +111,34 @@ export function useX402() {
       const signature = await signPaymentContext(signer, context);
 
       update({ step: "verify" });
-      const retry = await postSummarize(text, buildSignedHeaders(context, signature));
 
-      // Theatrical: bump from verify -> ai briefly so the strip shows both steps.
-      const aiStepTimer = setTimeout(() => update({ step: "ai" }), 350);
+      // Start the verify -> ai bump BEFORE awaiting the retry so the timer can
+      // actually fire mid-flight. Previously it was created AFTER the await
+      // returned and immediately cleared, so the strip never visibly reached
+      // the "ai" step. ~700ms is a reasonable verifier round-trip ceiling.
+      const aiStepTimer = setTimeout(() => update({ step: "ai" }), 700);
+
+      const retry = await postSummarize(text, buildSignedHeaders(context, signature));
+      clearTimeout(aiStepTimer);
 
       if (!retry.ok) {
-        clearTimeout(aiStepTimer);
         const bodyText = await safeText(retry);
-        update({
-          error: classifyError(null, { status: retry.status, bodyText }),
-          isRunning: false,
-        });
+        const classified = classifyError(null, { status: retry.status, bodyText });
+        // If the gateway returned an AI-side failure (upstream timeout /
+        // unavailable / verifier-timeout), the signature was already accepted
+        // by the verifier — show the strip at the AI step so the failure UI
+        // doesn't misattribute the problem to verification.
+        if (
+          classified.kind === "ai-timeout" ||
+          classified.kind === "ai-unavailable"
+        ) {
+          update({ step: "ai", error: classified, isRunning: false });
+        } else {
+          update({ error: classified, isRunning: false });
+        }
         return;
       }
 
-      clearTimeout(aiStepTimer);
       update({ step: "receipt" });
       const { summary, receipt } = await readSummarizeSuccess(retry);
       if (receipt) saveReceipt(receipt, text);
