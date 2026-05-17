@@ -55,6 +55,10 @@ function isValidEntry(entry: unknown): entry is StoredReceiptEntry {
   };
   if (typeof p.payer !== "string" || typeof p.recipient !== "string") return false;
   if (typeof p.amount !== "string" || typeof p.token !== "string") return false;
+  // chainId is a number on every SignedReceipt the gateway produces; without
+  // this guard a stale entry would render "Chain undefined" in the ReceiptCard
+  // badge via getChainMeta's fallback path.
+  if (typeof (p as { chainId?: unknown }).chainId !== "number") return false;
 
   if (typeof r.service !== "object" || r.service === null) return false;
   const s = r.service as {
