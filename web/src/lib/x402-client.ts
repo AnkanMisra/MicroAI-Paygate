@@ -90,10 +90,20 @@ export function safeDecodeReceiptHeader(b64: string): SignedReceipt | null {
   // this, a malformed header (gateway bug, mid-flight tamper, schema drift)
   // would pass through as a "SignedReceipt", saveReceipt would dereference
   // .receipt.id on a partial object, and the outer catch would replace a
-  // successful paid summary with an "unknown" error. validateReceiptFormat
-  // already covers every field downstream code touches (payment, service,
-  // signature/server_public_key 0x-prefix).
-  if (!validateReceiptFormat(decoded as SignedReceipt)) {
+  // successful paid summary with an "unknown" error.
+  //
+  // validateReceiptFormat uses optional-chained .startsWith() — if a field
+  // is the wrong TYPE (number, object) instead of missing entirely, the
+  // method call throws. Wrap defensively so any unexpected shape just
+  // drops the receipt instead of bubbling out and losing the paid summary.
+  let ok = false;
+  try {
+    ok = validateReceiptFormat(decoded as SignedReceipt);
+  } catch (err) {
+    console.warn("validateReceiptFormat threw on decoded X-402-Receipt", err);
+    return null;
+  }
+  if (!ok) {
     console.warn("X-402-Receipt header decoded to malformed SignedReceipt; dropping");
     return null;
   }

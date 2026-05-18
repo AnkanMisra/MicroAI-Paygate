@@ -164,14 +164,25 @@ input:focus-visible,
    exemption was wrong — vestibular-sensitive users see a horizontal
    marquee scrolling forever on every page load otherwise. */
 @media (prefers-reduced-motion: reduce) {
+  /* Continuous loops / micro-feedback — collapse to a single instant frame. */
   .pulse-dot,
   .stripe-shift,
   .copied-pop,
-  .reveal-up,
   .ticker-run {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     animation-play-state: paused !important;
     transition-duration: 0.01ms !important;
+  }
+  /* Reveal animations need special treatment: their 0% keyframe is
+     opacity: 0 + translateY(14px) and they rely on animation-fill-mode:
+     both to land at the final visible state. Pausing them locks the hero,
+     CTAs, result cards, and other reveal-up content at the hidden frame.
+     Skip the animation entirely AND assert the visible end-state so the
+     content is rendered immediately on first paint. */
+  .reveal-up {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
 }
