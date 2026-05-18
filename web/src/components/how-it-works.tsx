@@ -1,3 +1,6 @@
+const DISPLAY_CHAIN_NAME =
+  process.env.NEXT_PUBLIC_EXPECTED_CHAIN_NAME ?? "Base Sepolia";
+
 const STEPS = [
   {
     num: "01",
@@ -82,7 +85,7 @@ export function HowItWorks() {
 
         <p className="mt-10 max-w-2xl font-sans text-sm leading-relaxed text-ink-soft">
           A valid signature proves wallet authorization — it does not prove USDC moved on-chain. This
-          implementation is a demo on Base Sepolia testnet. The cryptography is real; the settlement
+          implementation is a demo on {DISPLAY_CHAIN_NAME}. The cryptography is real; the settlement
           is not.
         </p>
       </div>

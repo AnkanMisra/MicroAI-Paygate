@@ -30,8 +30,11 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const DISPLAY_CHAIN_NAME =
+  process.env.NEXT_PUBLIC_EXPECTED_CHAIN_NAME ?? "Base Sepolia";
+
 export const metadata: Metadata = {
-  title: "MicroAI Paygate — pay-per-call AI, settled on Base Sepolia",
+  title: `MicroAI Paygate — pay-per-call AI, settled on ${DISPLAY_CHAIN_NAME}`,
   description:
     "An x402 payment gateway for AI requests. Sign EIP-712, get a signed receipt, verify the signature client-side.",
 };
