@@ -82,7 +82,13 @@ services:
         # testing) and otherwise mirrors the gateway's CHAIN_ID / PAYMENT_AMOUNT
         # so the widget and stat bar stay in sync with the actual payment
         # context the gateway issues.
-        NEXT_PUBLIC_GATEWAY_URL: http://localhost:3000
+        #
+        # NOTE on chain name: when you override CHAIN_ID (e.g. CHAIN_ID=8453
+        # for Base mainnet), you MUST also set NEXT_PUBLIC_EXPECTED_CHAIN_NAME
+        # (e.g. "Base") or the bundle will ship the Sepolia name with the
+        # mainnet chain id and the wallet widget + stat bar will contradict
+        # each other.
+        NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-http://localhost:3000}
         NEXT_PUBLIC_EXPECTED_CHAIN_ID: ${NEXT_PUBLIC_EXPECTED_CHAIN_ID:-${CHAIN_ID:-84532}}
         NEXT_PUBLIC_EXPECTED_CHAIN_NAME: ${NEXT_PUBLIC_EXPECTED_CHAIN_NAME:-Base Sepolia}
         NEXT_PUBLIC_PAYMENT_AMOUNT: ${NEXT_PUBLIC_PAYMENT_AMOUNT:-${PAYMENT_AMOUNT:-0.001}}

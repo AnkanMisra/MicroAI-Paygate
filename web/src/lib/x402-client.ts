@@ -1,6 +1,6 @@
 import { ethers, type JsonRpcSigner } from "ethers";
 import type { PaymentContext } from "./types";
-import type { SignedReceipt } from "./verify-receipt";
+import { validateReceiptFormat, type SignedReceipt } from "./verify-receipt";
 
 const DOMAIN_NAME = "MicroAI Paygate";
 const DOMAIN_VERSION = "1";
@@ -78,11 +78,24 @@ export async function readSummarizeSuccess(res: Response): Promise<SummarizeSucc
 }
 
 export function safeDecodeReceiptHeader(b64: string): SignedReceipt | null {
+  let decoded: unknown;
   try {
-    const json = atob(b64);
-    return JSON.parse(json) as SignedReceipt;
+    decoded = JSON.parse(atob(b64));
   } catch (err) {
     console.warn("Failed to decode X-402-Receipt header", err);
     return null;
   }
+
+  // Shape-validate BEFORE handing back to useX402's success path. Without
+  // this, a malformed header (gateway bug, mid-flight tamper, schema drift)
+  // would pass through as a "SignedReceipt", saveReceipt would dereference
+  // .receipt.id on a partial object, and the outer catch would replace a
+  // successful paid summary with an "unknown" error. validateReceiptFormat
+  // already covers every field downstream code touches (payment, service,
+  // signature/server_public_key 0x-prefix).
+  if (!validateReceiptFormat(decoded as SignedReceipt)) {
+    console.warn("X-402-Receipt header decoded to malformed SignedReceipt; dropping");
+    return null;
+  }
+  return decoded as SignedReceipt;
 }
