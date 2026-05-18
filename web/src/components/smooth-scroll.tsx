@@ -24,13 +24,19 @@ function getReducedMotionServerSnapshot(): boolean {
 /**
  * SmoothScroll — Apple-style momentum scroll for wheel + trackpad.
  *
- * - duration / easing tuned to match apple.com's settled feel (~1.2s,
- *   easeOutExpo). lerp 0.1 is the Lenis sweet spot for the "buttery" feel.
- * - syncTouch: false keeps mobile iOS/Android on native scroll.
+ * Lenis's `duration` + `easing` and `lerp` are mutually exclusive. Per the
+ * Lenis docs (https://github.com/darkroomengineering/lenis), `lerp` wins
+ * when both are set — the `duration`/`easing` pair is bypassed entirely.
+ * We use `lerp: 0.1` (the Lenis sweet spot for the "buttery" Apple feel)
+ * and explicitly omit `duration`/`easing` so the config doesn't lie about
+ * what's actually running.
+ *
+ * - syncTouch: false keeps mobile iOS/Android on native scroll (their
+ *   built-in inertia is already excellent).
  * - prefers-reduced-motion is honored — no Lenis instance is constructed,
  *   browser default scrolling is used. The preference is subscribed at
- *   runtime so toggling it via OS Accessibility settings tears down the
- *   instance immediately without a refresh.
+ *   runtime so toggling it via OS Accessibility tears down the instance
+ *   immediately without a refresh.
  */
 export function SmoothScroll() {
   const reducedMotion = useSyncExternalStore(
@@ -43,11 +49,9 @@ export function SmoothScroll() {
     if (reducedMotion) return;
 
     const lenis = new Lenis({
-      duration: 1.2,
-      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+      lerp: 0.1,
       smoothWheel: true,
       syncTouch: false,
-      lerp: 0.1,
     });
 
     let raf = 0;

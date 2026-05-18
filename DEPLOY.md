@@ -115,15 +115,26 @@ vercel link
 vercel env add NEXT_PUBLIC_GATEWAY_URL production
 ```
 
-Run the CLI commands from `web/`. If you link from the repository root or configure the project in the Vercel dashboard, set the project root directory to `web`.
-
-When prompted, enter:
+When prompted for `NEXT_PUBLIC_GATEWAY_URL`, enter:
 
 ```text
 https://<gateway-app>.fly.dev
 ```
 
-Deploy the web app after the gateway URL is configured:
+If you are deploying with a non-default chain (e.g. Base mainnet rather than Base Sepolia) or a non-default fee, you must also set the matching public display vars so the wallet widget, hero headline, and stat bar agree with the gateway's payment context. All four are `NEXT_PUBLIC_*` so they're inlined into the Next.js bundle at build time:
+
+```sh
+vercel env add NEXT_PUBLIC_EXPECTED_CHAIN_ID production    # e.g. 8453 for Base mainnet
+vercel env add NEXT_PUBLIC_EXPECTED_CHAIN_NAME production  # e.g. Base
+vercel env add NEXT_PUBLIC_PAYMENT_AMOUNT production       # e.g. 0.001
+vercel env add NEXT_PUBLIC_PAYMENT_TOKEN production        # e.g. USDC
+```
+
+`NEXT_PUBLIC_EXPECTED_CHAIN_ID` must match the gateway's `CHAIN_ID`, and `NEXT_PUBLIC_EXPECTED_CHAIN_NAME` must match it (e.g. `8453` paired with `Base`, not `Base Sepolia`) — otherwise the UI will contradict itself. Defaults are Base Sepolia (`84532`, `Base Sepolia`) and `0.001 USDC`.
+
+Run the CLI commands from `web/`. If you link from the repository root or configure the project in the Vercel dashboard, set the project root directory to `web`.
+
+Deploy the web app after the env is configured:
 
 ```sh
 vercel deploy --prod
