@@ -207,6 +207,69 @@ func TestCacheHitMapsVerifierNonceReplay(t *testing.T) {
 	require.Equal(t, "test-correlation-id", response["correlation_id"])
 }
 
+func TestCacheHitMapsVerifierTimeout(t *testing.T) {
+	text := "cached timeout text"
+	withCachedSummary(t, text)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(1500 * time.Millisecond)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("VERIFIER_URL", server.URL)
+	t.Setenv("VERIFIER_TIMEOUT_SECONDS", "1")
+
+	router := newCachedSummarizeTestRouter()
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, signedSummarizeRequest(`{"text":"`+text+`"}`))
+
+	require.Equal(t, http.StatusGatewayTimeout, recorder.Code)
+
+	var response map[string]string
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, "verifier_timeout", response["error"])
+	require.Equal(t, "test-correlation-id", response["correlation_id"])
+}
+
+func TestCacheHitMapsVerifierUnavailable(t *testing.T) {
+	text := "cached unavailable text"
+	withCachedSummary(t, text)
+	withVerifierResponse(t, http.StatusInternalServerError, `SENSITIVE_VERIFIER_FAILURE`)
+
+	router := newCachedSummarizeTestRouter()
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, signedSummarizeRequest(`{"text":"`+text+`"}`))
+
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	require.NotContains(t, recorder.Body.String(), "SENSITIVE_VERIFIER_FAILURE")
+
+	var response map[string]string
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, "verification_unavailable", response["error"])
+	require.Equal(t, "test-correlation-id", response["correlation_id"])
+}
+
+func TestCacheHitSuccessEmitsReceiptHeader(t *testing.T) {
+	text := "cached success text"
+	withCachedSummary(t, text)
+	withVerifierResponse(t, http.StatusOK, `{"is_valid":true,"recovered_address":"0xabc","error":""}`)
+	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	resetServerPrivateKeyForTest(t)
+
+	origStore := getActiveReceiptStore()
+	setActiveReceiptStore(NewInMemoryReceiptStore())
+	t.Cleanup(func() { setActiveReceiptStore(origStore) })
+
+	router := newCachedSummarizeTestRouter()
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, signedSummarizeRequest(`{"text":"`+text+`"}`))
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.NotEmpty(t, recorder.Header().Get("X-402-Receipt"))
+
+	var response map[string]string
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, "cached summary", response["result"])
+}
+
 func TestHandleSummarizePreservesAIProviderTimeoutStatus(t *testing.T) {
 	origProvider := aiProvider
 	t.Cleanup(func() { aiProvider = origProvider })

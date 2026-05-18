@@ -352,28 +352,8 @@ func handleSummarize(c *gin.Context) {
 	var requestBody []byte
 	var err error
 
-	signature := c.GetHeader("X-402-Signature")
-	nonce := c.GetHeader("X-402-Nonce")
-	timestampHeader := c.GetHeader("X-402-Timestamp")
-
-	// Basic check
-	if signature == "" || nonce == "" {
-		c.JSON(402, gin.H{
-			"error":          "Payment Required",
-			"message":        "Please sign the payment context",
-			"paymentContext": createPaymentContext(),
-		})
-		return
-	}
-
-	if timestampHeader == "" {
-		respondError(c, 400, "invalid_timestamp", fmt.Errorf("missing X-402-Timestamp header"))
-		return
-	}
-
-	timestampValue, err := strconv.ParseUint(timestampHeader, 10, 64)
-	if err != nil || timestampValue == 0 {
-		respondError(c, 400, "invalid_timestamp", fmt.Errorf("invalid X-402-Timestamp header"))
+	verified, ok := verifyPaidRequest(c)
+	if !ok {
 		return
 	}
 
@@ -398,26 +378,6 @@ func handleSummarize(c *gin.Context) {
 			}
 			return
 		}
-	}
-
-	// Verify
-	verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, uint64(timestampValue))
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			respondError(c, 504, "verifier_timeout", err)
-		} else {
-			respondError(c, 502, "verification_unavailable", err)
-		}
-		return
-	}
-
-	if !verifyResp.IsValid {
-		respondVerificationFailure(c, verifyResp)
-		return
-	}
-	if verifyResp.RecoveredAddress == "" {
-		respondError(c, 502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
-		return
 	}
 
 	// 2. Parse Request
@@ -445,7 +405,7 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	// 4. Generate & Send Receipt
-	if err := generateAndSendReceipt(c, *paymentCtx, verifyResp.RecoveredAddress, requestBody, summary); err != nil {
+	if err := sendPaidResult(c, verified, requestBody, summary); err != nil {
 		log.Printf("Failed to generate receipt: %v", err)
 		// generateAndSendReceipt sends error response if it fails?
 		// No, it returns error, we might have already written status if we aren't careful.
