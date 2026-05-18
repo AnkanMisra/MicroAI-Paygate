@@ -92,8 +92,6 @@ export function ProtocolOrchestra3D() {
   }, [prefersReduced]);
 
   const current = STEPS[stepIdx];
-  // Plays once + freezes vs loops indefinitely.
-  const motionRepeat = prefersReduced ? "1" : "indefinite";
 
   return (
     <div className="relative flex h-full min-h-[380px] w-full flex-col items-center justify-center gap-2 px-3 pb-3 pt-3">
@@ -164,45 +162,49 @@ export function ProtocolOrchestra3D() {
               />
             ))}
 
-            {/* Cobalt pulse rings emanating from gateway — 2 rings, 3s offset */}
-            <g pointerEvents="none">
-              {[0, 3].map((delay) => (
-                <circle
-                  key={delay}
-                  cx={CX}
-                  cy={CY}
-                  r="38"
-                  fill="none"
-                  stroke="var(--accent)"
-                  strokeWidth="1.8"
-                >
-                  <animate
-                    attributeName="r"
-                    from="38"
-                    to="118"
-                    dur="6s"
-                    begin={`${delay}s`}
-                    repeatCount={motionRepeat}
-                  />
-                  <animate
-                    attributeName="opacity"
-                    from="0.55"
-                    to="0"
-                    dur="6s"
-                    begin={`${delay}s`}
-                    repeatCount={motionRepeat}
-                  />
-                  <animate
-                    attributeName="stroke-width"
-                    from="1.8"
-                    to="0.4"
-                    dur="6s"
-                    begin={`${delay}s`}
-                    repeatCount={motionRepeat}
-                  />
-                </circle>
-              ))}
-            </g>
+            {/* Cobalt pulse rings emanating from gateway — 2 rings, 3s offset.
+                Omitted entirely under reduce-motion (motionRepeat=1 still
+                animates for a full 6s on first paint, which is too long). */}
+            {!prefersReduced && (
+              <g pointerEvents="none">
+                {[0, 3].map((delay) => (
+                  <circle
+                    key={delay}
+                    cx={CX}
+                    cy={CY}
+                    r="38"
+                    fill="none"
+                    stroke="var(--accent)"
+                    strokeWidth="1.8"
+                  >
+                    <animate
+                      attributeName="r"
+                      from="38"
+                      to="118"
+                      dur="6s"
+                      begin={`${delay}s`}
+                      repeatCount="indefinite"
+                    />
+                    <animate
+                      attributeName="opacity"
+                      from="0.55"
+                      to="0"
+                      dur="6s"
+                      begin={`${delay}s`}
+                      repeatCount="indefinite"
+                    />
+                    <animate
+                      attributeName="stroke-width"
+                      from="1.8"
+                      to="0.4"
+                      dur="6s"
+                      begin={`${delay}s`}
+                      repeatCount="indefinite"
+                    />
+                  </circle>
+                ))}
+              </g>
+            )}
 
             {/* Hard offset shadow behind center marker */}
             <circle cx={CX + 4} cy={CY + 4} r="38" fill="var(--ink)" />
@@ -232,23 +234,29 @@ export function ProtocolOrchestra3D() {
               </text>
             </g>
 
-            {/* Main chevron — rounded back, bloom glow */}
-            <path
-              d={CHEVRON_D}
-              fill="var(--accent)"
-              stroke="var(--accent)"
-              strokeWidth="1"
-              strokeLinejoin="round"
-              filter="url(#cobalt-bloom)"
-            >
-              <animateMotion
-                dur={`${CYCLE_SEC}s`}
-                repeatCount={motionRepeat}
-                rotate="auto"
+            {/* Main chevron — rounded back, bloom glow.
+                Omitted entirely under reduce-motion (without animateMotion
+                the chevron would be parked at SVG origin, a stray cobalt
+                triangle in the top-left corner). The fully-lit static arc
+                fills already convey the protocol's "completed" state. */}
+            {!prefersReduced && (
+              <path
+                d={CHEVRON_D}
+                fill="var(--accent)"
+                stroke="var(--accent)"
+                strokeWidth="1"
+                strokeLinejoin="round"
+                filter="url(#cobalt-bloom)"
               >
-                <mpath href="#hex-path" />
-              </animateMotion>
-            </path>
+                <animateMotion
+                  dur={`${CYCLE_SEC}s`}
+                  repeatCount="indefinite"
+                  rotate="auto"
+                >
+                  <mpath href="#hex-path" />
+                </animateMotion>
+              </path>
+            )}
 
             {/* Node tiles */}
             {NODES.map((n, i) => (
@@ -421,7 +429,8 @@ export function ProtocolOrchestra3D() {
            styled-jsx and that block isn't reachable from a global @media rule.
            Repeat the reduce-motion guard here so arc-fill / spoke / flash /
            outline don't loop on a vestibular-sensitive OS setting. The SMIL
-           animations are already gated via motionRepeat above. */
+           chevron and pulse-ring elements above are conditionally rendered
+           via the (prefersReduced && ...) JSX guard. */
         @media (prefers-reduced-motion: reduce) {
           :global(.arc-fill),
           :global(.spoke),
