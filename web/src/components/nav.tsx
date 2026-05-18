@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { WalletWidget } from "./wallet-widget";
 
+const CHAIN_NAME_LOWER = (
+  process.env.NEXT_PUBLIC_EXPECTED_CHAIN_NAME ?? "Base Sepolia"
+).toLowerCase();
+
 export function Nav() {
   return (
     <header className="sticky top-0 z-40 border-b border-ink bg-paper/95 backdrop-blur supports-[backdrop-filter]:bg-paper/85">
@@ -8,7 +12,7 @@ export function Nav() {
         <Link href="/" className="flex items-baseline gap-3">
           <span className="font-display text-xl leading-none text-ink">MicroAI Paygate</span>
           <span className="hidden font-mono text-[10px] uppercase tracking-[0.16em] text-ink-soft sm:inline">
-            x402 · base sepolia
+            x402 · {CHAIN_NAME_LOWER}
           </span>
         </Link>
         <div className="flex items-center gap-3">

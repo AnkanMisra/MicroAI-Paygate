@@ -111,7 +111,7 @@ export function Hero() {
             >
               Pay-per-call AI,
               <br />
-              <span className="italic text-accent">settled</span> on Base Sepolia.
+              <span className="italic text-accent">settled</span> on {DISPLAY_CHAIN_NAME}.
             </h1>
 
             <p
