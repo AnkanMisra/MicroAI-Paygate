@@ -274,7 +274,11 @@ Core local variables live in [.env.example](.env.example). Production placeholde
 | `CACHE_ENABLED` | Gateway | Optional response cache. Payment verification still runs on cache hits. |
 | `ALLOWED_ORIGINS` | Gateway | Comma-separated CORS origins, no paths or query strings. |
 | `TRUSTED_PROXIES` | Gateway | Comma-separated trusted proxy CIDRs for production IP handling. |
-| `NEXT_PUBLIC_GATEWAY_URL` | Web | Gateway base URL. The current frontend reads this public variable. |
+| `NEXT_PUBLIC_GATEWAY_URL` | Web | Gateway base URL. Browser fetches `/api/ai/summarize` and `/api/receipts/:id` here. |
+| `NEXT_PUBLIC_EXPECTED_CHAIN_ID` | Web | Chain ID the wallet widget targets. Must match the gateway's `CHAIN_ID`. Default `84532`. |
+| `NEXT_PUBLIC_EXPECTED_CHAIN_NAME` | Web | Display name paired with the chain ID — used by the wallet widget's "Switch to <name>" button, hero headline, stat bar, and page title. Must be set when `CHAIN_ID` is overridden (e.g. `Base` for `8453`). |
+| `NEXT_PUBLIC_PAYMENT_AMOUNT` | Web | Pre-challenge fee label shown in the summarize form + stat bar. Display only — the gateway's payment context controls the actual signed amount. Default `0.001`. |
+| `NEXT_PUBLIC_PAYMENT_TOKEN` | Web | Token symbol paired with the amount. Default `USDC`. |
 
 ## Testing
 
