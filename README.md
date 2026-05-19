@@ -281,6 +281,7 @@ Core local variables live in [.env.example](.env.example). Production placeholde
 | `SIGNATURE_CLOCK_SKEW_SECONDS` | Verifier | Future timestamp grace. Default `60`. |
 | `RECEIPT_STORE` | Gateway | `redis` by default, `memory` for tests/local experiments. |
 | `REDIS_URL` | Gateway | Required when `RECEIPT_STORE=redis` or `CACHE_ENABLED=true`. |
+| `VERIFIER_URL` | Gateway | **Required.** Where the gateway calls `/verify` (e.g. `http://127.0.0.1:3002` for `bun run stack`, `https://<app>.onrender.com` for Render). The gateway refuses to start if unset — no silent loopback fallback. |
 | `CACHE_ENABLED` | Gateway | Optional response cache. Payment verification still runs on cache hits. |
 | `ALLOWED_ORIGINS` | Gateway | Comma-separated CORS origins, no paths or query strings. |
 | `TRUSTED_PROXIES` | Gateway | Comma-separated trusted proxy CIDRs for production IP handling. |
