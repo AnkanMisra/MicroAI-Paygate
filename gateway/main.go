@@ -347,13 +347,12 @@ func main() {
 // applied by middleware and returns appropriate HTTP errors (402, 403, 504,
 // 500) to the client.
 func handleSummarize(c *gin.Context) {
-	// 1. Payment Verification
 	// Note: CacheMiddleware aborts on cache HIT, so this handler only runs on cache MISS or when caching is disabled
 	var requestBody []byte
 	var err error
 
-	verified, ok := verifyPaidRequest(c)
-	if !ok {
+	if c.GetHeader("X-402-Signature") == "" || c.GetHeader("X-402-Nonce") == "" {
+		verifyPaidRequest(c)
 		return
 	}
 
@@ -393,7 +392,13 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
-	// 3. Call AI Service
+	// 3. Payment Verification
+	verified, ok := verifyPaidRequest(c)
+	if !ok {
+		return
+	}
+
+	// 4. Call AI Service
 	summary, err := aiProvider.Generate(c.Request.Context(), req.Text)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(c.Request.Context().Err(), context.DeadlineExceeded) {
@@ -404,7 +409,7 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
-	// 4. Generate & Send Receipt
+	// 5. Generate & Send Receipt
 	if err := sendPaidResult(c, verified, requestBody, summary); err != nil {
 		log.Printf("Failed to generate receipt: %v", err)
 		return

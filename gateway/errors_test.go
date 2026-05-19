@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -134,6 +135,42 @@ func TestHandleSummarizeSanitizesVerifierInvalidSignatureDetail(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
 	require.Equal(t, "invalid_signature", response["error"])
 	require.Equal(t, "test-correlation-id", response["correlation_id"])
+}
+
+func TestHandleSummarizeValidatesSignedBodyBeforeVerifier(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "malformed JSON",
+			body: `{"text":`,
+		},
+		{
+			name: "empty text",
+			body: `{"text":""}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var verifierCalls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				verifierCalls.Add(1)
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"is_valid":true,"recovered_address":"0xabc","error":""}`))
+			}))
+			t.Cleanup(server.Close)
+			t.Setenv("VERIFIER_URL", server.URL)
+
+			router := newSummarizeTestRouter()
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, signedSummarizeRequest(tt.body))
+
+			require.Equal(t, http.StatusBadRequest, recorder.Code)
+			require.Zero(t, verifierCalls.Load())
+		})
+	}
 }
 
 func TestHandleSummarizeSanitizesVerifierTimeout(t *testing.T) {
