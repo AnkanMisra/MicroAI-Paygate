@@ -407,9 +407,6 @@ func handleSummarize(c *gin.Context) {
 	// 4. Generate & Send Receipt
 	if err := sendPaidResult(c, verified, requestBody, summary); err != nil {
 		log.Printf("Failed to generate receipt: %v", err)
-		// generateAndSendReceipt sends error response if it fails?
-		// No, it returns error, we might have already written status if we aren't careful.
-		// Let's implement generateAndSendReceipt to handle sending response.
 		return
 	}
 }

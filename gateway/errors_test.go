@@ -61,6 +61,21 @@ func withVerifierResponse(t *testing.T, status int, body string) {
 	t.Setenv("VERIFIER_URL", server.URL)
 }
 
+func withSlowVerifier(t *testing.T) {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(3 * time.Second):
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("VERIFIER_URL", server.URL)
+	t.Setenv("VERIFIER_TIMEOUT_SECONDS", "1")
+}
+
 func withCachedSummary(t *testing.T, text string) {
 	t.Helper()
 
@@ -122,12 +137,7 @@ func TestHandleSummarizeSanitizesVerifierInvalidSignatureDetail(t *testing.T) {
 }
 
 func TestHandleSummarizeSanitizesVerifierTimeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(1500 * time.Millisecond)
-	}))
-	t.Cleanup(server.Close)
-	t.Setenv("VERIFIER_URL", server.URL)
-	t.Setenv("VERIFIER_TIMEOUT_SECONDS", "1")
+	withSlowVerifier(t)
 
 	router := newSummarizeTestRouter()
 	recorder := httptest.NewRecorder()
@@ -210,12 +220,7 @@ func TestCacheHitMapsVerifierNonceReplay(t *testing.T) {
 func TestCacheHitMapsVerifierTimeout(t *testing.T) {
 	text := "cached timeout text"
 	withCachedSummary(t, text)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(1500 * time.Millisecond)
-	}))
-	t.Cleanup(server.Close)
-	t.Setenv("VERIFIER_URL", server.URL)
-	t.Setenv("VERIFIER_TIMEOUT_SECONDS", "1")
+	withSlowVerifier(t)
 
 	router := newCachedSummarizeTestRouter()
 	recorder := httptest.NewRecorder()

@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -66,12 +65,7 @@ func TestVerifyPaidRequestReturnsVerifiedPayment(t *testing.T) {
 }
 
 func TestVerifyPaidRequestMapsVerifierTimeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(1500 * time.Millisecond)
-	}))
-	t.Cleanup(server.Close)
-	t.Setenv("VERIFIER_URL", server.URL)
-	t.Setenv("VERIFIER_TIMEOUT_SECONDS", "1")
+	withSlowVerifier(t)
 
 	req := signedSummarizeRequest(`{"text":"hello"}`)
 	c, recorder := newPaymentFlowTestContext(req)

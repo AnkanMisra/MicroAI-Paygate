@@ -43,10 +43,6 @@ func verifyPaidRequest(c *gin.Context) (*verifiedPayment, bool) {
 		return nil, false
 	}
 
-	if verifyResp == nil {
-		respondError(c, http.StatusBadGateway, "verification_unavailable", fmt.Errorf("missing verifier response"))
-		return nil, false
-	}
 	if !verifyResp.IsValid {
 		respondVerificationFailure(c, verifyResp)
 		return nil, false
