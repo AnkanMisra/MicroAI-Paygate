@@ -506,10 +506,9 @@ func verifyPayment(ctx context.Context, signature, nonce string, timestamp uint6
 		return nil, nil, fmt.Errorf("marshal verification request: %w", err)
 	}
 
+	// VERIFIER_URL is guaranteed non-empty here: validateConfig() exits at
+	// startup if it's unset, so no loopback fallback is needed.
 	verifierURL := os.Getenv("VERIFIER_URL")
-	if verifierURL == "" {
-		verifierURL = "http://127.0.0.1:3002"
-	}
 
 	// Use a separate context for verifier timeout to avoid hanging
 	verifierCtx, verifierCancel := context.WithTimeout(ctx, getVerifierTimeout())
@@ -1032,10 +1031,9 @@ func handleReadyz(c *gin.Context) {
 // - "degraded": Verifier is reachable but returned non-200 status
 // - "unreachable": Verifier could not be contacted
 var checkVerifierHealth = func() string {
+	// VERIFIER_URL is guaranteed non-empty: validateConfig() exits at
+	// startup if it's unset.
 	verifierURL := os.Getenv("VERIFIER_URL")
-	if verifierURL == "" {
-		verifierURL = "http://127.0.0.1:3002"
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), getHealthCheckTimeout())
 	defer cancel()
 
