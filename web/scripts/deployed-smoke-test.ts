@@ -54,8 +54,16 @@ function bar(s: string) {
   console.log(`\n${"=".repeat(70)}\n${s}\n${"=".repeat(70)}`);
 }
 
+// Wraps every network call with an AbortSignal timeout so a sleeping
+// Render free-tier service produces a clear failure instead of hanging
+// silently past the script's wall-clock budget.
+const FETCH_TIMEOUT_MS = 60_000;
+function timedFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+}
+
 async function getChallenge(text = "smoke"): Promise<PaymentContext> {
-  const r = await fetch(`${GATEWAY}/api/ai/summarize`, {
+  const r = await timedFetch(`${GATEWAY}/api/ai/summarize`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Origin: ORIGIN },
     body: JSON.stringify({ text }),
@@ -83,7 +91,7 @@ async function signCtx(wallet: ethers.Signer, ctx: PaymentContext, chainIdOverri
 }
 
 async function postSigned(ctx: PaymentContext, sig: string) {
-  const r = await fetch(`${GATEWAY}/api/ai/summarize`, {
+  const r = await timedFetch(`${GATEWAY}/api/ai/summarize`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -130,13 +138,23 @@ async function main() {
   const expired = await postSigned(expiredCtx, expiredSig);
   rec("expired timestamp rejected with 400", expired.status === 400, `HTTP ${expired.status}`);
 
-  const wrongOrigin = await fetch(`${GATEWAY}/api/ai/summarize`, {
+  // Asserts on the CORS header rather than the HTTP status: Bun's
+  // server-side fetch doesn't enforce CORS, so a 200 here would still
+  // be browser-blocked as long as Access-Control-Allow-Origin is absent.
+  // Checking the header is more portable across CORS middleware impls
+  // (some 403, some return 200 with no allow header).
+  const wrongOrigin = await timedFetch(`${GATEWAY}/api/ai/summarize`, {
     method: "OPTIONS",
     headers: { Origin: "https://evil.example.com", "Access-Control-Request-Method": "POST" },
   });
-  rec("CORS preflight from wrong origin rejected", wrongOrigin.status === 403, `HTTP ${wrongOrigin.status}`);
+  const wrongAllowOrigin = wrongOrigin.headers.get("access-control-allow-origin");
+  rec(
+    "CORS preflight from wrong origin omits allow-origin",
+    wrongAllowOrigin === null,
+    wrongAllowOrigin ?? `(no allow-origin) HTTP ${wrongOrigin.status}`,
+  );
 
-  const garbageVerify = await fetch(`${VERIFIER}/verify`, {
+  const garbageVerify = await timedFetch(`${VERIFIER}/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: '{"foo":"bar"}',
@@ -145,7 +163,7 @@ async function main() {
 
   bar("Receipt persistence");
   if (receiptId) {
-    const lookup = await fetch(`${GATEWAY}/api/receipts/${receiptId}`);
+    const lookup = await timedFetch(`${GATEWAY}/api/receipts/${receiptId}`);
     rec("receipt lookup returns 200", lookup.status === 200, `HTTP ${lookup.status}`);
   } else {
     rec("receipt lookup", false, "skipped — no receipt id");
