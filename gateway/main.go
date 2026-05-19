@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/gzip"
@@ -63,6 +64,7 @@ type SummarizeRequest struct {
 func validateConfig() error {
 	required := []string{
 		"SERVER_WALLET_PRIVATE_KEY", // Critical for signing receipts
+		"VERIFIER_URL",              // Where the gateway calls /verify; loopback fallback would hide misconfig in prod
 	}
 
 	// Add provider-specific requirements
@@ -104,6 +106,37 @@ func validateConfig() error {
 		}
 	}
 
+	// Normalize RECIPIENT_ADDRESS to EIP-55 canonical so wallet libraries
+	// don't reject it during EIP-712 signing.
+	if err := normalizeRecipientAddress(); err != nil {
+		return fmt.Errorf("RECIPIENT_ADDRESS validation failed: %w", err)
+	}
+
+	return nil
+}
+
+// normalizeRecipientAddress reads RECIPIENT_ADDRESS, rejects it if it isn't a
+// valid 20-byte hex address, and rewrites the env var to the EIP-55 canonical
+// form so paymentContext.recipient is always checksummed correctly. A
+// non-canonical case slipping through silently caused the
+// `bad address checksum` rejection at the wallet during the first live deploy.
+// An unset RECIPIENT_ADDRESS is allowed: getRecipientAddress() falls back to a
+// hardcoded canonical default that is already EIP-55-correct.
+func normalizeRecipientAddress() error {
+	raw := os.Getenv("RECIPIENT_ADDRESS")
+	if raw == "" {
+		return nil
+	}
+	if !common.IsHexAddress(raw) {
+		return fmt.Errorf("RECIPIENT_ADDRESS is not a valid hex address: %s", raw)
+	}
+	canonical := common.HexToAddress(raw).Hex()
+	if canonical != raw {
+		log.Printf("[INFO] normalized RECIPIENT_ADDRESS to EIP-55 canonical: %s -> %s", raw, canonical)
+		if err := os.Setenv("RECIPIENT_ADDRESS", canonical); err != nil {
+			return fmt.Errorf("failed to rewrite RECIPIENT_ADDRESS: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -225,9 +258,6 @@ func main() {
 	}
 	if os.Getenv(modelKey) == "" {
 		fmt.Printf("[WARN] %s not set, using provider default model\n", modelKey)
-	}
-	if os.Getenv("VERIFIER_URL") == "" {
-		fmt.Println("[WARN] VERIFIER_URL not set, using default verifier")
 	}
 	if os.Getenv("CHAIN_ID") == "" {
 		fmt.Println("[WARN] CHAIN_ID not set, using default: 84532(Base Sepolia)")
