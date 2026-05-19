@@ -139,16 +139,24 @@ func TestHandleSummarizeSanitizesVerifierInvalidSignatureDetail(t *testing.T) {
 
 func TestHandleSummarizeValidatesSignedBodyBeforeVerifier(t *testing.T) {
 	tests := []struct {
-		name string
-		body string
+		name       string
+		body       string
+		wantStatus int
 	}{
 		{
-			name: "malformed JSON",
-			body: `{"text":`,
+			name:       "malformed JSON",
+			body:       `{"text":`,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name: "empty text",
-			body: `{"text":""}`,
+			name:       "empty text",
+			body:       `{"text":""}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "oversized body",
+			body:       strings.Repeat("x", 10*1024*1024+1),
+			wantStatus: http.StatusRequestEntityTooLarge,
 		},
 	}
 
@@ -167,7 +175,7 @@ func TestHandleSummarizeValidatesSignedBodyBeforeVerifier(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			router.ServeHTTP(recorder, signedSummarizeRequest(tt.body))
 
-			require.Equal(t, http.StatusBadRequest, recorder.Code)
+			require.Equal(t, tt.wantStatus, recorder.Code)
 			require.Zero(t, verifierCalls.Load())
 		})
 	}
