@@ -67,11 +67,17 @@ function useReceiptVerification(receipt: SignedReceipt | null): ReceiptVerifySta
     let cancelled = false;
     if (!receipt) return undefined;
 
-    void verifyReceipt(receipt).then((ok) => {
-      if (!cancelled) {
-        setResult({ id: receipt.receipt.id, state: ok ? "valid" : "invalid" });
-      }
-    });
+    void verifyReceipt(receipt)
+      .then((ok) => {
+        if (!cancelled) {
+          setResult({ id: receipt.receipt.id, state: ok ? "valid" : "invalid" });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setResult({ id: receipt.receipt.id, state: "invalid" });
+        }
+      });
 
     return () => {
       cancelled = true;
