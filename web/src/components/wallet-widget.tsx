@@ -46,13 +46,16 @@ export function WalletWidget() {
   useEffect(() => {
     let mounted = true;
 
-    if (!hasWallet()) {
-      setState({ kind: "missing" });
-      return;
-    }
-
     async function load() {
       try {
+        await Promise.resolve();
+        if (!mounted) return;
+
+        if (!hasWallet()) {
+          setState({ kind: "missing" });
+          return;
+        }
+
         const [addr, chain] = await Promise.all([getCurrentAccount(), getCurrentChainId()]);
         if (!mounted) return;
         if (addr && chain != null) {
@@ -69,6 +72,12 @@ export function WalletWidget() {
       }
     }
     void load();
+
+    if (!hasWallet()) {
+      return () => {
+        mounted = false;
+      };
+    }
 
     const unsubAcc = subscribeAccountsChanged(async (accounts) => {
       if (!accounts[0]) {
