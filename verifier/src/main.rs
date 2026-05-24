@@ -13,7 +13,7 @@ use ethers::types::Signature;
 use ethers::utils::keccak256;
 
 mod metrics;
-
+use ::metrics::counter;
 use metrics_exporter_prometheus::PrometheusBuilder;
 
 use serde::{Deserialize, Serialize};
@@ -306,6 +306,8 @@ async fn verify_signature(
     // 1. Get correlation ID headers first so we can use them in error responses
     let (cid, res_headers) = correlation_id_headers(&headers);
 
+    counter!("verifier_requests_total").increment(1);
+
     // 2. Security Check: Match the payload result immediately
     let payload = match payload {
         Ok(Json(p)) => p, // Everything is good, proceed with payload 'p'
@@ -454,7 +456,7 @@ async fn verify_signature(
     let duration = start.elapsed().as_secs_f64();
 
     match result {
-        Ok(_addr) => {
+        Ok(addr) => {
             if !claim_nonce(&state, &payload.context.nonce, Instant::now()) {
                 metrics::record_verification(false, duration, Some("nonce_already_used"));
                 return (
@@ -462,7 +464,7 @@ async fn verify_signature(
                     res_headers,
                     Json(VerifyResponse {
                         is_valid: false,
-                        recovered_address: None,
+                        recovered_address: Some(format!("{:?}", addr)),
                         error: Some("nonce already used".to_string()),
                         error_code: Some("nonce_already_used".to_string()),
                     }),
@@ -474,7 +476,7 @@ async fn verify_signature(
                 res_headers,
                 Json(VerifyResponse {
                     is_valid: true,
-                    recovered_address: None,
+                    recovered_address: Some(format!("{:?}", addr)),
                     error: None,
                     error_code: None,
                 }),

@@ -297,11 +297,6 @@ func main() {
 		r.GET(path, gin.WrapH(promhttp.Handler()))
 	}
 
-
-	// VIBE FIX: Register the Correlation ID Middleware immediately
-	// This ensures every single request gets an ID before anything else happens.
-	r.Use(CorrelationIDMiddleware())
-
 	// Configure GZIP compression for API responses
 	// - Uses DefaultCompression for balance between speed and size
 	// - Excludes /metrics endpoint (if added in future)
@@ -451,6 +446,8 @@ func handleSummarize(c *gin.Context) {
 	// Verify
 	verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, uint64(timestampValue))
 	if err != nil {
+		verificationTotal.WithLabelValues("error").Inc()
+
 		if errors.Is(err, context.DeadlineExceeded) {
 			respondError(c, 504, "verifier_timeout", err)
 		} else {
@@ -468,6 +465,8 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
+	verificationTotal.WithLabelValues("success").Inc()
+	
 	// 2. Parse Request
 	var req SummarizeRequest
 	if err := json.Unmarshal(requestBody, &req); err != nil {
@@ -694,6 +693,9 @@ func RateLimitMiddleware(limiters map[string]RateLimiter) gin.HandlerFunc {
 		// Check if request is allowed
 		if !limiter.Allow(key) {
 			retryAfter := calculateRetryAfter(limiter, key)
+
+			rateLimitHits.WithLabelValues(c.FullPath()).Inc()
+
 			c.Header("Retry-After", strconv.Itoa(retryAfter))
 			c.Header("X-RateLimit-Limit", strconv.Itoa(getLimitForTier(tier)))
 			c.Header("X-RateLimit-Remaining", "0")
