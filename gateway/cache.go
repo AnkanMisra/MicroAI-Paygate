@@ -153,24 +153,14 @@ func CacheMiddleware() gin.HandlerFunc {
 			}
 
 			if !verifyResp.IsValid {
-
+				verificationTotal.WithLabelValues("error").Inc()
 				respondVerificationFailure(c, verifyResp)
 				c.Abort()
 				return
 			}
 			if verifyResp.RecoveredAddress == "" {
-				respondError(c, 502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
-
-				// Check for timestamp-related errors (E007, E008, E009)
 				verificationTotal.WithLabelValues("error").Inc()
-				if strings.HasPrefix(verifyResp.Error, "E007") ||
-					strings.HasPrefix(verifyResp.Error, "E008") ||
-					strings.HasPrefix(verifyResp.Error, "E009") {
-					c.JSON(400, gin.H{"error": "Invalid timestamp", "details": verifyResp.Error})
-				} else {
-					c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
-				}
-
+				respondError(c,502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
 				c.Abort()
 				return
 			}

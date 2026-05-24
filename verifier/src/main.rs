@@ -448,10 +448,15 @@ async fn verify_signature(
         }
     };
 
+    let start = std::time::Instant::now();
 
-    match sig.recover_typed_data(&typed_data) {
-        Ok(addr) => {
+    let result = sig.recover_typed_data(&typed_data);
+    let duration = start.elapsed().as_secs_f64();
+
+    match result {
+        Ok(_addr) => {
             if !claim_nonce(&state, &payload.context.nonce, Instant::now()) {
+                metrics::record_verification(false, duration, Some("nonce_already_used"));
                 return (
                     StatusCode::CONFLICT,
                     res_headers,
@@ -463,46 +468,32 @@ async fn verify_signature(
                     }),
                 );
             }
-
+            metrics::record_verification(true, duration, None);
             (
                 StatusCode::OK,
                 res_headers,
                 Json(VerifyResponse {
                     is_valid: true,
-                    recovered_address: Some(format!("{:?}", addr)),
+                    recovered_address: None,
                     error: None,
                     error_code: None,
                 }),
             )
         }
-
-    let start = std::time::Instant::now();
-    let (status, _, Json(response)) = match sig.recover_typed_data(&typed_data) {
-        Ok(addr) => (
-            StatusCode::OK,
-            res_headers.clone(),
-            Json(VerifyResponse {
-                is_valid: true,
-                recovered_address: Some(format!("{:?}", addr)),
-                error: None,
-            }),
-        ),
-
-        Err(e) => (
-            StatusCode::OK,
-            res_headers.clone(),
-            Json(VerifyResponse {
-                is_valid: false,
-                recovered_address: None,
-                error: Some(e.to_string()),
-                error_code: Some("invalid_signature".to_string()),
-            }),
-        ),
-    };
-
-    let duration = start.elapsed().as_secs_f64();
-    metrics::record_verification(response.is_valid, duration, response.error.as_deref());
-    (status, res_headers, Json(response))
+        Err(e) => {
+            metrics::record_verification(false, duration, Some("invalid_signature"));
+            (
+                StatusCode::OK,
+                res_headers,
+                Json(VerifyResponse {
+                    is_valid: false,
+                    recovered_address: None,
+                    error: Some(e.to_string()),
+                    error_code: Some("invalid_signature".to_string()),
+                }),
+            )
+        }
+    }
 }
 
 /* =======================
