@@ -306,6 +306,9 @@ async fn verify_signature(
     // 1. Get correlation ID headers first so we can use them in error responses
     let (cid, res_headers) = correlation_id_headers(&headers);
 
+    let request_start = std::time::Instant::now();
+    ::metrics::counter!("verifier_requests_total").increment(1);
+
     counter!("verifier_requests_total").increment(1);
 
     // 2. Security Check: Match the payload result immediately
@@ -450,10 +453,10 @@ async fn verify_signature(
         }
     };
 
-    let start = std::time::Instant::now();
+    //let start = std::time::Instant::now();
 
     let result = sig.recover_typed_data(&typed_data);
-    let duration = start.elapsed().as_secs_f64();
+    let duration = request_start.elapsed().as_secs_f64();
 
     match result {
         Ok(addr) => {
