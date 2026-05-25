@@ -3,6 +3,7 @@ import fixture from "../__fixtures__/gateway-receipt.json";
 import {
   PaygateSdkError,
   decodeReceiptHeader,
+  fetchReceipt,
   validateReceiptFormat,
   verifyReceipt,
   type SignedReceipt,
@@ -74,4 +75,39 @@ describe("receipt helpers", () => {
         "0x04a96f0eb0070322ef61fba98b6d289430668734b57a005a327111fc470bdbf9677b20c97fbeac68dd514d6792e21b02737636e30511449d5969722faa29ce7ed4";
     });
   });
+
+  it("fetchReceipt returns receipts, null for 404, and typed decode failures", async () => {
+    const calls: string[] = [];
+    const okReceipt = await fetchReceipt("rcpt_sdkfixture1", "http://gateway.test/", async (url) => {
+      calls.push(String(url));
+      return jsonResponse(fixture, { status: 200 });
+    });
+
+    expect(okReceipt?.receipt.id).toBe("rcpt_sdkfixture1");
+    expect(calls).toEqual(["http://gateway.test/api/receipts/rcpt_sdkfixture1"]);
+
+    const missingReceipt = await fetchReceipt("rcpt_missing", "http://gateway.test", async () => {
+      return jsonResponse({ error: "Receipt not found" }, { status: 404 });
+    });
+    expect(missingReceipt).toBeNull();
+
+    await expect(
+      fetchReceipt("rcpt_bad", "http://gateway.test", async () => {
+        return new Response("not json", { status: 200 });
+      }),
+    ).rejects.toMatchObject({
+      code: "receipt_decode_failed",
+      status: 200,
+    });
+  });
 });
+
+function jsonResponse(body: unknown, init: ResponseInit): Response {
+  return new Response(JSON.stringify(body), {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init.headers ?? {}),
+    },
+  });
+}

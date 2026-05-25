@@ -123,7 +123,16 @@ export async function fetchReceipt(
       });
     }
 
-    const body = (await response.json()) as unknown;
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch (error) {
+      throw new PaygateSdkError("receipt_decode_failed", "Receipt lookup response was not JSON", {
+        status: response.status,
+        cause: error,
+      });
+    }
+
     if (!validateReceiptFormat(body)) {
       throw new PaygateSdkError(
         "receipt_decode_failed",
