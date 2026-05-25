@@ -27,6 +27,7 @@ flowchart LR
 | Gateway | `gateway/` | Go/Gin HTTP gateway, x402 challenge creation, verifier orchestration, AI provider calls, CORS, gzip, rate limits, Redis cache, receipts, health/readiness. |
 | Verifier | `verifier/` | Rust/Axum EIP-712 signature verification, expected chain enforcement, timestamp freshness, in-memory nonce replay protection. |
 | Web | `web/` | Next.js frontend, wallet detection, configured-chain switching, EIP-712 signing, signed retry, result display. |
+| SDK | `sdk/typescript/` | Private TypeScript SDK for the current x402-style protocol, including challenge handling, EIP-712 signing, signed retry headers, receipt decoding, and local receipt verification. |
 | E2E | `tests/`, `run_e2e.sh` | Bun tests for unsigned challenge, signed retry, upstream behavior, and replay rejection. |
 | Benchmarks | `bench/` | Verifier-only benchmark harness and raw measured results. |
 | Deployment | `deploy/`, `DEPLOY.md`, `.env.production.example`, `docker-compose.yml` | Fly/Vercel/Upstash prep, local Compose stack, ports, service names, health checks, and environment wiring. |
@@ -48,6 +49,7 @@ cd MicroAI-Paygate
 
 bun install
 (cd web && bun install)
+(cd sdk/typescript && bun install)
 (cd gateway && go mod download)
 (cd verifier && cargo build -q)
 cp .env.example .env
@@ -111,6 +113,7 @@ Run the checks for the area you touched. When a change crosses services, run eve
 | `gateway/**` | `cd gateway && gofmt -w . && go test -v ./... && go vet ./...` |
 | `verifier/**` | `cd verifier && cargo fmt -- --check && cargo clippy -- -D warnings && cargo test` |
 | `web/**` | `cd web && bun run lint && bun run build && bun run test` |
+| `sdk/typescript/**` | `cd sdk/typescript && bun run typecheck && bun run test` |
 | `tests/**` or x402 flow | `bun run test:e2e` when `OPENROUTER_API_KEY` is available |
 | `gateway/openapi.yaml` | YAML parse plus compare against gateway routes |
 | `.github/workflows/**` | YAML parse and explain which paths trigger checks |
@@ -129,6 +132,7 @@ Update all affected docs/config in the same pull request when you change:
 - x402 payment context fields.
 - EIP-712 domain name/version/chain/verifying contract/types.
 - Receipt shape, TTL, storage, or lookup behavior.
+- SDK exports, examples, package scripts, or protocol adapter behavior.
 - CORS, trusted proxy, rate limit, timeout, Redis, cache, or provider defaults.
 - Docker Compose, Fly, Vercel, Upstash, or CI behavior.
 
@@ -139,6 +143,7 @@ Common files to check:
 - `gateway/README.md`
 - `verifier/README.md`
 - `web/README.md`
+- `sdk/typescript/README.md`
 - `tests/README.md`
 - `gateway/openapi.yaml`
 - `.env.example`

@@ -56,6 +56,24 @@ In another shell:
 bun test tests/e2e.test.ts
 ```
 
+## SDK Tests
+
+The SDK tests live in `sdk/typescript/src/__tests__/` and do not require the gateway or verifier to be running:
+
+```bash
+bun run test:sdk
+```
+
+They cover EIP-712 signing parity, the exact `X-402-*` signed retry headers, `X-402-Receipt` decoding, gateway-format receipt verification, and the mocked unsigned request -> `402` challenge -> signed retry flow.
+
+The optional live SDK test is skipped by default. It assumes `bun run stack` is already running:
+
+```bash
+PAYGATE_SDK_LIVE_TEST=1 EVM_PRIVATE_KEY=0x... PAYGATE_GATEWAY_URL=http://localhost:3000 bun test sdk/typescript/src/__tests__/live-gateway.test.ts
+```
+
+Use only unfunded local or test wallet keys for live SDK tests.
+
 ## Reading Failures
 
 The signed request may return `502 upstream_unavailable` or `504 upstream_timeout` after payment verification succeeds if OpenRouter is unavailable or slow. That usually means the x402 verification path passed and only the upstream AI call failed.

@@ -2,12 +2,14 @@
   "name": "microai-paygate",
   "version": "1.0.0",
   "private": true,
-  "description": "x402-powered API monetization layer",
+  "description": "x402-style API monetization layer",
   "scripts": {
     "stack": "concurrently -n \"VERIFIER,GATEWAY,WEB\" -c \"red,cyan,green\" \"cd verifier && cargo run\" \"cd gateway && RECEIPT_STORE=${RECEIPT_STORE:-memory} CACHE_ENABLED=${CACHE_ENABLED:-false} go run .\" \"cd web && bun run dev\"",
     "test:unit": "cd gateway && go test ./... && cd ../verifier && cargo test",
     "test:go": "cd gateway && go test ./...",
     "test:rust": "cd verifier && cargo test",
+    "test:sdk": "cd sdk/typescript && bun run test",
+    "typecheck:sdk": "cd sdk/typescript && bun run typecheck",
     "test:e2e": "./run_e2e.sh",
     "test:all": "./run_e2e.sh"
   },

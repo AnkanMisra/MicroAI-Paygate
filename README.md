@@ -8,6 +8,7 @@
   <a href="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/go-tests.yml"><img alt="Go Tests" src="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/go-tests.yml/badge.svg"></a>
   <a href="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/rust-tests.yml"><img alt="Rust Tests" src="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/rust-tests.yml/badge.svg"></a>
   <a href="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/web-lint-build.yml"><img alt="Web Build" src="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/web-lint-build.yml/badge.svg"></a>
+  <a href="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/sdk-tests.yml"><img alt="SDK Tests" src="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/sdk-tests.yml/badge.svg"></a>
   <a href="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/e2e.yml"><img alt="E2E" src="https://github.com/AnkanMisra/MicroAI-Paygate/actions/workflows/e2e.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg"></a>
 </p>
@@ -33,6 +34,7 @@ This is a demo and contributor-friendly reference implementation. A valid signat
 | Goal | Read |
 | --- | --- |
 | Run locally | [Getting Started](#getting-started-local) |
+| Build an API client | [Use The SDK](#use-the-sdk) |
 | Understand the architecture | [Architecture](#architecture) |
 | Contribute code or docs | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Review project rules | [RULES.md](RULES.md) |
@@ -48,10 +50,11 @@ This is a demo and contributor-friendly reference implementation. A valid signat
 | `gateway/` | Go/Gin API gateway on port `3000`. Owns CORS, gzip, rate limits, timeouts, Redis cache, receipt storage, AI provider calls, x402 challenge creation, verifier calls, and receipt signing. |
 | `verifier/` | Rust/Axum service on port `3002`. Verifies EIP-712 payment signatures, chain ID, timestamp freshness, and nonce replay for a single verifier instance. |
 | `web/` | Next.js/Bun frontend on port `3001`. Requests summaries, handles `402` payment contexts, switches wallet chain, signs typed data, and retries with `X-402-*` headers. |
+| `sdk/typescript/` | Private/local TypeScript SDK package for AI API builders. Handles `402` challenges, EIP-712 signing, signed retries, receipt decoding, and local receipt verification. |
 | `tests/` and `run_e2e.sh` | Bun E2E flow covering unsigned challenge, signed retry, verifier acceptance, and replay rejection. |
 | `bench/` | Reproducible verifier-only micro-benchmark. It does not measure end-to-end latency. |
 | `deploy/`, `DEPLOY.md`, `.env.production.example` | Deployment prep for Fly.io gateway/verifier, Vercel web, and Upstash Redis. Real deploy commands are manual. |
-| `.github/workflows/` | CI for Go, Rust, web, E2E, branch freshness, and Claude review integration. |
+| `.github/workflows/` | CI for Go, Rust, web, SDK, E2E, branch freshness, and Claude review integration. |
 
 ## Architecture
 
@@ -192,7 +195,7 @@ flowchart LR
     Header["Base64 X-402-Receipt header only"]
     Store["Receipt store: Redis by default, memory for quick start/tests"]
     Lookup["GET /api/receipts/{id}"]
-    Verify["Client can verify signature with web/src/lib/verify-receipt.ts"]
+    Verify["Client can verify signature with sdk/typescript"]
 
     Success --> Receipt
     Receipt --> Header
@@ -254,6 +257,41 @@ Services:
 - Web: `http://localhost:3001`
 - Verifier: `http://localhost:3002/health`
 
+### Use The SDK
+
+The local TypeScript SDK lives in [sdk/typescript/](sdk/typescript). It mirrors the current custom x402-style gateway protocol and is private for now; it is not published to npm.
+
+```bash
+cd sdk/typescript
+bun install
+bun run test
+```
+
+Example:
+
+```ts
+import { ethers } from "ethers";
+import { PaygateClient } from "@microai/paygate-sdk";
+
+const client = new PaygateClient({
+  gatewayUrl: "http://localhost:3000",
+  signer: new ethers.Wallet(process.env.EVM_PRIVATE_KEY!),
+});
+
+const response = await client.summarize("Text to summarize");
+console.log(response.data.result);
+console.log(response.receiptVerified);
+```
+
+For the runnable example, set:
+
+```text
+PAYGATE_GATEWAY_URL=http://localhost:3000
+EVM_PRIVATE_KEY=0x...
+```
+
+Use only unfunded local or test wallets. The SDK signs the same EIP-712 payment context as the web app and E2E tests, retries with the gateway's `X-402-*` headers, decodes `X-402-Receipt`, and verifies the receipt signature locally. It does not perform official x402 facilitator settlement.
+
 ### Docker Compose
 
 Docker Compose starts gateway, verifier, web, and Redis. It uses service names inside the Docker network, so the gateway reaches the verifier at `http://verifier:3002` and Redis at `redis:6379`.
@@ -300,6 +338,7 @@ Core local variables live in [.env.example](.env.example). Production placeholde
 | Verifier tests | `cd verifier && cargo test` | Covers EIP-712, chain ID, timestamp, and nonce behavior. |
 | Verifier lint | `cd verifier && cargo fmt -- --check && cargo clippy -- -D warnings` | Run for Rust changes. |
 | Web lint/build/typecheck | `cd web && bun run lint && bun run build && bun run test` | `bun run test` is `tsc --noEmit`. |
+| SDK typecheck/tests | `cd sdk/typescript && bun run typecheck && bun run test` | Covers signing parity, signed retry headers, receipt decoding, receipt verification, and mocked client flow. |
 | E2E | `bun run test:e2e` | Starts gateway/verifier. Requires `OPENROUTER_API_KEY` for default OpenRouter startup path. |
 | All unit tests | `bun run test:unit` | Gateway plus verifier tests. |
 
@@ -350,6 +389,7 @@ Current reruns must generate enough one-time signed payloads because verifier no
 ## Known Limitations
 
 - A valid signature is not on-chain settlement. The verifier proves authorization, not that USDC moved.
+- The current protocol is x402-style, not official x402-compatible. It uses custom `X-402-*` headers and no official facilitator settlement path.
 - Verifier nonce replay protection is in memory for one verifier instance. Multi-replica production needs a shared nonce store.
 - Gateway rate limiting is per process. Horizontal scaling needs distributed limits.
 - `RECEIPT_STORE=redis` is production-style and restart-safe. `RECEIPT_STORE=memory` is for tests and local experiments.

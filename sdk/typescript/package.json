@@ -1,0 +1,22 @@
+{
+  "name": "@microai/paygate-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local TypeScript SDK for the MicroAI Paygate x402-style gateway protocol.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ethers": "^6.10.0"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "typescript": "^5.9.3"
+  }
+}
