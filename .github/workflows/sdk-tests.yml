@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - 'sdk/**'
+      - 'gateway/**'
+      - 'verifier/**'
+      - 'web/**'
+      - 'tests/**'
       - 'package.json'
       - 'bun.lock'
       - '.github/workflows/sdk-tests.yml'
@@ -11,6 +15,10 @@ on:
     branches: [main]
     paths:
       - 'sdk/**'
+      - 'gateway/**'
+      - 'verifier/**'
+      - 'web/**'
+      - 'tests/**'
       - 'package.json'
       - 'bun.lock'
       - '.github/workflows/sdk-tests.yml'

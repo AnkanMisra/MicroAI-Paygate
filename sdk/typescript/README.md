@@ -42,6 +42,7 @@ import { PaygateClient } from "@microai/paygate-sdk";
 const client = new PaygateClient({
   gatewayUrl: "http://localhost:3000",
   signer: new ethers.Wallet(process.env.EVM_PRIVATE_KEY!),
+  trustedServerPublicKey: process.env.PAYGATE_SERVER_PUBLIC_KEY,
 });
 
 const response = await client.summarize("Text to summarize");
@@ -68,9 +69,12 @@ Set environment variables:
 ```text
 PAYGATE_GATEWAY_URL=http://localhost:3000
 EVM_PRIVATE_KEY=0x...
+PAYGATE_SERVER_PUBLIC_KEY=0x...
 ```
 
 Use only unfunded local or test wallets. Never use a funded wallet, seed phrase, production key, or real customer wallet in examples.
+
+`PAYGATE_SERVER_PUBLIC_KEY` should be the gateway receipt signing public key distributed out of band. Without it, the SDK can decode receipts and verify request/response hash binding, but it returns `receiptVerified: false` instead of trusting the self-declared key inside the receipt.
 
 Run:
 
@@ -90,7 +94,7 @@ bun run stack
 Then run:
 
 ```bash
-PAYGATE_SDK_LIVE_TEST=1 EVM_PRIVATE_KEY=0x... PAYGATE_GATEWAY_URL=http://localhost:3000 bun test src/__tests__/live-gateway.test.ts
+PAYGATE_SDK_LIVE_TEST=1 EVM_PRIVATE_KEY=0x... PAYGATE_SERVER_PUBLIC_KEY=0x... PAYGATE_GATEWAY_URL=http://localhost:3000 bun test src/__tests__/live-gateway.test.ts
 ```
 
 The live path depends on the gateway's configured AI provider. With the default OpenRouter provider, the gateway still needs `OPENROUTER_API_KEY`.

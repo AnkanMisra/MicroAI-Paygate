@@ -27,7 +27,7 @@ flowchart LR
 | Gateway | `gateway/` | Go/Gin HTTP gateway, x402 challenge creation, verifier orchestration, AI provider calls, CORS, gzip, rate limits, Redis cache, receipts, health/readiness. |
 | Verifier | `verifier/` | Rust/Axum EIP-712 signature verification, expected chain enforcement, timestamp freshness, in-memory nonce replay protection. |
 | Web | `web/` | Next.js frontend, wallet detection, configured-chain switching, EIP-712 signing, signed retry, result display. |
-| SDK | `sdk/typescript/` | Private TypeScript SDK for the current x402-style protocol, including challenge handling, EIP-712 signing, signed retry headers, receipt decoding, and local receipt verification. |
+| SDK | `sdk/typescript/` | Private TypeScript SDK for the current x402-style protocol, including challenge handling, EIP-712 signing, signed retry headers, receipt decoding, and trusted-key receipt verification. |
 | E2E | `tests/`, `run_e2e.sh` | Bun tests for unsigned challenge, signed retry, upstream behavior, and replay rejection. |
 | Benchmarks | `bench/` | Verifier-only benchmark harness and raw measured results. |
 | Deployment | `deploy/`, `DEPLOY.md`, `.env.production.example`, `docker-compose.yml` | Fly/Vercel/Upstash prep, local Compose stack, ports, service names, health checks, and environment wiring. |

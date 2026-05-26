@@ -3,6 +3,10 @@ import { decodeBase64ToUtf8 } from "./base64";
 import { PaygateSdkError } from "./errors";
 import type { FetchLike, Receipt, SignedReceipt } from "./protocol/types";
 
+export type VerifyReceiptOptions = {
+  expectedServerPublicKey?: string;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -33,7 +37,8 @@ export function validateReceiptFormat(value: unknown): value is SignedReceipt {
     isNonEmptyString(payment.amount) &&
     isNonEmptyString(payment.token) &&
     typeof payment.chainId === "number" &&
-    Number.isFinite(payment.chainId) &&
+    Number.isSafeInteger(payment.chainId) &&
+    payment.chainId > 0 &&
     isNonEmptyString(payment.nonce) &&
     isNonEmptyString(service.endpoint) &&
     isPrefixedString(service.request_hash, "sha256:") &&
@@ -81,9 +86,26 @@ function serializeReceiptForGateway(receipt: Receipt): string {
   });
 }
 
-export async function verifyReceipt(signedReceipt: SignedReceipt): Promise<boolean> {
+function normalizePublicKey(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return ethers.SigningKey.computePublicKey(value, false).toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+export async function verifyReceipt(
+  signedReceipt: SignedReceipt,
+  options: VerifyReceiptOptions = {},
+): Promise<boolean> {
   try {
     if (!validateReceiptFormat(signedReceipt)) return false;
+    const expectedPublicKey = normalizePublicKey(options.expectedServerPublicKey);
+    if (expectedPublicKey === null) return false;
+
+    const receiptPublicKey = normalizePublicKey(signedReceipt.server_public_key);
+    if (receiptPublicKey !== expectedPublicKey) return false;
 
     const receiptJson = serializeReceiptForGateway(signedReceipt.receipt);
     const messageHash = ethers.keccak256(ethers.toUtf8Bytes(receiptJson));
@@ -99,7 +121,7 @@ export async function verifyReceipt(signedReceipt: SignedReceipt): Promise<boole
     });
 
     const recoveredPubKey = ethers.SigningKey.recoverPublicKey(messageHash, signature);
-    return recoveredPubKey.toLowerCase() === signedReceipt.server_public_key.toLowerCase();
+    return normalizePublicKey(recoveredPubKey) === expectedPublicKey;
   } catch {
     return false;
   }

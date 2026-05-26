@@ -1,3 +1,4 @@
+import { ethers } from "ethers";
 import { PaygateSdkError } from "./errors";
 import { MicroAIPaygateProtocol } from "./protocol/microai";
 import type {
@@ -15,6 +16,7 @@ export type PaygateClientOptions = {
   signer: PaymentSigner;
   fetch?: FetchLike;
   protocol?: PaygateProtocolAdapter;
+  trustedServerPublicKey?: string;
 };
 
 export class PaygateClient {
@@ -22,12 +24,14 @@ export class PaygateClient {
   private readonly signer: PaymentSigner;
   private readonly fetcher: FetchLike;
   private readonly protocol: PaygateProtocolAdapter;
+  private readonly trustedServerPublicKey?: string;
 
   constructor(options: PaygateClientOptions) {
     this.gatewayUrl = options.gatewayUrl.replace(/\/+$/, "");
     this.signer = options.signer;
     this.fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.protocol = options.protocol ?? new MicroAIPaygateProtocol();
+    this.trustedServerPublicKey = options.trustedServerPublicKey;
   }
 
   summarize(text: string): Promise<PaygateResponse<{ result: string }>> {
@@ -40,7 +44,12 @@ export class PaygateClient {
 
   async request<TBody, TData>(request: PaygateRequest<TBody>): Promise<PaygateResponse<TData>> {
     const url = this.buildUrl(request.path);
-    const firstInit = this.buildRequestInit(request);
+    const requestBodyText = this.serializeRequestBody(request.body);
+    const successContext = {
+      endpoint: new URL(url).pathname,
+      requestBodyText,
+    };
+    const firstInit = this.buildRequestInit(request, {}, requestBodyText);
     const firstResponse = await this.fetchOrThrow(url, firstInit);
 
     if (firstResponse.status !== 402) {
@@ -50,7 +59,7 @@ export class PaygateClient {
           bodyText: await firstResponse.text(),
         });
       }
-      return this.readSuccess<TData>(firstResponse);
+      return this.readSuccess<TData>(firstResponse, successContext);
     }
 
     const paymentContext = await this.protocol.readPaymentContext(firstResponse);
@@ -66,7 +75,7 @@ export class PaygateClient {
     const signedHeaders = this.protocol.buildSignedHeaders(paymentContext, signature);
     const retryResponse = await this.fetchOrThrow(
       url,
-      this.buildRequestInit(request, signedHeaders),
+      this.buildRequestInit(request, signedHeaders, requestBodyText),
     );
 
     if (!retryResponse.ok) {
@@ -76,17 +85,27 @@ export class PaygateClient {
       });
     }
 
-    return this.readSuccess<TData>(retryResponse);
+    return this.readSuccess<TData>(retryResponse, successContext);
   }
 
   private buildUrl(path: string): string {
-    if (/^https?:\/\//i.test(path)) return path;
+    if (/^[a-z][a-z\d+\-.]*:\/\//i.test(path)) {
+      throw new PaygateSdkError(
+        "network_error",
+        "Request path must be relative to the configured gatewayUrl",
+      );
+    }
     return `${this.gatewayUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  }
+
+  private serializeRequestBody<TBody>(body: TBody | undefined): string | undefined {
+    return body === undefined ? undefined : JSON.stringify(body);
   }
 
   private buildRequestInit<TBody>(
     request: PaygateRequest<TBody>,
     extraHeaders: Record<string, string> = {},
+    requestBodyText = this.serializeRequestBody(request.body),
   ): RequestInit {
     const headers = {
       ...(request.body === undefined ? {} : { "Content-Type": "application/json" }),
@@ -97,7 +116,7 @@ export class PaygateClient {
     return {
       method: request.method,
       headers,
-      body: request.body === undefined ? undefined : JSON.stringify(request.body),
+      body: requestBodyText,
     };
   }
 
@@ -111,8 +130,40 @@ export class PaygateClient {
     }
   }
 
-  private async readSuccess<TData>(response: Response): Promise<PaygateResponse<TData>> {
-    const data = (await response.json()) as TData;
+  private hashBody(bodyText: string | undefined): string {
+    const hash = ethers.sha256(
+      bodyText === undefined ? new Uint8Array() : ethers.toUtf8Bytes(bodyText),
+    );
+    return `sha256:${hash.slice(2)}`;
+  }
+
+  private receiptMatchesPayload(
+    receipt: SignedReceipt,
+    context: { endpoint: string; requestBodyText?: string },
+    responseBodyText: string,
+  ): boolean {
+    return (
+      receipt.receipt.service.endpoint === context.endpoint &&
+      receipt.receipt.service.request_hash === this.hashBody(context.requestBodyText) &&
+      receipt.receipt.service.response_hash === this.hashBody(responseBodyText)
+    );
+  }
+
+  private async readSuccess<TData>(
+    response: Response,
+    context: { endpoint: string; requestBodyText?: string },
+  ): Promise<PaygateResponse<TData>> {
+    const bodyText = await response.text();
+    let data: TData;
+    try {
+      data = JSON.parse(bodyText) as TData;
+    } catch (error) {
+      throw new PaygateSdkError("network_error", "Gateway returned invalid JSON", {
+        status: response.status,
+        bodyText,
+        cause: error,
+      });
+    }
     const receipt = this.protocol.readReceipt(response);
     if (receipt === null) {
       return {
@@ -123,8 +174,27 @@ export class PaygateClient {
       };
     }
 
-    const receiptVerified = await verifyReceipt(receipt);
+    if (!this.receiptMatchesPayload(receipt, context, bodyText)) {
+      throw new PaygateSdkError(
+        "receipt_verification_failed",
+        "Gateway receipt does not match the request and response payload",
+        { status: response.status },
+      );
+    }
+
+    const receiptVerified =
+      this.trustedServerPublicKey === undefined
+        ? false
+        : await verifyReceipt(receipt, { expectedServerPublicKey: this.trustedServerPublicKey });
     if (!receiptVerified) {
+      if (this.trustedServerPublicKey === undefined) {
+        return {
+          data,
+          receipt: receipt as SignedReceipt,
+          receiptVerified: false,
+          status: response.status,
+        };
+      }
       throw new PaygateSdkError(
         "receipt_verification_failed",
         "Gateway receipt signature did not verify",

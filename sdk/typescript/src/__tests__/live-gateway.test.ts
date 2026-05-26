@@ -10,10 +10,15 @@ maybeDescribe("PaygateClient live gateway flow", () => {
     if (!privateKey) {
       throw new Error("Set EVM_PRIVATE_KEY to an unfunded local/test wallet private key.");
     }
+    const trustedServerPublicKey = process.env.PAYGATE_SERVER_PUBLIC_KEY;
+    if (!trustedServerPublicKey) {
+      throw new Error("Set PAYGATE_SERVER_PUBLIC_KEY to the gateway receipt signing public key.");
+    }
 
     const client = new PaygateClient({
       gatewayUrl: process.env.PAYGATE_GATEWAY_URL ?? "http://localhost:3000",
       signer: new ethers.Wallet(privateKey),
+      trustedServerPublicKey,
     });
 
     const response = await client.summarize("Live SDK test text.");

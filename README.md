@@ -50,7 +50,7 @@ This is a demo and contributor-friendly reference implementation. A valid signat
 | `gateway/` | Go/Gin API gateway on port `3000`. Owns CORS, gzip, rate limits, timeouts, Redis cache, receipt storage, AI provider calls, x402 challenge creation, verifier calls, and receipt signing. |
 | `verifier/` | Rust/Axum service on port `3002`. Verifies EIP-712 payment signatures, chain ID, timestamp freshness, and nonce replay for a single verifier instance. |
 | `web/` | Next.js/Bun frontend on port `3001`. Requests summaries, handles `402` payment contexts, switches wallet chain, signs typed data, and retries with `X-402-*` headers. |
-| `sdk/typescript/` | Private/local TypeScript SDK package for AI API builders. Handles `402` challenges, EIP-712 signing, signed retries, receipt decoding, and local receipt verification. |
+| `sdk/typescript/` | Private/local TypeScript SDK package for AI API builders. Handles `402` challenges, EIP-712 signing, signed retries, receipt decoding, and trusted-key receipt verification. |
 | `tests/` and `run_e2e.sh` | Bun E2E flow covering unsigned challenge, signed retry, verifier acceptance, and replay rejection. |
 | `bench/` | Reproducible verifier-only micro-benchmark. It does not measure end-to-end latency. |
 | `deploy/`, `DEPLOY.md`, `.env.production.example` | Deployment prep for Fly.io gateway/verifier, Vercel web, and Upstash Redis. Real deploy commands are manual. |
@@ -267,7 +267,13 @@ bun install
 bun run test
 ```
 
-Example:
+Install it into a local app from this repo path before importing the package name:
+
+```bash
+bun add /path/to/MicroAI-Paygate/sdk/typescript
+```
+
+Example app usage:
 
 ```ts
 import { ethers } from "ethers";
@@ -276,6 +282,7 @@ import { PaygateClient } from "@microai/paygate-sdk";
 const client = new PaygateClient({
   gatewayUrl: "http://localhost:3000",
   signer: new ethers.Wallet(process.env.EVM_PRIVATE_KEY!),
+  trustedServerPublicKey: process.env.PAYGATE_SERVER_PUBLIC_KEY,
 });
 
 const response = await client.summarize("Text to summarize");
@@ -288,9 +295,10 @@ For the runnable example, set:
 ```text
 PAYGATE_GATEWAY_URL=http://localhost:3000
 EVM_PRIVATE_KEY=0x...
+PAYGATE_SERVER_PUBLIC_KEY=0x...
 ```
 
-Use only unfunded local or test wallets. The SDK signs the same EIP-712 payment context as the web app and E2E tests, retries with the gateway's `X-402-*` headers, decodes `X-402-Receipt`, and verifies the receipt signature locally. It does not perform official x402 facilitator settlement.
+Use only unfunded local or test wallets. The SDK signs the same EIP-712 payment context as the web app and E2E tests, retries with the gateway's `X-402-*` headers, decodes `X-402-Receipt`, and verifies the receipt signature locally against the configured gateway receipt signing public key. If no trusted server public key is configured, receipt payload hashes are still checked but `receiptVerified` is `false`. It does not perform official x402 facilitator settlement.
 
 ### Docker Compose
 
@@ -338,7 +346,7 @@ Core local variables live in [.env.example](.env.example). Production placeholde
 | Verifier tests | `cd verifier && cargo test` | Covers EIP-712, chain ID, timestamp, and nonce behavior. |
 | Verifier lint | `cd verifier && cargo fmt -- --check && cargo clippy -- -D warnings` | Run for Rust changes. |
 | Web lint/build/typecheck | `cd web && bun run lint && bun run build && bun run test` | `bun run test` is `tsc --noEmit`. |
-| SDK typecheck/tests | `cd sdk/typescript && bun run typecheck && bun run test` | Covers signing parity, signed retry headers, receipt decoding, receipt verification, and mocked client flow. |
+| SDK typecheck/tests | `cd sdk/typescript && bun run typecheck && bun run test` | Covers signing parity, signed retry headers, receipt decoding, trusted-key receipt verification, and mocked client flow. |
 | E2E | `bun run test:e2e` | Starts gateway/verifier. Requires `OPENROUTER_API_KEY` for default OpenRouter startup path. |
 | All unit tests | `bun run test:unit` | Gateway plus verifier tests. |
 

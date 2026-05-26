@@ -17,10 +17,14 @@ function cloneFixture(): SignedReceipt {
   return structuredClone(fixture) as SignedReceipt;
 }
 
+const fixtureServerPublicKey = (fixture as SignedReceipt).server_public_key;
+
 async function expectInvalid(mutator: (receipt: SignedReceipt) => void) {
   const tampered = cloneFixture();
   mutator(tampered);
-  expect(await verifyReceipt(tampered)).toBe(false);
+  expect(await verifyReceipt(tampered, { expectedServerPublicKey: fixtureServerPublicKey })).toBe(
+    false,
+  );
 }
 
 describe("receipt helpers", () => {
@@ -53,7 +57,19 @@ describe("receipt helpers", () => {
   });
 
   it("verifyReceipt verifies the gateway-format receipt fixture", async () => {
-    expect(await verifyReceipt(cloneFixture())).toBe(true);
+    expect(
+      await verifyReceipt(cloneFixture(), { expectedServerPublicKey: fixtureServerPublicKey }),
+    ).toBe(true);
+  });
+
+  it("verifyReceipt requires the expected gateway receipt signing key as a trust anchor", async () => {
+    expect(await verifyReceipt(cloneFixture())).toBe(false);
+    expect(
+      await verifyReceipt(cloneFixture(), {
+        expectedServerPublicKey:
+          "0x04a96f0eb0070322ef61fba98b6d289430668734b57a005a327111fc470bdbf9677b20c97fbeac68dd514d6792e21b02737636e30511449d5969722faa29ce7ed4",
+      }),
+    ).toBe(false);
   });
 
   it("verifyReceipt returns false for tampered receipt fields and key material", async () => {

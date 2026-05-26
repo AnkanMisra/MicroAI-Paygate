@@ -17,6 +17,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
 function isPaymentContext(value: unknown): value is PaymentContext {
   if (!isRecord(value)) return false;
   return (
@@ -24,10 +28,8 @@ function isPaymentContext(value: unknown): value is PaymentContext {
     typeof value.token === "string" &&
     typeof value.amount === "string" &&
     typeof value.nonce === "string" &&
-    typeof value.chainId === "number" &&
-    Number.isFinite(value.chainId) &&
-    typeof value.timestamp === "number" &&
-    Number.isFinite(value.timestamp)
+    isPositiveSafeInteger(value.chainId) &&
+    isPositiveSafeInteger(value.timestamp)
   );
 }
 

@@ -13,6 +13,7 @@ export {
   fetchReceipt,
   validateReceiptFormat,
   verifyReceipt,
+  type VerifyReceiptOptions,
 } from "./receipts";
 export {
   MICROAI_NONCE_HEADER,
