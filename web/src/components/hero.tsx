@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ProtocolOrchestra3D } from "./hero-3d/protocol-orchestra";
 
 const DISPLAY_AMOUNT = process.env.NEXT_PUBLIC_PAYMENT_AMOUNT ?? "0.001";
@@ -51,7 +52,7 @@ export function Hero() {
         {/* X402 — bottom-right, italic, mirrors the 01 weight */}
         <div
           aria-hidden
-          className="pointer-events-none absolute -right-4 bottom-0 select-none lg:-bottom-2"
+          className="pointer-events-none absolute bottom-0 right-0 select-none lg:-bottom-2 lg:-right-4"
           style={{
             fontFamily: "var(--font-display)",
             fontStyle: "italic",
@@ -111,7 +112,7 @@ export function Hero() {
             >
               Pay-per-call AI,
               <br />
-              <span className="italic text-accent">settled</span> on {DISPLAY_CHAIN_NAME}.
+              <span className="italic text-accent">authorized</span> on {DISPLAY_CHAIN_NAME}.
             </h1>
 
             <p
@@ -144,12 +145,12 @@ export function Hero() {
                 Try it now
                 <span aria-hidden className="transition-transform group-hover:translate-y-0.5">↓</span>
               </a>
-              <a
-                href="#protocol"
+              <Link
+                href="/docs"
                 className="inline-flex items-center justify-center gap-2 border border-ink bg-paper px-5 py-2.5 font-sans text-[12px] font-medium uppercase tracking-[0.08em] text-ink transition-all duration-150 shadow-[4px_4px_0_0_var(--ink)] hover:bg-ink hover:text-paper hover:shadow-[6px_6px_0_0_var(--accent)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0_0_var(--ink)]"
               >
-                How it works
-              </a>
+                Read docs
+              </Link>
             </div>
           </div>
 
@@ -177,21 +178,26 @@ export function Hero() {
 
 function Ticker() {
   return (
-    <div className="overflow-hidden border-b border-ink bg-ink py-2">
-      <div
-        className="ticker-run flex whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.22em] text-paper"
-        aria-hidden
-      >
-        {TICKER_RUN.map((item, i) => (
-          <span key={`${item}-${i}`} className="flex items-center">
-            <span aria-hidden className="px-4 text-accent">
-              ✦
-            </span>
-            <span>{item}</span>
-          </span>
-        ))}
+    <>
+      <div className="border-b border-ink bg-ink px-4 py-2 text-center font-mono text-[10px] uppercase tracking-[0.16em] text-paper sm:hidden">
+        x402-style · signed receipts · {DISPLAY_CHAIN_NAME}
       </div>
-    </div>
+      <div className="relative hidden h-8 overflow-hidden border-b border-ink bg-ink [contain:paint] sm:block">
+        <div
+          className="ticker-run absolute inset-y-0 left-0 flex items-center whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.22em] text-paper"
+          aria-hidden
+        >
+          {TICKER_RUN.map((item, i) => (
+            <span key={`${item}-${i}`} className="flex items-center">
+              <span aria-hidden className="px-4 text-accent">
+                ✦
+              </span>
+              <span>{item}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 

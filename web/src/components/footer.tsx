@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export function Footer() {
   return (
     <footer className="border-t-2 border-ink bg-paper">
@@ -9,6 +11,12 @@ export function Footer() {
           </p>
         </div>
         <nav className="flex flex-wrap items-center gap-x-6 gap-y-2 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-soft">
+          <Link href="/docs" className="transition-colors hover:text-ink">
+            Docs
+          </Link>
+          <Link href="/#protocol" className="transition-colors hover:text-ink">
+            Protocol
+          </Link>
           <a
             href="https://github.com/AnkanMisra/MicroAI-Paygate/blob/main/README.md"
             target="_blank"

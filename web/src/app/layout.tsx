@@ -35,7 +35,7 @@ const DISPLAY_CHAIN_NAME =
   process.env.NEXT_PUBLIC_EXPECTED_CHAIN_NAME ?? "Base Sepolia";
 
 export const metadata: Metadata = {
-  title: `MicroAI Paygate — pay-per-call AI, settled on ${DISPLAY_CHAIN_NAME}`,
+  title: `MicroAI Paygate — pay-per-call AI, authorized on ${DISPLAY_CHAIN_NAME}`,
   description:
     "An x402 payment gateway for AI requests. Sign EIP-712, get a signed receipt, verify the signature client-side.",
 };
@@ -48,7 +48,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${satoshi.variable} ${geistMono.variable} ${clashDisplay.variable} bg-paper text-ink antialiased`}
+        className={`${satoshi.variable} ${geistMono.variable} ${clashDisplay.variable} overflow-x-hidden bg-paper text-ink antialiased`}
       >
         <SmoothScroll />
         <ColdStartWarmup />

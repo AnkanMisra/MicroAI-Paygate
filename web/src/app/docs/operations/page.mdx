@@ -1,0 +1,52 @@
+# Operations
+
+This page collects the knobs and checks needed to run MicroAI Paygate locally or as a demo deployment.
+
+## Core Environment Variables
+
+- `AI_PROVIDER`: `openrouter` by default, `ollama` for local Ollama experiments.
+- `OPENROUTER_API_KEY`: required when using OpenRouter.
+- `OPENROUTER_MODEL`: model name for OpenRouter.
+- `OLLAMA_URL` and `OLLAMA_MODEL`: used only when `AI_PROVIDER=ollama`.
+- `SERVER_WALLET_PRIVATE_KEY`: signs receipts. Use only unfunded local keys in development.
+- `RECIPIENT_ADDRESS`: embedded in payment contexts.
+- `CHAIN_ID`: gateway EIP-712 chain ID.
+- `EXPECTED_CHAIN_ID`: verifier chain ID. Falls back to `CHAIN_ID` if unset.
+- `VERIFIER_URL`: where the gateway calls `/verify`.
+- `RECEIPT_STORE`: `redis` by default, `memory` for tests and quick local runs.
+- `REDIS_URL`: required when Redis receipts or cache are enabled.
+- `CACHE_ENABLED`: optional response cache. Payment verification still runs on cache hits.
+
+## Provider Modes
+
+OpenRouter is the default remote AI path. It needs `OPENROUTER_API_KEY`.
+
+Ollama is the local AI experiment path. It needs a reachable Ollama server and configured model.
+
+A deterministic mock provider is a planned follow-on for demos and CI. Do not document it as available until it is implemented.
+
+## Test Commands
+
+```bash
+cd gateway && go test -v ./...
+cd gateway && go vet ./...
+cd verifier && cargo test
+cd verifier && cargo fmt -- --check
+cd verifier && cargo clippy -- -D warnings
+cd web && bun run lint && bun run build && bun run test
+cd sdk/typescript && bun run typecheck && bun run test
+bun run test:e2e
+bun run test:unit
+```
+
+`bun run test:e2e` starts gateway and verifier. With the default OpenRouter path, it requires `OPENROUTER_API_KEY`.
+
+## Troubleshooting
+
+- Missing wallet: install or unlock an EVM wallet provider.
+- Wrong chain: switch the wallet to the configured chain ID.
+- Signature rejected: check account, nonce, timestamp, chain ID, and verifier logs.
+- Gateway cold start: wait for backend services to wake, then retry.
+- OpenRouter key missing: set `OPENROUTER_API_KEY` or use a local provider mode.
+- Verifier unavailable: check `VERIFIER_URL` and `http://localhost:3002/health`.
+- Receipt verification false: confirm `PAYGATE_SERVER_PUBLIC_KEY` is the trusted gateway receipt signing key.

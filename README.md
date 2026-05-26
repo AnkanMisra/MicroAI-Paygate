@@ -35,6 +35,7 @@ This is a demo and contributor-friendly reference implementation. A valid signat
 | --- | --- |
 | Run locally | [Getting Started](#getting-started-local) |
 | Build an API client | [Use The SDK](#use-the-sdk) |
+| Read website docs | Run `cd web && bun run dev`, then open `/docs` |
 | Understand the architecture | [Architecture](#architecture) |
 | Contribute code or docs | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Review project rules | [RULES.md](RULES.md) |

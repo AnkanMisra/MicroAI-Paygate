@@ -41,8 +41,11 @@ Thumbs.db
 .rules
 .cursor 
 docs
+!web/src/app/docs/
+!web/src/app/docs/**
+!web/src/components/docs/
+!web/src/components/docs/**
 
 # Ignored Components
 agent/
 issues/
-

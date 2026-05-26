@@ -1,0 +1,89 @@
+# TypeScript SDK
+
+The local SDK package is `@microai/paygate-sdk`. It is private and local for now; it is not published to npm.
+
+The SDK handles the current gateway flow: send an unsigned request, read the `402` challenge, sign the payment context, retry with `X-402-*` headers, decode `X-402-Receipt`, and verify the receipt against a trusted gateway receipt signing key.
+
+## Install Locally
+
+From an app that should consume this repo-local package:
+
+```bash
+bun add /path/to/MicroAI-Paygate/sdk/typescript
+```
+
+To work on the SDK itself:
+
+```bash
+cd sdk/typescript
+bun install
+bun run typecheck
+bun run test
+```
+
+## Summarize Example
+
+```ts
+import { ethers } from "ethers";
+import { PaygateClient } from "@microai/paygate-sdk";
+
+const client = new PaygateClient({
+  gatewayUrl: "http://localhost:3000",
+  signer: new ethers.Wallet(process.env.EVM_PRIVATE_KEY!),
+  trustedServerPublicKey: process.env.PAYGATE_SERVER_PUBLIC_KEY!,
+});
+
+const response = await client.summarize("Text to summarize");
+
+console.log(response.data.result);
+console.log(response.receipt?.receipt.id);
+console.log(response.receiptVerified);
+```
+
+## Generic Endpoint Example
+
+```ts
+const response = await client.request<{ text: string }, { result: string }>({
+  method: "POST",
+  path: "/api/ai/summarize",
+  body: { text: "..." },
+});
+```
+
+## Response Shape
+
+```ts
+type PaygateResponse<T> = {
+  data: T;
+  receipt: SignedReceipt | null;
+  receiptVerified: boolean | null;
+  status: number;
+};
+```
+
+`receiptVerified` is `true` only when the SDK can verify the receipt signature against the configured trusted gateway public key and the receipt request and response hashes match the actual payloads. Without a trusted key, the SDK must not trust the key embedded in the receipt by itself.
+
+## Typed Error Codes
+
+The SDK raises `PaygateSdkError` with stable codes:
+
+- `payment_challenge_missing`
+- `payment_signature_failed`
+- `signed_retry_failed`
+- `receipt_decode_failed`
+- `receipt_verification_failed`
+- `network_error`
+
+## Live Test
+
+The live test is skipped by default. Start the stack first, then run:
+
+```bash
+PAYGATE_SDK_LIVE_TEST=1 \
+EVM_PRIVATE_KEY=0x... \
+PAYGATE_SERVER_PUBLIC_KEY=0x... \
+PAYGATE_GATEWAY_URL=http://localhost:3000 \
+bun test src/__tests__/live-gateway.test.ts
+```
+
+Use only unfunded local or test wallets.

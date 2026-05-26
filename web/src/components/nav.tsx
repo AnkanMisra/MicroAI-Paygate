@@ -16,6 +16,12 @@ export function Nav() {
           </span>
         </Link>
         <div className="flex items-center gap-3">
+          <Link
+            href="/docs"
+            className="border border-ink bg-accent px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-paper transition-colors duration-150 hover:bg-accent-press"
+          >
+            Docs
+          </Link>
           <WalletWidget />
           <a
             href="https://github.com/AnkanMisra/MicroAI-Paygate"
