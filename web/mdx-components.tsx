@@ -1,5 +1,6 @@
 import type { ComponentPropsWithoutRef } from "react";
 import type { MDXComponents } from "mdx/types";
+import { CopyCodeBlock } from "@/components/docs/copy-code-block";
 
 function cx(...classes: Array<string | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -75,14 +76,8 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
         />
       );
     },
-    pre: (props: ComponentPropsWithoutRef<"pre">) => (
-      <pre
-        {...props}
-        className={cx(
-          "mt-5 overflow-x-auto border border-ink bg-ink p-4 font-mono text-xs leading-6 text-paper",
-          props.className,
-        )}
-      />
+    pre: ({ children, className }: ComponentPropsWithoutRef<"pre">) => (
+      <CopyCodeBlock className={className}>{children}</CopyCodeBlock>
     ),
     blockquote: (props: ComponentPropsWithoutRef<"blockquote">) => (
       <blockquote

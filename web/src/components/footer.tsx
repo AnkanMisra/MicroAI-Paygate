@@ -7,7 +7,7 @@ export function Footer() {
         <div>
           <p className="font-display text-lg leading-none text-ink">MicroAI Paygate</p>
           <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-soft">
-            MIT · 2026 · open source x402 reference
+            MIT · 2026 · open source x402-style reference
           </p>
         </div>
         <nav className="flex flex-wrap items-center gap-x-6 gap-y-2 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-soft">

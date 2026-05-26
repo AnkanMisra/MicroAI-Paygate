@@ -360,7 +360,7 @@ The gateway serves OpenAPI at `GET /openapi.yaml` and Swagger UI at `GET /docs`.
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /healthz` | Liveness check for the gateway process. |
-| `GET /readyz` | Readiness check for verifier, active AI provider, Redis when required, and gateway self metrics. |
+| `GET /readyz` | Readiness check for verifier, active AI provider, Redis when required, and the gateway's own metrics. |
 | `POST /api/ai/summarize` | Payment-gated text summarization endpoint. |
 | `GET /api/receipts/{id}` | Fetch a stored signed receipt until its TTL expires. |
 

@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Geist_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import "./globals.css";
 import { SmoothScroll } from "@/components/smooth-scroll";
@@ -26,11 +25,6 @@ const clashDisplay = localFont({
   display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 const DISPLAY_CHAIN_NAME =
   process.env.NEXT_PUBLIC_EXPECTED_CHAIN_NAME ?? "Base Sepolia";
 
@@ -48,7 +42,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${satoshi.variable} ${geistMono.variable} ${clashDisplay.variable} overflow-x-hidden bg-paper text-ink antialiased`}
+        className={`${satoshi.variable} ${clashDisplay.variable} overflow-x-hidden bg-paper text-ink antialiased`}
       >
         <SmoothScroll />
         <ColdStartWarmup />

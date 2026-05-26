@@ -32,7 +32,7 @@
   --color-alert-soft: var(--alert-soft);
   --font-display: var(--font-clash-display);
   --font-sans: var(--font-satoshi);
-  --font-mono: var(--font-geist-mono);
+  --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
 html,

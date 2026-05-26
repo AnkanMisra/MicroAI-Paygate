@@ -72,7 +72,7 @@ export function Hero() {
           style={{
             writingMode: "vertical-rl",
             transform: "translateY(-50%) rotate(180deg)",
-            fontFamily: "var(--font-geist-mono)",
+            fontFamily: "var(--font-mono)",
             fontSize: "10px",
             letterSpacing: "0.32em",
             textTransform: "uppercase",
