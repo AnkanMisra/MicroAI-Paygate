@@ -195,6 +195,31 @@ describe("PaygateClient request flow", () => {
     });
   });
 
+  it("wraps request body serialization failures in a typed SDK error before fetching", async () => {
+    let calls = 0;
+    const circularBody: { text: string; self?: unknown } = { text: "hello" };
+    circularBody.self = circularBody;
+    const client = new PaygateClient({
+      gatewayUrl: "http://gateway.test",
+      signer: wallet,
+      fetch: async () => {
+        calls += 1;
+        throw new Error("fetch should not be called");
+      },
+    });
+
+    await expect(
+      client.request({
+        method: "POST",
+        path: "/api/ai/summarize",
+        body: circularBody,
+      }),
+    ).rejects.toMatchObject({
+      code: "network_error",
+    });
+    expect(calls).toBe(0);
+  });
+
   it("rejects fractional and unsafe paymentContext numeric fields before signing", async () => {
     const invalidContexts = [
       { ...paymentContext, chainId: 84532.5 },
@@ -313,6 +338,29 @@ describe("PaygateClient request flow", () => {
         status: 200,
       });
     }
+  });
+
+  it("matches receipt endpoints against the request path, not gatewayUrl path prefixes", async () => {
+    const requestBody = JSON.stringify({ text: "hello" });
+    const responseBody = JSON.stringify({ result: "summarized text" });
+    const receipt = signedReceiptForPayloads({ requestBody, responseBody });
+    const { fetcher } = scriptedFetch([
+      jsonResponse({ paymentContext }, { status: 402 }),
+      jsonResponse(
+        { result: "summarized text" },
+        { status: 200, headers: { "X-402-Receipt": receiptHeader(receipt) } },
+      ),
+    ]);
+    const client = new PaygateClient({
+      gatewayUrl: "http://gateway.test/paygate",
+      signer: wallet,
+      fetch: fetcher,
+      trustedServerPublicKey,
+    });
+
+    const response = await client.summarize("hello");
+
+    expect(response.receiptVerified).toBe(true);
   });
 
   it("does not send requests to absolute paths outside the configured gateway", async () => {

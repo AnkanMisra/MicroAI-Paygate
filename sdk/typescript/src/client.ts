@@ -46,7 +46,7 @@ export class PaygateClient {
     const url = this.buildUrl(request.path);
     const requestBodyText = this.serializeRequestBody(request.body);
     const successContext = {
-      endpoint: new URL(url).pathname,
+      endpoint: this.buildReceiptEndpoint(request.path),
       requestBodyText,
     };
     const firstInit = this.buildRequestInit(request, {}, requestBodyText);
@@ -99,7 +99,20 @@ export class PaygateClient {
   }
 
   private serializeRequestBody<TBody>(body: TBody | undefined): string | undefined {
-    return body === undefined ? undefined : JSON.stringify(body);
+    if (body === undefined) return undefined;
+    try {
+      return JSON.stringify(body);
+    } catch (error) {
+      throw new PaygateSdkError("network_error", "Failed to serialize request body as JSON", {
+        cause: error,
+      });
+    }
+  }
+
+  private buildReceiptEndpoint(path: string): string {
+    const pathWithoutQuery = path.split(/[?#]/, 1)[0] ?? "";
+    if (pathWithoutQuery === "") return "/";
+    return pathWithoutQuery.startsWith("/") ? pathWithoutQuery : `/${pathWithoutQuery}`;
   }
 
   private buildRequestInit<TBody>(

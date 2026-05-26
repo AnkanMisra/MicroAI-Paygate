@@ -4,7 +4,7 @@ import { PaygateSdkError } from "./errors";
 import type { FetchLike, Receipt, SignedReceipt } from "./protocol/types";
 
 export type VerifyReceiptOptions = {
-  expectedServerPublicKey?: string;
+  expectedServerPublicKey: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -97,11 +97,11 @@ function normalizePublicKey(value: string | undefined): string | null {
 
 export async function verifyReceipt(
   signedReceipt: SignedReceipt,
-  options: VerifyReceiptOptions = {},
+  options?: VerifyReceiptOptions,
 ): Promise<boolean> {
   try {
     if (!validateReceiptFormat(signedReceipt)) return false;
-    const expectedPublicKey = normalizePublicKey(options.expectedServerPublicKey);
+    const expectedPublicKey = normalizePublicKey(options?.expectedServerPublicKey);
     if (expectedPublicKey === null) return false;
 
     const receiptPublicKey = normalizePublicKey(signedReceipt.server_public_key);
