@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsc --noEmit"
+    "test": "tsc --noEmit",
+    "test:unit": "bun test"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",
