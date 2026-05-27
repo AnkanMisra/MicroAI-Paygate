@@ -3,6 +3,7 @@ export type ErrorKind =
   | "wrong-chain"
   | "user-rejected"
   | "expired"
+  | "duplicate-nonce"
   | "invalid-signature"
   | "rate-limited"
   | "ai-timeout"
@@ -42,6 +43,10 @@ const COPY: Record<ErrorKind, { title: string; message: string }> = {
   expired: {
     title: "Payment context expired",
     message: "The signed challenge took too long to return. Retry to get a fresh one.",
+  },
+  "duplicate-nonce": {
+    title: "Signature already used",
+    message: "This payment context was already submitted. Each challenge can only be used once. Retry to get a fresh one.",
   },
   "invalid-signature": {
     title: "Signature was rejected",
@@ -85,9 +90,24 @@ function build(kind: ErrorKind, detail?: string): ClassifiedError {
   return {
     kind,
     ...COPY[kind],
-    detail,
+    detail: sanitizeDetail(detail),
     recoverable: kind !== "no-wallet",
   };
+}
+
+function sanitizeDetail(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed.error && typeof parsed.error === "string") {
+      const code = parsed.error;
+      if (parsed.correlation_id) {
+        return `[${code}] correlation_id=${parsed.correlation_id}`;
+      }
+      return `[${code}]`;
+    }
+  } catch {}
+  return raw.length > 200 ? raw.slice(0, 200) + "..." : raw;
 }
 
 // Maps gateway HTTP status + sanitized error body to a user-facing kind.
@@ -108,7 +128,7 @@ function statusToKind(status: number, body: string): ErrorKind {
     return body.includes("verifier_timeout") ? "verifier-timeout" : "ai-timeout";
   }
   if (status === 409) {
-    return body.includes("nonce_already_used") ? "expired" : "invalid-signature";
+    return body.includes("nonce_already_used") ? "duplicate-nonce" : "invalid-signature";
   }
   if (status === 429) return "rate-limited";
   if (status === 502) {
