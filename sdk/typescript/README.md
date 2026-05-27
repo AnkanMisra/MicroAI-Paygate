@@ -83,6 +83,16 @@ cd sdk/typescript
 bun run examples/summarize.ts "Text to summarize"
 ```
 
+Verify a receipt by ID or by a base64 `X-402-Receipt` header value:
+
+```bash
+cd sdk/typescript
+PAYGATE_SERVER_PUBLIC_KEY=0x... PAYGATE_GATEWAY_URL=http://localhost:3000 bun run examples/verify-receipt.ts rcpt_...
+```
+
+Receipt verification needs `PAYGATE_SERVER_PUBLIC_KEY` as the trust anchor. The
+SDK does not trust the public key embedded inside the receipt by itself.
+
 ## Optional Live Test
 
 The live SDK test is skipped by default. Start the local stack first:

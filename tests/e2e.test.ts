@@ -75,19 +75,10 @@ describe("MicroAI Paygate E2E Flow", () => {
       body: JSON.stringify({ text: "This is a test text to summarize." }),
     });
 
-    // Note: It might fail if OpenRouter credentials are missing/invalid, but we expect at least not 402/403.
-    // If 502 with upstream_unavailable, it means verification passed and only the AI provider failed.
-    if (res.status === 502) {
-        const text = await res.text();
-        if (text.includes("upstream_unavailable")) {
-            expect(true).toBe(true); 
-            return;
-        }
-    }
-
     expect(res.status).toBe(200);
     const data = await res.json() as any;
-    expect(data.result).toBeDefined();
+    expect(data.result).toStartWith("Mock summary:");
+    expect(res.headers.get("X-402-Receipt")).toBeTruthy();
   }, 30000);
 
   it("should reject replayed signed payment context", async () => {
@@ -113,14 +104,7 @@ describe("MicroAI Paygate E2E Flow", () => {
       body,
     });
 
-    if (first.status === 504) {
-      const text = await first.text();
-      if (!text.includes("upstream_timeout")) {
-        throw new Error(`expected upstream_timeout for 504, got ${text}`);
-      }
-    } else if (first.status !== 200 && first.status !== 502) {
-      throw new Error(`expected first signed request to pass verification, got ${first.status}: ${await first.text()}`);
-    }
+    expect(first.status).toBe(200);
 
     const second = await fetch(`${GATEWAY_URL}/api/ai/summarize`, {
       method: "POST",

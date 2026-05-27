@@ -68,7 +68,7 @@ The verifier route `POST /verify` is not a gateway route. It belongs to the inte
 | `cache.go` | Optional response cache. Cache hits still require valid payment verification. |
 | `ratelimit.go` | Token bucket implementation. |
 | `middleware.go` | Request timeout and correlation ID middleware. |
-| `internal/ai/` | OpenRouter and Ollama provider implementations. |
+| `internal/ai/` | Mock, OpenRouter, and Ollama provider implementations. |
 | `openapi.yaml` | Public gateway API contract. |
 
 ## Configuration
@@ -77,7 +77,7 @@ Required for normal OpenRouter gateway startup:
 
 | Variable | Notes |
 | --- | --- |
-| `OPENROUTER_API_KEY` | Required when `AI_PROVIDER` is unset or `openrouter`. |
+| `OPENROUTER_API_KEY` | Required when `AI_PROVIDER` is unset or `openrouter`. Not required for `AI_PROVIDER=mock` or `AI_PROVIDER=ollama`. |
 | `SERVER_WALLET_PRIVATE_KEY` | Required. Signs receipts. Use an unfunded development key locally. |
 | `REDIS_URL` | Required when `RECEIPT_STORE=redis` or `CACHE_ENABLED=true`. |
 
@@ -86,7 +86,7 @@ Common optional variables:
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `PORT` | `3000` | Gateway listen port. |
-| `AI_PROVIDER` | `openrouter` | Supported values: `openrouter`, `ollama`. |
+| `AI_PROVIDER` | `openrouter` when unset; local scripts use `mock` | Supported values: `openrouter`, `mock`, `ollama`. |
 | `OPENROUTER_MODEL` | `z-ai/glm-4.5-air:free` in code/docs unless overridden | OpenRouter model. |
 | `OPENROUTER_URL` | `https://openrouter.ai/api/v1/chat/completions` provider default | Used by tests and custom OpenRouter-compatible endpoints. |
 | `OLLAMA_URL` | `http://localhost:11434` | Used when `AI_PROVIDER=ollama`. |
@@ -118,14 +118,18 @@ cp .env.example .env
 bun run stack
 ```
 
+The root stack script defaults the gateway to `AI_PROVIDER=mock`,
+`RECEIPT_STORE=memory`, and `CACHE_ENABLED=false` unless you exported different
+values. That path requires no OpenRouter key, Ollama server, or Redis instance.
+
 To run only the gateway:
 
 ```bash
 cd gateway
-RECEIPT_STORE=memory CACHE_ENABLED=false go run .
+AI_PROVIDER=mock RECEIPT_STORE=memory CACHE_ENABLED=false go run .
 ```
 
-The verifier must be reachable at `VERIFIER_URL` for signed requests. OpenRouter startup requires `OPENROUTER_API_KEY` unless `AI_PROVIDER=ollama`.
+The verifier must be reachable at `VERIFIER_URL` for signed requests. OpenRouter startup requires `OPENROUTER_API_KEY` unless `AI_PROVIDER=mock` or `AI_PROVIDER=ollama`. Use `AI_PROVIDER=mock` for deterministic local demos and CI runs with no model-provider network call.
 
 ## Testing
 

@@ -12,8 +12,8 @@ type Provider interface {
 	Generate(ctx context.Context, prompt string) (string, error)
 }
 
-// NewProvider creates an AI provider based on the AI_PROVIDER environment variable
-// Supported providers: "openrouter" (default), "ollama"
+// NewProvider creates an AI provider based on the AI_PROVIDER environment variable.
+// Supported providers: "openrouter" (default), "mock", "ollama".
 func NewProvider() (Provider, error) {
 	providerType := os.Getenv("AI_PROVIDER")
 	if providerType == "" {
@@ -23,6 +23,8 @@ func NewProvider() (Provider, error) {
 	switch providerType {
 	case "openrouter":
 		return NewOpenRouterProvider(), nil
+	case "mock":
+		return NewMockProvider(), nil
 	case "ollama":
 		return NewOllamaProvider(), nil
 	default:

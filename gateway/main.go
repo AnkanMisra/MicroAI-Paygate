@@ -241,10 +241,13 @@ func main() {
 		fmt.Printf("    - Port: %s\n", port)
 	}
 	modelKey := "OPENROUTER_MODEL"
-	if providerType == "ollama" {
+	if providerType == "mock" {
+		modelKey = ""
+	} else if providerType == "ollama" {
 		modelKey = "OLLAMA_MODEL"
 	}
-	if model := os.Getenv(modelKey); model != "" {
+	if modelKey != "" && os.Getenv(modelKey) != "" {
+		model := os.Getenv(modelKey)
 		fmt.Printf("    - %s: %s\n", modelKey, model)
 	}
 	if verifier := os.Getenv("VERIFIER_URL"); verifier != "" {
@@ -256,7 +259,7 @@ func main() {
 	if os.Getenv("PORT") == "" {
 		fmt.Println("[WARN] PORT not set, using default: 3000")
 	}
-	if os.Getenv(modelKey) == "" {
+	if modelKey != "" && os.Getenv(modelKey) == "" {
 		fmt.Printf("[WARN] %s not set, using provider default model\n", modelKey)
 	}
 	if os.Getenv("CHAIN_ID") == "" {
@@ -976,6 +979,9 @@ func handleReadyz(c *gin.Context) {
 	case "openrouter":
 		aiStatus = checkOpenRouterHealth()
 		checks["openrouter"] = aiStatus
+	case "mock":
+		aiStatus = "ok"
+		checks["mock"] = aiStatus
 	case "ollama":
 		aiStatus = checkOllamaHealth()
 		checks["ollama"] = aiStatus

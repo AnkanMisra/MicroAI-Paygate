@@ -30,6 +30,12 @@ func TestNewProvider(t *testing.T) {
 			wantErr:      false,
 		},
 		{
+			name:         "mock provider",
+			providerType: "mock",
+			wantType:     "*ai.MockProvider",
+			wantErr:      false,
+		},
+		{
 			name:         "unsupported provider",
 			providerType: "invalid",
 			wantType:     "",
@@ -70,8 +76,32 @@ func TestNewProvider(t *testing.T) {
 				if _, ok := provider.(*OllamaProvider); !ok {
 					t.Errorf("NewProvider() returned %T, want *OllamaProvider", provider)
 				}
+			case "*ai.MockProvider":
+				if _, ok := provider.(*MockProvider); !ok {
+					t.Errorf("NewProvider() returned %T, want *MockProvider", provider)
+				}
 			}
 		})
+	}
+}
+
+func TestMockProviderGenerateIsDeterministic(t *testing.T) {
+	provider := NewMockProvider()
+
+	first, err := provider.Generate(t.Context(), "This is a long document about agent payments.")
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+	second, err := provider.Generate(t.Context(), "This is a long document about agent payments.")
+	if err != nil {
+		t.Fatalf("Generate returned error on second call: %v", err)
+	}
+
+	if first != second {
+		t.Fatalf("mock provider should be deterministic, first %q second %q", first, second)
+	}
+	if first == "" {
+		t.Fatal("mock provider returned empty summary")
 	}
 }
 

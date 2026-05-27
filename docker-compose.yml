@@ -13,6 +13,7 @@ services:
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3001}
       - RECEIPT_STORE=${RECEIPT_STORE:-redis}
       - CHAIN_ID=${CHAIN_ID:-84532}
+      - AI_PROVIDER=${AI_PROVIDER:-mock}
       # Pass through from .env file
       - OPENROUTER_API_KEY
       - OPENROUTER_MODEL

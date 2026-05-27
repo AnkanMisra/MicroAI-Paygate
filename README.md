@@ -19,7 +19,7 @@
 
 The backend services (gateway + verifier) are hosted on Render's free tier and **sleep after 15 minutes of inactivity**. The first request after a quiet period takes 30–50 seconds while both services wake. The web UI shows a brief warm-up banner during this window. Subsequent requests are normal speed.
 
-The deployed stack is **Render** (Rust verifier + Go gateway) + **Vercel** (Next.js web) + **Upstash** (Redis for nonces and signed receipts). All on free tiers — total recurring cost is $0. See [DEPLOY.md](DEPLOY.md) for the step-by-step deployment guide.
+The deployed stack is **Render** (Rust verifier + Go gateway) + **Vercel** (Next.js web) + **Upstash** (Redis-backed signed receipts and optional response cache). All on free tiers — total recurring cost is $0. See [DEPLOY.md](DEPLOY.md) for the step-by-step deployment guide.
 
 The demo runs on **Base Sepolia testnet**. A valid EIP-712 signature proves wallet authorization for the payment context; it does not move USDC on-chain. Bring a wallet on Base Sepolia to try the full sign-and-summarize flow.
 
@@ -66,7 +66,7 @@ flowchart TB
     Gateway["gateway/ Go Gin API :3000"]
     Verifier["verifier/ Rust Axum :3002"]
     Redis["Redis 7 receipt store by default\noptional response cache"]
-    AI["AI provider: OpenRouter or Ollama"]
+    AI["AI provider: mock, OpenRouter, or Ollama"]
     Wallet["EVM wallet on configured chain\nBase Sepolia default"]
 
     Client --> Web
@@ -107,7 +107,7 @@ flowchart TB
       Summarize["POST /api/ai/summarize"]
       PaymentContext["Create PaymentContext\nrecipient, token, amount, chainId, nonce, timestamp"]
       VerifyClient["Verifier HTTP client\nVERIFIER_URL"]
-      AIClient["AI provider client\nOpenRouter or Ollama"]
+      AIClient["AI provider client\nmock, OpenRouter, or Ollama"]
       ReceiptSigner["Receipt signer\nserver wallet key"]
       ReceiptLookup["GET /api/receipts/{id}"]
       Health["/healthz and /readyz"]
@@ -130,6 +130,7 @@ flowchart TB
     MemoryStore["In-memory receipt store\nquick start and tests when RECEIPT_STORE=memory"]
 
     subgraph Providers["AI providers"]
+      Mock["Deterministic mock summaries"]
       OpenRouter["OpenRouter chat completions"]
       Ollama["Local Ollama generate API"]
     end
@@ -146,6 +147,7 @@ flowchart TB
     VerifyRoute --> BodyLimit --> Domain --> Timestamp --> Nonce --> Recovery
     Recovery -->|valid or structured error_code| VerifyClient
     Summarize -->|verified cache miss| AIClient
+    AIClient --> Mock
     AIClient --> OpenRouter
     AIClient --> Ollama
     Summarize --> ReceiptSigner --> Receipts
@@ -238,12 +240,13 @@ cp .env.example .env
 
 Edit `.env` before starting the gateway. At minimum:
 
-- `OPENROUTER_API_KEY`: required when `AI_PROVIDER=openrouter`.
+- `AI_PROVIDER`: use `mock` for deterministic local demos, `openrouter` for live hosted AI, or `ollama` for local Ollama.
+- `OPENROUTER_API_KEY`: required only when `AI_PROVIDER=openrouter`.
 - `SERVER_WALLET_PRIVATE_KEY`: required for signing receipts. Use an unfunded development key locally.
 - `RECIPIENT_ADDRESS`: recipient address embedded in payment contexts.
 - `CHAIN_ID` and `EXPECTED_CHAIN_ID`: must match. The default is `84532` for Base Sepolia.
 
-The root `bun run stack` command starts the gateway with `RECEIPT_STORE=memory` and `CACHE_ENABLED=false` unless you exported different values in the shell. That means the normal quick start does not require Redis even though production-style receipt storage defaults to Redis.
+The root `bun run stack` command starts the gateway with `AI_PROVIDER=mock`, `RECEIPT_STORE=memory`, and `CACHE_ENABLED=false` unless you exported different values in the shell. That means the normal quick start does not require OpenRouter, Ollama, or Redis.
 
 ### Run The Stack
 
@@ -301,6 +304,9 @@ PAYGATE_SERVER_PUBLIC_KEY=0x...
 
 Use only unfunded local or test wallets. The SDK signs the same EIP-712 payment context as the web app and E2E tests, retries with the gateway's `X-402-*` headers, decodes `X-402-Receipt`, and verifies the receipt signature locally against the configured gateway receipt signing public key. If no trusted server public key is configured, receipt payload hashes are still checked but `receiptVerified` is `false`. It does not perform official x402 facilitator settlement.
 
+The SDK also includes `examples/verify-receipt.ts` for verifying a receipt ID or
+raw `X-402-Receipt` header against a trusted gateway receipt signing key.
+
 ### Docker Compose
 
 Docker Compose starts gateway, verifier, web, and Redis. It uses service names inside the Docker network, so the gateway reaches the verifier at `http://verifier:3002` and Redis at `redis:6379`.
@@ -316,8 +322,8 @@ Core local variables live in [.env.example](.env.example). Production placeholde
 
 | Variable | Service | Notes |
 | --- | --- | --- |
-| `AI_PROVIDER` | Gateway | `openrouter` by default, `ollama` for local Ollama experiments. |
-| `OPENROUTER_API_KEY` | Gateway | Required when using OpenRouter. Never commit a real key. |
+| `AI_PROVIDER` | Gateway | `mock` in local examples and CI, `openrouter` when unset in raw gateway startup, `ollama` for local Ollama experiments. |
+| `OPENROUTER_API_KEY` | Gateway | Required only when using OpenRouter. Never commit a real key. |
 | `OPENROUTER_MODEL` | Gateway | OpenRouter model name. Demo docs use `z-ai/glm-4.5-air:free` unless overridden. |
 | `OLLAMA_URL`, `OLLAMA_MODEL` | Gateway | Used only when `AI_PROVIDER=ollama`. |
 | `SERVER_WALLET_PRIVATE_KEY` | Gateway | Signs receipts. Use only unfunded local keys in development. |
@@ -348,7 +354,7 @@ Core local variables live in [.env.example](.env.example). Production placeholde
 | Verifier lint | `cd verifier && cargo fmt -- --check && cargo clippy -- -D warnings` | Run for Rust changes. |
 | Web lint/build/typecheck | `cd web && bun run lint && bun run build && bun run test` | `bun run test` is `tsc --noEmit`. |
 | SDK typecheck/tests | `cd sdk/typescript && bun run typecheck && bun run test` | Covers signing parity, signed retry headers, receipt decoding, trusted-key receipt verification, and mocked client flow. |
-| E2E | `bun run test:e2e` | Starts gateway/verifier. Requires `OPENROUTER_API_KEY` for default OpenRouter startup path. |
+| E2E | `bun run test:e2e` | Starts gateway/verifier and defaults to the deterministic mock provider. |
 | All unit tests | `bun run test:unit` | Gateway plus verifier tests. |
 
 Do not use `bun test` by itself for the project E2E flow. It runs Bun's test runner without starting services.

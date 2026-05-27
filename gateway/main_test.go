@@ -383,6 +383,7 @@ func TestHandleHealthz(t *testing.T) {
 
 func TestHandleReadyz_Healthy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	t.Setenv("AI_PROVIDER", "openrouter")
 	t.Setenv("RECEIPT_STORE", "memory")
 	t.Setenv("CACHE_ENABLED", "false")
 

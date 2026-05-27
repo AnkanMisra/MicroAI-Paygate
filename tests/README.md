@@ -17,14 +17,14 @@ The `tests/` directory contains Bun end-to-end coverage for the gateway and veri
 - Go toolchain
 - Rust toolchain
 - Ports `3000` and `3002` free
-- `OPENROUTER_API_KEY` for the default OpenRouter gateway startup path
 
 The helper defaults to:
 
+- `AI_PROVIDER=mock`
 - `RECEIPT_STORE=memory`
 - `CACHE_ENABLED=false`
 
-Redis is not required unless you override those variables.
+OpenRouter, Ollama, and Redis are not required unless you override those variables.
 
 ## Run
 
@@ -77,7 +77,7 @@ Use only unfunded local or test wallet keys for live SDK tests. `PAYGATE_SERVER_
 
 ## Reading Failures
 
-The signed request may return `502 upstream_unavailable` or `504 upstream_timeout` after payment verification succeeds if OpenRouter is unavailable or slow. That usually means the x402 verification path passed and only the upstream AI call failed.
+The default E2E path uses the deterministic mock provider and should return `200` for the first signed request. If you override `AI_PROVIDER=openrouter` or `AI_PROVIDER=ollama`, provider failures can still surface as `502 upstream_unavailable` or `504 upstream_timeout` after payment verification succeeds.
 
 Failures that usually indicate payment-flow regressions:
 

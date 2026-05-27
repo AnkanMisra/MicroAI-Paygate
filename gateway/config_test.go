@@ -8,6 +8,7 @@ import (
 )
 
 func TestValidateConfig_MissingRequiredEnv(t *testing.T) {
+	t.Setenv("AI_PROVIDER", "openrouter")
 	t.Setenv("OPENROUTER_API_KEY", "")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "")
 	t.Setenv("VERIFIER_URL", "")
@@ -65,6 +66,7 @@ func TestNormalizeRecipientAddress(t *testing.T) {
 }
 
 func TestValidateConfig_WithRequiredEnv(t *testing.T) {
+	t.Setenv("AI_PROVIDER", "openrouter")
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
@@ -78,7 +80,23 @@ func TestValidateConfig_WithRequiredEnv(t *testing.T) {
 	}
 }
 
+func TestValidateConfig_MockProviderDoesNotRequireOpenRouterKey(t *testing.T) {
+	t.Setenv("AI_PROVIDER", "mock")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
+	t.Setenv("CACHE_ENABLED", "false")
+	t.Setenv("RECEIPT_STORE", "memory")
+	t.Setenv("REDIS_URL", "")
+	t.Setenv("RECIPIENT_ADDRESS", "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219")
+
+	if err := validateConfig(); err != nil {
+		t.Fatalf("expected mock provider to allow missing OPENROUTER_API_KEY, got: %v", err)
+	}
+}
+
 func TestValidateConfig_CacheEnabledRequiresRedis(t *testing.T) {
+	t.Setenv("AI_PROVIDER", "openrouter")
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
@@ -98,6 +116,7 @@ func TestValidateConfig_CacheEnabledRequiresRedis(t *testing.T) {
 }
 
 func TestValidateConfig_CacheEnabledWithValidRedis(t *testing.T) {
+	t.Setenv("AI_PROVIDER", "openrouter")
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
@@ -113,6 +132,7 @@ func TestValidateConfig_CacheEnabledWithValidRedis(t *testing.T) {
 }
 
 func TestValidateConfig_DefaultReceiptStoreRequiresRedis(t *testing.T) {
+	t.Setenv("AI_PROVIDER", "openrouter")
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
@@ -131,6 +151,7 @@ func TestValidateConfig_DefaultReceiptStoreRequiresRedis(t *testing.T) {
 }
 
 func TestValidateConfig_MemoryReceiptStoreDoesNotRequireRedis(t *testing.T) {
+	t.Setenv("AI_PROVIDER", "openrouter")
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
@@ -146,6 +167,7 @@ func TestValidateConfig_MemoryReceiptStoreDoesNotRequireRedis(t *testing.T) {
 }
 
 func TestValidateConfig_InvalidReceiptStoreMode(t *testing.T) {
+	t.Setenv("AI_PROVIDER", "openrouter")
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
