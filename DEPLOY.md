@@ -9,7 +9,7 @@ Free-tier deployment of MicroAI Paygate across three platforms. Total recurring 
 | `verifier/` (Rust) | Render Web Service | Free | Public over HTTPS; stateless EIP-712 recovery |
 | `gateway/` (Go) | Render Web Service | Free | Public; calls verifier and OpenRouter, talks to Redis |
 | `web/` (Next.js) | Vercel | Hobby | Built from `web/` subdirectory |
-| Redis | Upstash | Free | Receipt store + nonce replay protection |
+| Redis | Upstash | Free | Gateway receipt store and optional response cache |
 
 Both Render services share a region for low inter-service latency. Both **sleep after 15 minutes of inactivity** — the first request after sleep takes 30–50 seconds while the containers wake. The web app shows a warm-up banner during this window. See [Cold-start behavior](#cold-start-behavior) for details.
 
@@ -41,7 +41,7 @@ render workspace set
 ## 1. Provision Upstash Redis
 
 1. Sign up at https://upstash.com using GitHub OAuth.
-2. Console → **Create Database** → choose **Regional**, pick the region nearest your eventual Render region (e.g. Mumbai/`bom` or Singapore/`sin`), keep TLS enabled, leave eviction **off** for nonce-replay correctness.
+2. Console → **Create Database** → choose **Regional**, pick the region nearest your eventual Render region (e.g. Mumbai/`bom` or Singapore/`sin`), keep TLS enabled, leave eviction **off** so signed receipts are retained until their configured TTL.
 3. Open the database → **Connect to your database** → copy the `rediss://` URL (TLS). Save it — this is `REDIS_URL`.
 
 Quick sanity check:
@@ -52,7 +52,7 @@ redis-cli -u 'rediss://default:...@...upstash.io:6379' PING   # should print PON
 
 ## 2. Deploy the Verifier on Render
 
-The verifier is stateless EIP-712 signature recovery. Public on Render's free tier — acceptable because it exposes no secrets and only does cryptographic recovery on caller-supplied inputs.
+The verifier performs EIP-712 signature recovery and keeps nonce replay protection in single-process memory. Public on Render's free tier is acceptable for the demo because it exposes no secrets and only does cryptographic recovery on caller-supplied inputs. Run one verifier replica until Redis-backed verifier nonce storage exists.
 
 1. Render dashboard → **New +** → **Web Service** → connect `AnkanMisra/MicroAI-Paygate`.
 2. Configure:
