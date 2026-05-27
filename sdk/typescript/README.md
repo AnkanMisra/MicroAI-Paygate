@@ -133,6 +133,7 @@ Run the receipt verification example:
 ```bash
 cd sdk/typescript
 bun run examples/verify-receipt.ts "Text to summarize"
+```
 
 ## Optional Live Test
 
