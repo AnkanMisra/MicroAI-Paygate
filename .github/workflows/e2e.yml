@@ -68,7 +68,7 @@ jobs:
         if: env.OPENROUTER_API_KEY != ''
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 'latest'
+          bun-version: '1.3.13'
 
       - name: Install JS deps
         if: env.OPENROUTER_API_KEY != ''
