@@ -101,7 +101,7 @@ export function ProtocolOrchestra3D() {
           <svg
             viewBox="0 0 400 400"
             className="block w-full max-w-[520px]"
-            aria-label="x402 protocol orchestra"
+            aria-label="x402-style protocol orchestra"
           >
             <defs>
               <path id="hex-path" d={PATH_D} fill="none" stroke="none" />
@@ -330,7 +330,7 @@ export function ProtocolOrchestra3D() {
           tech announcing it on a loop would be hostile. The sr-only span
           above gives one static description of the diagram. */}
       <span className="sr-only">
-        Live x402 protocol diagram showing six steps — request, challenge, sign,
+        Live x402-style protocol diagram showing six steps — request, challenge, sign,
         verify, generate, receipt — cycling continuously.
       </span>
       <div className="flex w-full items-baseline justify-center gap-3" aria-hidden>

@@ -1,6 +1,6 @@
 # Web Frontend
 
-The web app is a Next.js/Bun frontend on port `3001`. It lets users submit text for summarization, receives `402 Payment Required` contexts from the gateway, prompts an EVM wallet to switch chain and sign EIP-712 typed data, and retries the request with x402 headers.
+The web app is a Next.js/Bun frontend on port `3001`. It lets users submit text for summarization, receives `402 Payment Required` contexts from the gateway, prompts an EVM wallet to switch chain and sign EIP-712 typed data, and retries the request with custom `X-402-*` headers.
 
 ## Responsibilities
 
@@ -11,6 +11,7 @@ The web app is a Next.js/Bun frontend on port `3001`. It lets users submit text 
 - Sign the gateway-provided EIP-712 payment context.
 - Retry with `X-402-Signature`, `X-402-Nonce`, and `X-402-Timestamp`.
 - Display summary results or user-facing errors.
+- Serve the in-app MDX documentation experience at `/docs`.
 
 ## Current Configuration
 
@@ -65,6 +66,8 @@ bun run dev
 Open `http://localhost:3001`.
 
 The gateway must be reachable at `NEXT_PUBLIC_GATEWAY_URL` or `http://localhost:3000`.
+
+The documentation site is available at `http://localhost:3001/docs`.
 
 ## Production Build
 

@@ -69,7 +69,8 @@ They cover EIP-712 signing parity, the exact `X-402-*` signed retry headers, `X-
 The optional live SDK test is skipped by default. It assumes `bun run stack` is already running:
 
 ```bash
-PAYGATE_SDK_LIVE_TEST=1 EVM_PRIVATE_KEY=0x... PAYGATE_SERVER_PUBLIC_KEY=0x... PAYGATE_GATEWAY_URL=http://localhost:3000 bun test sdk/typescript/src/__tests__/live-gateway.test.ts
+cd sdk/typescript
+PAYGATE_SDK_LIVE_TEST=1 EVM_PRIVATE_KEY=0x... PAYGATE_SERVER_PUBLIC_KEY=0x... PAYGATE_GATEWAY_URL=http://localhost:3000 bun test src/__tests__/live-gateway.test.ts
 ```
 
 Use only unfunded local or test wallet keys for live SDK tests. `PAYGATE_SERVER_PUBLIC_KEY` must be the gateway receipt signing public key distributed out of band; the SDK does not trust the key embedded in a receipt by itself.

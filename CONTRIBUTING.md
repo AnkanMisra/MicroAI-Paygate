@@ -30,7 +30,7 @@ flowchart LR
 | SDK | `sdk/typescript/` | Private TypeScript SDK for the current x402-style protocol, including challenge handling, EIP-712 signing, signed retry headers, receipt decoding, and trusted-key receipt verification. |
 | E2E | `tests/`, `run_e2e.sh` | Bun tests for unsigned challenge, signed retry, upstream behavior, and replay rejection. |
 | Benchmarks | `bench/` | Verifier-only benchmark harness and raw measured results. |
-| Deployment | `deploy/`, `DEPLOY.md`, `.env.production.example`, `docker-compose.yml` | Fly/Vercel/Upstash prep, local Compose stack, ports, service names, health checks, and environment wiring. |
+| Deployment | `deploy/`, `DEPLOY.md`, `.env.production.example`, `docker-compose.yml` | Render/Vercel/Upstash prep, local Compose stack, ports, service names, health checks, and environment wiring. |
 
 ## First-Time Setup
 

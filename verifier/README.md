@@ -37,7 +37,8 @@ Any change to this shape must be applied together in:
 
 - `gateway/main.go`
 - `verifier/src/main.rs`
-- `web/src/app/page.tsx`
+- `web/src/lib/x402-client.ts`
+- `sdk/typescript/src/payment.ts`
 - `tests/e2e.test.ts`
 - `gateway/openapi.yaml`
 - Root and service documentation
@@ -120,7 +121,7 @@ Important error codes:
 
 Nonce replay protection is in memory. It protects one verifier process. Production multi-replica verifier deployments need a shared nonce store such as Redis so every replica rejects the same replayed nonce.
 
-Keep the verifier at one Fly Machine until shared nonce storage exists.
+Keep the verifier to one service instance or replica until shared nonce storage exists.
 
 ## Local Development
 

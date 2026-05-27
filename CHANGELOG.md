@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- Refresh public contributor documentation for the current Go gateway, Rust verifier, Next.js web, Redis receipt/cache, and Fly/Vercel deployment-prep architecture.
+- Refresh public contributor documentation for the current Go gateway, Rust verifier, Next.js web, Redis receipt/cache, and Render/Vercel/Upstash deployment-prep architecture.
+- Add the private `@microai/paygate-sdk` TypeScript package for 402 challenge handling, EIP-712 signing, signed retries, receipt decoding, and trusted-key receipt verification.
+- Add the MDX-backed website docs experience under `/docs`, covering quickstart, SDK usage, API, protocol, architecture, operations, and security limits.
 - Add open source community files: support guide, code of conduct, issue templates, and pull request template.
 - Expand `gateway/openapi.yaml` to document readiness and receipt lookup endpoints alongside the x402 summarize flow.
 - Align local setup docs, service READMEs, environment examples, and contribution checks with the current codebase.

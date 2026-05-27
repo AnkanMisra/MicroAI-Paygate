@@ -54,7 +54,7 @@ This is a demo and contributor-friendly reference implementation. A valid signat
 | `sdk/typescript/` | Private/local TypeScript SDK package for AI API builders. Handles `402` challenges, EIP-712 signing, signed retries, receipt decoding, and trusted-key receipt verification. |
 | `tests/` and `run_e2e.sh` | Bun E2E flow covering unsigned challenge, signed retry, verifier acceptance, and replay rejection. |
 | `bench/` | Reproducible verifier-only micro-benchmark. It does not measure end-to-end latency. |
-| `deploy/`, `DEPLOY.md`, `.env.production.example` | Deployment prep for Fly.io gateway/verifier, Vercel web, and Upstash Redis. Real deploy commands are manual. |
+| `deploy/`, `DEPLOY.md`, `.env.production.example` | Deployment prep for Render gateway/verifier, Vercel web, and Upstash Redis. Real deploy commands are manual. |
 | `.github/workflows/` | CI for Go, Rust, web, SDK, E2E, branch freshness, and Claude review integration. |
 
 ## Architecture
@@ -139,7 +139,7 @@ flowchart TB
     Gin --> LoggerRecovery --> Correlation --> Compression --> CORS --> RateLimit --> Timeout --> Cache
     Cache -->|cache miss or disabled| Summarize
     Cache -->|signed cache hit| VerifyClient
-    Summarize -->|missing x402 headers| PaymentContext
+    Summarize -->|missing X-402 headers| PaymentContext
     PaymentContext --> Browser
     PaymentContext --> CLI
     Summarize -->|signed retry| VerifyClient --> VerifyRoute
@@ -157,7 +157,7 @@ flowchart TB
     Gin --> Health
 ```
 
-### x402 Payment Flow
+### x402-Style Payment Flow
 
 ```mermaid
 sequenceDiagram

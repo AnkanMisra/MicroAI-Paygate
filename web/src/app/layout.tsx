@@ -31,7 +31,7 @@ const DISPLAY_CHAIN_NAME =
 export const metadata: Metadata = {
   title: `MicroAI Paygate — pay-per-call AI, authorized on ${DISPLAY_CHAIN_NAME}`,
   description:
-    "An x402 payment gateway for AI requests. Sign EIP-712, get a signed receipt, verify the signature client-side.",
+    "An x402-style payment gateway for AI requests. Sign EIP-712, get a signed receipt, verify the signature client-side.",
 };
 
 export default function RootLayout({
