@@ -346,7 +346,7 @@ Core local variables live in [.env.example](.env.example). Production placeholde
 | Gateway vet | `cd gateway && go vet ./...` | Run for Go changes. |
 | Verifier tests | `cd verifier && cargo test` | Covers EIP-712, chain ID, timestamp, and nonce behavior. |
 | Verifier lint | `cd verifier && cargo fmt -- --check && cargo clippy -- -D warnings` | Run for Rust changes. |
-| Web lint/build/typecheck | `cd web && bun run lint && bun run build && bun run test` | `bun run test` is `tsc --noEmit`. |
+| Web lint/build/typecheck/unit | `cd web && bun run lint && bun run build && bun run test && bun run test:unit` | `bun run test` is `tsc --noEmit`; `bun run test:unit` runs Bun unit tests. |
 | SDK typecheck/tests | `cd sdk/typescript && bun run typecheck && bun run test` | Covers signing parity, signed retry headers, receipt decoding, trusted-key receipt verification, and mocked client flow. |
 | E2E | `bun run test:e2e` | Starts gateway/verifier. Requires `OPENROUTER_API_KEY` for default OpenRouter startup path. |
 | All unit tests | `bun run test:unit` | Gateway plus verifier tests. |

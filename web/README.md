@@ -76,9 +76,10 @@ cd web
 bun run lint
 bun run build
 bun run test
+bun run test:unit
 ```
 
-`bun run test` runs `tsc --noEmit`.
+`bun run test` runs `tsc --noEmit`. `bun run test:unit` runs the Bun unit tests.
 
 ## Deployment Notes
 
