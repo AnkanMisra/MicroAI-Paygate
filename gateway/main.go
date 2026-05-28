@@ -287,13 +287,22 @@ func main() {
 	// including those rejected by later middleware, carries an ID for tracing.
 	r.Use(CorrelationIDMiddleware())
 
-	if os.Getenv("METRICS_ENABLED") != "false" {
+	enabled := strings.ToLower(
+		strings.TrimSpace(os.Getenv("METRICS_ENABLED")),
+	) != "false"
+
+	if enabled{
 		r.Use(MetricsMiddleware())
-		
-		path := os.Getenv("METRICS_PATH")
+
+		path := strings.TrimSpace(os.Getenv("METRICS_PATH"))
+
 		if path == "" {
 			path = "/metrics"
 		}
+	// Gin requires routes to start with "/"
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
 		r.GET(path, gin.WrapH(promhttp.Handler()))
 	}
 
@@ -457,6 +466,8 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	if !verifyResp.IsValid {
+		verificationTotal.WithLabelValues("invalid").Inc()
+
 		respondVerificationFailure(c, verifyResp)
 		return
 	}
