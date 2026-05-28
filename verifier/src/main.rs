@@ -13,7 +13,7 @@ use ethers::types::Signature;
 use ethers::utils::keccak256;
 
 mod metrics;
-use ::metrics::counter;
+
 use metrics_exporter_prometheus::PrometheusBuilder;
 
 use serde::{Deserialize, Serialize};
@@ -309,13 +309,17 @@ async fn verify_signature(
     let request_start = std::time::Instant::now();
     ::metrics::counter!("verifier_requests_total").increment(1);
 
-    counter!("verifier_requests_total").increment(1);
+    //::metrics::counter!("verifier_requests_total").increment(1);
 
     // 2. Security Check: Match the payload result immediately
     let payload = match payload {
         Ok(Json(p)) => p, // Everything is good, proceed with payload 'p'
         Err(JsonRejection::BytesRejection(_)) => {
             println!("[CID: {}] Rejected: Payload too large", cid);
+
+            let duration = request_start.elapsed().as_secs_f64();
+            metrics::record_verification(false, duration, Some("payload_too_large"));
+
             return (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 res_headers,
@@ -332,6 +336,10 @@ async fn verify_signature(
         }
         Err(e) => {
             println!("[CID: {}] Rejected: Invalid JSON or formatting", cid);
+
+            let duration = request_start.elapsed().as_secs_f64();
+            metrics::record_verification(false, duration, Some("payload_too_large"));
+
             return (
                 StatusCode::BAD_REQUEST,
                 res_headers,
@@ -349,6 +357,9 @@ async fn verify_signature(
     println!("[CID: {}] Verify nonce={}", cid, payload.context.nonce);
 
     if payload.context.chain_id != state.expected_chain_id {
+        let duration = request_start.elapsed().as_secs_f64();
+        metrics::record_verification(false, duration, Some("payload_too_large"));
+
         return (
             StatusCode::BAD_REQUEST,
             res_headers,
@@ -382,6 +393,9 @@ async fn verify_signature(
                 ("E009: missing timestamp".to_string(), "timestamp_missing")
             }
         };
+
+        let duration = request_start.elapsed().as_secs_f64();
+        metrics::record_verification(false, duration, Some("payload_too_large"));
 
         return (
             StatusCode::OK,
