@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "bun run typecheck",
     "test:unit": "bun test"
   },
   "dependencies": {

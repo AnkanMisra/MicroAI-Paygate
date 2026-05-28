@@ -74,12 +74,12 @@ The documentation site is available at `http://localhost:3001/docs`.
 ```bash
 cd web
 bun run lint
-bun run build
-bun run test
+bun run typecheck
 bun run test:unit
+bun run build
 ```
 
-`bun run test` runs `tsc --noEmit`. `bun run test:unit` runs the Bun unit tests.
+`bun run typecheck` runs `tsc --noEmit` (`bun run test` is kept as an alias for it). `bun run test:unit` runs the Bun unit tests. CI runs these same checks via `.github/workflows/web-lint-build.yml`.
 
 ## Deployment Notes
 

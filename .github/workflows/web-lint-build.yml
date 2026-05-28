@@ -37,6 +37,10 @@ jobs:
         working-directory: web
         run: bun run lint
 
+      - name: Typecheck (tsc)
+        working-directory: web
+        run: bun run typecheck
+
       - name: Unit tests (Bun)
         working-directory: web
         run: bun run test:unit
