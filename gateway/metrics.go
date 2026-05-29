@@ -1,9 +1,27 @@
 package main
 
 import (
+	"os"
+	"strings"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
+
+func getMetricsEnabled() bool {
+	return strings.ToLower(strings.TrimSpace(os.Getenv("METRICS_ENABLED"))) != "false"
+}
+
+func getMetricsPath() string {
+	path := strings.TrimSpace(os.Getenv("METRICS_PATH"))
+	if path == "" {
+		return "/metrics"
+	}
+	if !strings.HasPrefix(path, "/") {
+		return "/" + path
+	}
+	return path
+}
 
 var (
 	requestsTotal = promauto.NewCounterVec(
@@ -15,8 +33,8 @@ var (
 	)
 	requestsDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name: "gateway_request_duration_seconds",
-			Help: "Request duration in seconds",
+			Name:    "gateway_request_duration_seconds",
+			Help:    "Request duration in seconds",
 			Buckets: prometheus.DefBuckets,
 		},
 		[]string{"method", "path"},
@@ -55,4 +73,4 @@ var (
 			Help: "Current in-flight requests",
 		},
 	)
-)	
+)

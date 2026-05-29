@@ -8,9 +8,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -216,10 +216,11 @@ func RequestTimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 			// running handler may write directly to the real writer after the
 			// timeout response was already sent (causing panics or corruption).
 			bw.mu.Lock()
+			bw.status = http.StatusGatewayTimeout
 			bw.closed = true
 			bw.mu.Unlock()
 			origWriter.Header().Set("Content-Type", "application/json; charset=utf-8")
-			origWriter.WriteHeader(504)
+			origWriter.WriteHeader(http.StatusGatewayTimeout)
 			_, _ = origWriter.Write([]byte(`{"error":"Gateway Timeout","message":"Request exceeded maximum allowed time"}`))
 			return
 		}
@@ -283,7 +284,7 @@ func (rws *responseWriterShim) CloseNotify() <-chan bool {
 func MetricsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
-		path  := c.FullPath()
+		path := c.FullPath()
 		if path == "" {
 			path = "unknown"
 		}

@@ -122,7 +122,7 @@ func CacheMiddleware() gin.HandlerFunc {
 				routePath = "unknown"
 			}
 			cacheHits.WithLabelValues(routePath).Inc()
-			
+
 			// Cache HIT! -> Verify Payment *BEFORE* serving
 			// verifyPayment creates its own timeout context, so pass request context directly
 			timestampStr := c.GetHeader("X-402-Timestamp")
@@ -160,7 +160,7 @@ func CacheMiddleware() gin.HandlerFunc {
 			}
 			if verifyResp.RecoveredAddress == "" {
 				verificationTotal.WithLabelValues("error").Inc()
-				respondError(c,502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
+				respondError(c, 502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
 				c.Abort()
 				return
 			}

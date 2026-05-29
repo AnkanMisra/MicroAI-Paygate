@@ -266,8 +266,6 @@ func main() {
 
 	r := gin.Default()
 
-
-
 	// Restrict trusted proxies to prevent X-Forwarded-For spoofing.
 	// IP-based rate limiting relies on c.ClientIP(), which reads
 	// X-Forwarded-For only from proxies in this list. An empty list
@@ -287,30 +285,18 @@ func main() {
 	// including those rejected by later middleware, carries an ID for tracing.
 	r.Use(CorrelationIDMiddleware())
 
-	enabled := strings.ToLower(
-		strings.TrimSpace(os.Getenv("METRICS_ENABLED")),
-	) != "false"
+	metricsPath := getMetricsPath()
 
-	if enabled{
+	if getMetricsEnabled() {
 		r.Use(MetricsMiddleware())
-
-		path := strings.TrimSpace(os.Getenv("METRICS_PATH"))
-
-		if path == "" {
-			path = "/metrics"
-		}
-	// Gin requires routes to start with "/"
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-		r.GET(path, gin.WrapH(promhttp.Handler()))
+		r.GET(metricsPath, gin.WrapH(promhttp.Handler()))
 	}
 
 	// Configure GZIP compression for API responses
 	// - Uses DefaultCompression for balance between speed and size
 	// - Excludes /metrics endpoint (if added in future)
 	// - Compression is transparent to receipt verification (hashes uncompressed body)
-	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/metrics"})))
+	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{metricsPath})))
 
 	// Initialize Redis early to fail-fast if Redis required but unavailable
 	if err := initRedis(); err != nil {
@@ -477,7 +463,7 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	verificationTotal.WithLabelValues("success").Inc()
-	
+
 	// 2. Parse Request
 	var req SummarizeRequest
 	if err := json.Unmarshal(requestBody, &req); err != nil {
@@ -1169,6 +1155,3 @@ var checkOpenRouterHealth = func() string {
 	}
 	return "ok"
 }
-
-
-
