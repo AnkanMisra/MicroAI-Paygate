@@ -93,3 +93,10 @@ func getVerifierTimeout() time.Duration { return getPositiveTimeout("VERIFIER_TI
 func getHealthCheckTimeout() time.Duration {
 	return getPositiveTimeout("HEALTH_CHECK_TIMEOUT_SECONDS", 2)
 }
+
+// getMaxBodySize returns the maximum request body size in bytes, configured via
+// the MAX_REQUEST_BODY_MB environment variable. Defaults to 10MB.
+func getMaxBodySize() int64 {
+	mb := getEnvAsInt("MAX_REQUEST_BODY_MB", 10)
+	return int64(mb) * 1024 * 1024
+}

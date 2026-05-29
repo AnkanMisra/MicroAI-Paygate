@@ -416,13 +416,13 @@ func handleSummarize(c *gin.Context) {
 	// Read body if not already available
 	if requestBody == nil {
 		// Read body with limit (only if middleware didn't process it)
-		const maxBodySize = 10 * 1024 * 1024
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodySize))
+		maxSize := getMaxBodySize()
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSize)
 		requestBody, err = io.ReadAll(c.Request.Body)
 		if err != nil {
 			var maxBytesErr *http.MaxBytesError
 			if errors.As(err, &maxBytesErr) {
-				c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
+				c.JSON(413, gin.H{"error": "Payload too large", "max_size": fmt.Sprintf("%dMB", maxSize/1024/1024)})
 			} else {
 				respondError(c, 500, "request_body_read_failed", err)
 			}
