@@ -25,6 +25,9 @@ func getMetricsPath() string {
 }
 
 func validateMetricsPath(path string) error {
+	if strings.ContainsAny(path, ":*") {
+		return fmt.Errorf("metrics path %q must be a literal route without Gin wildcards", path)
+	}
 	switch path {
 	case "/healthz", "/readyz", "/docs", "/openapi.yaml", "/api/ai/summarize", "/api/receipts/:id":
 		return fmt.Errorf("metrics path %q conflicts with an existing route", path)

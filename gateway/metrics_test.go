@@ -52,6 +52,10 @@ func TestMetricsPathRejectsReservedRoutes(t *testing.T) {
 		"/api/receipts/:id",
 		"/api/receipts/metrics",
 		"/api/receipts/metrics/nested",
+		"/:name",
+		"/api/:name",
+		"/*path",
+		"/metrics/*rest",
 	} {
 		t.Run(path, func(t *testing.T) {
 			require.Error(t, validateMetricsPath(path))
