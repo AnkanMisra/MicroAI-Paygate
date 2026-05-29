@@ -28,9 +28,11 @@ func validateMetricsPath(path string) error {
 	switch path {
 	case "/healthz", "/readyz", "/docs", "/openapi.yaml", "/api/ai/summarize", "/api/receipts/:id":
 		return fmt.Errorf("metrics path %q conflicts with an existing route", path)
-	default:
-		return nil
 	}
+	if strings.HasPrefix(path, "/api/receipts/") {
+		return fmt.Errorf("metrics path %q conflicts with the receipt lookup route", path)
+	}
+	return nil
 }
 
 var (

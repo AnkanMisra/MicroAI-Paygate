@@ -43,7 +43,16 @@ func TestMetricsPathRejectsReservedRoutes(t *testing.T) {
 	require.NoError(t, validateMetricsPath("/metrics"))
 	require.NoError(t, validateMetricsPath("/internal/metrics"))
 
-	for _, path := range []string{"/healthz", "/readyz", "/docs", "/openapi.yaml", "/api/ai/summarize", "/api/receipts/:id"} {
+	for _, path := range []string{
+		"/healthz",
+		"/readyz",
+		"/docs",
+		"/openapi.yaml",
+		"/api/ai/summarize",
+		"/api/receipts/:id",
+		"/api/receipts/metrics",
+		"/api/receipts/metrics/nested",
+	} {
 		t.Run(path, func(t *testing.T) {
 			require.Error(t, validateMetricsPath(path))
 		})
