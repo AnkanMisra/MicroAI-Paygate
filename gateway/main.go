@@ -461,6 +461,7 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 	if verifyResp.RecoveredAddress == "" {
+		verificationTotal.WithLabelValues("error").Inc()
 		respondError(c, 502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
 		return
 	}

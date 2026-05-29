@@ -129,6 +129,20 @@ func TestGatewayVerificationMetricRecordsInvalidResponses(t *testing.T) {
 	require.Equal(t, float64(1), after-before)
 }
 
+func TestGatewayVerificationMetricRecordsMalformedSuccessResponses(t *testing.T) {
+	withVerifierResponse(t, http.StatusOK, `{"is_valid":true,"recovered_address":"","error":""}`)
+	router := newSummarizeTestRouter()
+
+	before := testutil.ToFloat64(verificationTotal.WithLabelValues("error"))
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, signedSummarizeRequest(`{"text":"hello"}`))
+
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	after := testutil.ToFloat64(verificationTotal.WithLabelValues("error"))
+	require.Equal(t, float64(1), after-before)
+}
+
 func TestCacheMiddlewareRecordsHitsAndMisses(t *testing.T) {
 	origClient := redisClient
 	redisServer := miniredis.RunT(t)
