@@ -1,7 +1,6 @@
 use metrics::{counter, histogram};
 
 pub fn record_verification(valid: bool, duration: f64, reason: Option<&str>) {
-    //counter!("verifier_requests_total").increment(1);
     histogram!("verifier_request_duration_seconds").record(duration);
 
     if valid {

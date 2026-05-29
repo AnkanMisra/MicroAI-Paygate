@@ -14,7 +14,7 @@ use ethers::utils::keccak256;
 
 mod metrics;
 
-use metrics_exporter_prometheus::PrometheusBuilder;
+use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -106,13 +106,12 @@ async fn main() {
     let recorder = PrometheusBuilder::new()
         .install_recorder()
         .expect("failed to install recorder");
-
-    let metrics_route = move || async move { recorder.render() };
+    spawn_metrics_upkeep(recorder.clone());
 
     let app = Router::new()
         .route("/health", get(health))
         .route("/verify", post(verify_signature))
-        .route("/metrics", get(metrics_route))
+        .route("/metrics", get(metrics_route(recorder)))
         .layer(DefaultBodyLimit::max(limit))
         .with_state(state);
 
@@ -121,6 +120,22 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+fn metrics_route(
+    handle: PrometheusHandle,
+) -> impl Fn() -> std::future::Ready<String> + Clone + Send + Sync + 'static {
+    move || std::future::ready(handle.clone().render())
+}
+
+fn spawn_metrics_upkeep(handle: PrometheusHandle) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            handle.run_upkeep();
+        }
+    });
 }
 
 async fn health(headers: HeaderMap) -> (HeaderMap, Json<HealthResponse>) {
@@ -309,16 +324,13 @@ async fn verify_signature(
     let request_start = std::time::Instant::now();
     ::metrics::counter!("verifier_requests_total").increment(1);
 
-    //::metrics::counter!("verifier_requests_total").increment(1);
-
     // 2. Security Check: Match the payload result immediately
     let payload = match payload {
         Ok(Json(p)) => p, // Everything is good, proceed with payload 'p'
         Err(JsonRejection::BytesRejection(_)) => {
             println!("[CID: {}] Rejected: Payload too large", cid);
 
-            let duration = request_start.elapsed().as_secs_f64();
-            metrics::record_verification(false, duration, Some("payload_too_large"));
+            record_verification_failure(&request_start, "payload_too_large");
 
             return (
                 StatusCode::PAYLOAD_TOO_LARGE,
@@ -337,8 +349,7 @@ async fn verify_signature(
         Err(e) => {
             println!("[CID: {}] Rejected: Invalid JSON or formatting", cid);
 
-            let duration = request_start.elapsed().as_secs_f64();
-            metrics::record_verification(false, duration, Some("payload_too_large"));
+            record_verification_failure(&request_start, "invalid_json");
 
             return (
                 StatusCode::BAD_REQUEST,
@@ -357,8 +368,7 @@ async fn verify_signature(
     println!("[CID: {}] Verify nonce={}", cid, payload.context.nonce);
 
     if payload.context.chain_id != state.expected_chain_id {
-        let duration = request_start.elapsed().as_secs_f64();
-        metrics::record_verification(false, duration, Some("payload_too_large"));
+        record_verification_failure(&request_start, "chain_id_mismatch");
 
         return (
             StatusCode::BAD_REQUEST,
@@ -394,8 +404,7 @@ async fn verify_signature(
             }
         };
 
-        let duration = request_start.elapsed().as_secs_f64();
-        metrics::record_verification(false, duration, Some("payload_too_large"));
+        record_verification_failure(&request_start, error_code);
 
         return (
             StatusCode::OK,
@@ -438,6 +447,7 @@ async fn verify_signature(
     let typed_data: TypedData = match serde_json::from_value(typed_data_json) {
         Ok(td) => td,
         Err(e) => {
+            record_verification_failure(&request_start, "typed_data_error");
             return (
                 StatusCode::BAD_REQUEST,
                 res_headers,
@@ -454,6 +464,7 @@ async fn verify_signature(
     let sig = match Signature::from_str(&payload.signature) {
         Ok(s) => s,
         Err(e) => {
+            record_verification_failure(&request_start, "invalid_signature");
             return (
                 StatusCode::BAD_REQUEST,
                 res_headers,
@@ -513,6 +524,10 @@ async fn verify_signature(
             )
         }
     }
+}
+
+fn record_verification_failure(request_start: &Instant, reason: &'static str) {
+    metrics::record_verification(false, request_start.elapsed().as_secs_f64(), Some(reason));
 }
 
 /* =======================
@@ -1237,5 +1252,96 @@ mod tests {
         // 4. Verify the results
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE); // 413
         assert!(response.headers().contains_key("x-correlation-id")); // Header check
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_verify_signature_records_specific_failure_reasons() {
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        let _guard = ::metrics::set_default_local_recorder(&recorder);
+
+        let wrong_chain = signed_request("metrics-wrong-chain", 1, now()).await;
+        let (status, _, Json(resp)) =
+            verify_signature(State(app_state()), HeaderMap::new(), Ok(Json(wrong_chain))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(resp.error_code.as_deref(), Some("chain_id_mismatch"));
+
+        let missing_timestamp = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234567890123456789012345678901234567890".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "metrics-missing-timestamp".to_string(),
+                chain_id: BASE_SEPOLIA_CHAIN_ID,
+                timestamp: None,
+            },
+            signature: "0x1234567890".to_string(),
+        };
+        let (status, _, Json(resp)) = verify_signature(
+            State(app_state()),
+            HeaderMap::new(),
+            Ok(Json(missing_timestamp)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resp.error_code.as_deref(), Some("timestamp_missing"));
+
+        let malformed_signature = VerifyRequest {
+            context: PaymentContext {
+                recipient: "0x1234567890123456789012345678901234567890".to_string(),
+                token: "USDC".to_string(),
+                amount: "100".to_string(),
+                nonce: "metrics-malformed-signature".to_string(),
+                chain_id: BASE_SEPOLIA_CHAIN_ID,
+                timestamp: Some(now()),
+            },
+            signature: "not-a-signature".to_string(),
+        };
+        let (status, _, Json(resp)) = verify_signature(
+            State(app_state()),
+            HeaderMap::new(),
+            Ok(Json(malformed_signature)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(resp.error_code.as_deref(), Some("invalid_signature"));
+
+        let rendered = handle.render();
+        assert!(
+            rendered.contains("verifier_signature_invalid_total{reason=\"chain_id_mismatch\"} 1")
+        );
+        assert!(
+            rendered.contains("verifier_signature_invalid_total{reason=\"timestamp_missing\"} 1")
+        );
+        assert!(
+            rendered.contains("verifier_signature_invalid_total{reason=\"invalid_signature\"} 1")
+        );
+        assert!(
+            !rendered.contains("verifier_signature_invalid_total{reason=\"payload_too_large\"}")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_metrics_route_can_be_scraped_repeatedly() {
+        use axum::{body::Body, http::Request};
+        use tower::ServiceExt;
+
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let app = Router::new().route("/metrics", get(metrics_route(recorder.handle())));
+
+        for _ in 0..2 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri("/metrics")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
     }
 }
