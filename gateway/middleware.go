@@ -290,22 +290,29 @@ func MetricsMiddleware() gin.HandlerFunc {
 		}
 
 		activeRequests.Inc()
-		defer activeRequests.Dec()
+
+		defer func() {
+			statusCode := c.Writer.Status()
+			if recovered := recover(); recovered != nil {
+				if statusCode < http.StatusInternalServerError {
+					statusCode = http.StatusInternalServerError
+				}
+				recordRequestMetrics(c.Request.Method, path, statusCode, start)
+				activeRequests.Dec()
+				panic(recovered)
+			}
+
+			recordRequestMetrics(c.Request.Method, path, statusCode, start)
+			activeRequests.Dec()
+		}()
 
 		c.Next()
-
-		duration := time.Since(start).Seconds()
-		status := strconv.Itoa(c.Writer.Status())
-
-		requestsTotal.WithLabelValues(
-			c.Request.Method,
-			path,
-			status,
-		).Inc()
-
-		requestsDuration.WithLabelValues(
-			c.Request.Method,
-			path,
-		).Observe(duration)
 	}
+}
+
+func recordRequestMetrics(method, path string, statusCode int, start time.Time) {
+	status := strconv.Itoa(statusCode)
+
+	requestsTotal.WithLabelValues(method, path, status).Inc()
+	requestsDuration.WithLabelValues(method, path).Observe(time.Since(start).Seconds())
 }

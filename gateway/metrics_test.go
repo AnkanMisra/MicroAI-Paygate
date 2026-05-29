@@ -60,6 +60,26 @@ func TestMetricsMiddlewareRecordsTimeoutStatus(t *testing.T) {
 	require.Equal(t, float64(1), after-before)
 }
 
+func TestMetricsMiddlewareRecordsPanickedRequests(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(gin.Recovery())
+	r.Use(MetricsMiddleware())
+	r.GET("/panic-metrics", func(c *gin.Context) {
+		panic("boom")
+	})
+
+	before := testutil.ToFloat64(requestsTotal.WithLabelValues("GET", "/panic-metrics", "500"))
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/panic-metrics", nil)
+	r.ServeHTTP(recorder, req)
+
+	require.Equal(t, http.StatusInternalServerError, recorder.Code)
+	after := testutil.ToFloat64(requestsTotal.WithLabelValues("GET", "/panic-metrics", "500"))
+	require.Equal(t, float64(1), after-before)
+}
+
 func TestRateLimitMiddlewareRecordsRejectedRequests(t *testing.T) {
 	t.Setenv("RATE_LIMIT_ENABLED", "true")
 	t.Setenv("RATE_LIMIT_ANONYMOUS_RPM", "60")
