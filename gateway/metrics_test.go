@@ -151,3 +151,32 @@ func TestCacheMiddlewareRecordsHitsAndMisses(t *testing.T) {
 	hitAfter := testutil.ToFloat64(cacheHits.WithLabelValues("/api/ai/summarize"))
 	require.Equal(t, float64(1), hitAfter-hitBefore)
 }
+
+func TestCacheHitVerificationMetricRecordsInvalidResponses(t *testing.T) {
+	origClient := redisClient
+	redisServer := miniredis.RunT(t)
+	redisClient = redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	t.Cleanup(func() {
+		if redisClient != nil && redisClient != origClient {
+			_ = redisClient.Close()
+		}
+		redisClient = origClient
+	})
+
+	withVerifierResponse(t, http.StatusOK, `{"is_valid":false,"recovered_address":null,"error":"bad signature"}`)
+	router := newCachedSummarizeTestRouter()
+
+	hitText := "cache hit invalid metrics"
+	cachedBody := `{"result":"cached summary","cached_at":1700000000}`
+	cacheKey := getCacheKey(hitText, "z-ai/glm-4.5-air:free")
+	require.NoError(t, redisClient.Set(context.Background(), cacheKey, cachedBody, time.Hour).Err())
+
+	before := testutil.ToFloat64(verificationTotal.WithLabelValues("invalid"))
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, signedSummarizeRequest(`{"text":"`+hitText+`"}`))
+
+	require.Equal(t, http.StatusForbidden, recorder.Code)
+	after := testutil.ToFloat64(verificationTotal.WithLabelValues("invalid"))
+	require.Equal(t, float64(1), after-before)
+}

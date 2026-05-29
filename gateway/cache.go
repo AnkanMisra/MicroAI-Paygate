@@ -153,7 +153,7 @@ func CacheMiddleware() gin.HandlerFunc {
 			}
 
 			if !verifyResp.IsValid {
-				verificationTotal.WithLabelValues("error").Inc()
+				verificationTotal.WithLabelValues("invalid").Inc()
 				respondVerificationFailure(c, verifyResp)
 				c.Abort()
 				return
