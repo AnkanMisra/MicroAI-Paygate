@@ -107,6 +107,10 @@ Important error codes:
 | `timestamp_missing` | Timestamp field is missing or invalid. |
 | `nonce_already_used` | Nonce hash was already accepted inside the signature window. |
 
+### `GET /metrics`
+
+Returns Prometheus text-format metrics for verifier request volume, verification latency, valid signatures, and invalid signatures by rejection reason.
+
 ## Configuration
 
 | Variable | Default | Notes |
@@ -131,6 +135,20 @@ cargo run
 ```
 
 The service listens on `0.0.0.0:3002` by default.
+
+## Metrics
+
+The verifier exposes Prometheus metrics at `GET /metrics` on port `3002`.
+
+Example local scrape config:
+
+```yaml
+scrape_configs:
+  - job_name: microai-verifier
+    static_configs:
+      - targets: ["localhost:3002"]
+    metrics_path: /metrics
+```
 
 ## Testing
 

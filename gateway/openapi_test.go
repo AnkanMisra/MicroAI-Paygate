@@ -26,13 +26,16 @@ func ginPathToOpenAPI(p string) string {
 }
 
 // TestOpenAPISpecMatchesRoutes enforces bidirectional alignment between the
-// API surface registered by registerAPIRoutes and the paths documented in
-// openapi.yaml. Documentation-meta routes (/docs, /openapi.yaml) live in
-// registerDocRoutes and are intentionally excluded from the API contract.
+// API surface registered by registerAPIRoutes, plus the default metrics route,
+// and the paths documented in openapi.yaml. Documentation-meta routes (/docs,
+// /openapi.yaml) live in registerDocRoutes and are intentionally excluded from
+// the API contract.
 func TestOpenAPISpecMatchesRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	t.Setenv("METRICS_PATH", "")
 	registerAPIRoutes(r)
+	r.GET(getMetricsPath(), func(c *gin.Context) {})
 
 	data, err := os.ReadFile(filepath.Join(".", "openapi.yaml"))
 	if err != nil {
@@ -61,7 +64,7 @@ func TestOpenAPISpecMatchesRoutes(t *testing.T) {
 	}
 
 	// Defense-in-depth: hard-require the four paths called out in issue #164.
-	required := []string{"/healthz", "/readyz", "/api/ai/summarize", "/api/receipts/{id}"}
+	required := []string{"/healthz", "/readyz", "/metrics", "/api/ai/summarize", "/api/receipts/{id}"}
 	for _, p := range required {
 		if _, ok := spec.Paths[p]; !ok {
 			t.Errorf("openapi.yaml is missing required path: %s", p)

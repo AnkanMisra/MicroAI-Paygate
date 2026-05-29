@@ -330,6 +330,8 @@ Core local variables live in [.env.example](.env.example). Production placeholde
 | `REDIS_URL` | Gateway | Required when `RECEIPT_STORE=redis` or `CACHE_ENABLED=true`. |
 | `VERIFIER_URL` | Gateway | **Required.** Where the gateway calls `/verify` (e.g. `http://127.0.0.1:3002` for `bun run stack`, `https://<app>.onrender.com` for Render). The gateway refuses to start if unset — no silent loopback fallback. |
 | `CACHE_ENABLED` | Gateway | Optional response cache. Payment verification still runs on cache hits. |
+| `METRICS_ENABLED` | Gateway | Enables the Prometheus metrics endpoint by default. Set to `false` to disable. |
+| `METRICS_PATH` | Gateway | Gateway metrics path. Default `/metrics`; values without a leading slash are normalized. |
 | `ALLOWED_ORIGINS` | Gateway | Comma-separated CORS origins, no paths or query strings. |
 | `TRUSTED_PROXIES` | Gateway | Comma-separated trusted proxy CIDRs for production IP handling. |
 | `NEXT_PUBLIC_GATEWAY_URL` | Web | Gateway base URL. Browser fetches `/api/ai/summarize` and `/api/receipts/:id` here. |
@@ -361,6 +363,7 @@ The gateway serves OpenAPI at `GET /openapi.yaml` and Swagger UI at `GET /docs`.
 | --- | --- |
 | `GET /healthz` | Liveness check for the gateway process. |
 | `GET /readyz` | Readiness check for verifier, active AI provider, Redis when required, and the gateway's own metrics. |
+| `GET /metrics` | Prometheus metrics for gateway request rate, latency, cache, verification, rate-limit, and active-request signals. |
 | `POST /api/ai/summarize` | Payment-gated text summarization endpoint. |
 | `GET /api/receipts/{id}` | Fetch a stored signed receipt until its TTL expires. |
 
@@ -381,6 +384,23 @@ Successful summarize responses return:
 ```
 
 The signed receipt is returned in the `X-402-Receipt` response header as base64-encoded `SignedReceipt` JSON.
+
+## Observability
+
+The gateway exposes Prometheus metrics at `GET /metrics` by default. Set `METRICS_ENABLED=false` to disable the endpoint, or set `METRICS_PATH` to move it. The verifier exposes Prometheus metrics at `GET /metrics` on port `3002`.
+
+```yaml
+scrape_configs:
+  - job_name: microai-gateway
+    static_configs:
+      - targets: ["localhost:3000"]
+    metrics_path: /metrics
+
+  - job_name: microai-verifier
+    static_configs:
+      - targets: ["localhost:3002"]
+    metrics_path: /metrics
+```
 
 ## Benchmarking
 
