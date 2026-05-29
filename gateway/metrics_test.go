@@ -115,6 +115,27 @@ func TestRateLimitMiddlewareRecordsRejectedRequests(t *testing.T) {
 	require.Equal(t, float64(1), after-before)
 }
 
+func TestRateLimitMiddlewareRecordsUnknownRouteLabel(t *testing.T) {
+	t.Setenv("RATE_LIMIT_ENABLED", "true")
+	t.Setenv("RATE_LIMIT_ANONYMOUS_RPM", "60")
+	t.Setenv("RATE_LIMIT_ANONYMOUS_BURST", "1")
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(RateLimitMiddleware(initRateLimiters()))
+
+	before := testutil.ToFloat64(rateLimitHits.WithLabelValues("unknown"))
+
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/not-registered", nil)
+		r.ServeHTTP(recorder, req)
+	}
+
+	after := testutil.ToFloat64(rateLimitHits.WithLabelValues("unknown"))
+	require.Equal(t, float64(1), after-before)
+}
+
 func TestGatewayVerificationMetricRecordsInvalidResponses(t *testing.T) {
 	withVerifierResponse(t, http.StatusOK, `{"is_valid":false,"recovered_address":null,"error":"bad signature"}`)
 	router := newSummarizeTestRouter()

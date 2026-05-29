@@ -695,7 +695,11 @@ func RateLimitMiddleware(limiters map[string]RateLimiter) gin.HandlerFunc {
 		if !limiter.Allow(key) {
 			retryAfter := calculateRetryAfter(limiter, key)
 
-			rateLimitHits.WithLabelValues(c.FullPath()).Inc()
+			routePath := c.FullPath()
+			if routePath == "" {
+				routePath = "unknown"
+			}
+			rateLimitHits.WithLabelValues(routePath).Inc()
 
 			c.Header("Retry-After", strconv.Itoa(retryAfter))
 			c.Header("X-RateLimit-Limit", strconv.Itoa(getLimitForTier(tier)))
