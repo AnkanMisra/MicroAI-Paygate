@@ -288,6 +288,9 @@ func main() {
 	metricsPath := getMetricsPath()
 
 	if getMetricsEnabled() {
+		if err := validateMetricsPath(metricsPath); err != nil {
+			log.Fatalf("Invalid metrics configuration: %v", err)
+		}
 		r.Use(MetricsMiddleware())
 		r.GET(metricsPath, gin.WrapH(promhttp.Handler()))
 	}

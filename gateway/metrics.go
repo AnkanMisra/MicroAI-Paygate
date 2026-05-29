@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -21,6 +22,15 @@ func getMetricsPath() string {
 		return "/" + path
 	}
 	return path
+}
+
+func validateMetricsPath(path string) error {
+	switch path {
+	case "/healthz", "/readyz", "/docs", "/openapi.yaml", "/api/ai/summarize", "/api/receipts/:id":
+		return fmt.Errorf("metrics path %q conflicts with an existing route", path)
+	default:
+		return nil
+	}
 }
 
 var (

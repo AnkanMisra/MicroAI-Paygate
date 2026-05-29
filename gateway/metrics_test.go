@@ -39,6 +39,17 @@ func TestGetMetricsPathDefaultsAndNormalizesSlash(t *testing.T) {
 	require.Equal(t, "/custom-metrics", getMetricsPath())
 }
 
+func TestMetricsPathRejectsReservedRoutes(t *testing.T) {
+	require.NoError(t, validateMetricsPath("/metrics"))
+	require.NoError(t, validateMetricsPath("/internal/metrics"))
+
+	for _, path := range []string{"/healthz", "/readyz", "/docs", "/openapi.yaml", "/api/ai/summarize", "/api/receipts/:id"} {
+		t.Run(path, func(t *testing.T) {
+			require.Error(t, validateMetricsPath(path))
+		})
+	}
+}
+
 func TestMetricsMiddlewareRecordsTimeoutStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
