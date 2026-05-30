@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { describe, expect, it } from "bun:test";
 import { DOCS_NAV_ITEMS } from "./docs-nav";
 
@@ -25,12 +25,11 @@ describe("docs navigation", () => {
   const docsEntries = readdirSync("./src/app/docs");
 
   const docsRoutes = docsEntries
-    .filter(
-      (entry) =>
-        !["page.mdx", "layout.tsx"].includes(entry)
-    )
-    .map((entry) => `/docs/${entry}`)
-    .sort();
+  .filter((entry) =>
+    statSync(`./src/app/docs/${entry}`).isDirectory()
+  )
+  .map((entry) => `/docs/${entry}`)
+  .sort();
 
   const navRoutes = DOCS_NAV_ITEMS.map((item) => item.href)
     .filter((href) => href !== "/docs")
