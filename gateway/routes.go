@@ -51,6 +51,7 @@ func registerAPIRoutes(r *gin.Engine) {
 	} else {
 		aiGroup.POST("/summarize", handleSummarize)
 	}
+	aiGroup.POST("/summarize/stream", handleSummarizeStream)
 
 	r.GET("/api/receipts/:id", handleGetReceipt)
 }

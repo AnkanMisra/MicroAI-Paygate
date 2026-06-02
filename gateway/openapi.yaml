@@ -220,6 +220,133 @@ paths:
               schema:
                 $ref: "#/components/schemas/PublicError"
 
+  /api/ai/summarize/stream:
+    post:
+      summary: Stream summarized text with x402 payment enforcement
+      description: |
+        Unsigned requests return the same HTTP 402 payment context as `/api/ai/summarize`.
+        Signed retries enforce `X-402-Signature`, `X-402-Nonce`, and `X-402-Timestamp`,
+        then stream provider output as Server-Sent Events. Successful streams emit
+        `chunk` events with text deltas and a final `done` event containing the full
+        result plus a base64-encoded SignedReceipt. Because HTTP headers cannot be
+        appended after streaming starts, the streaming receipt is carried in the
+        final SSE event instead of `X-402-Receipt`.
+      parameters:
+        - name: X-402-Signature
+          in: header
+          required: false
+          description: EIP-712 wallet signature authorizing the payment context.
+          schema:
+            type: string
+            example: "0x..."
+        - name: X-402-Nonce
+          in: header
+          required: false
+          description: Nonce from the original 402 paymentContext.
+          schema:
+            type: string
+            example: "550e8400-e29b-41d4-a716-446655440000"
+        - name: X-402-Timestamp
+          in: header
+          required: false
+          description: Unix timestamp in seconds from the original 402 paymentContext.
+          schema:
+            type: string
+            example: "1700000000"
+        - name: X-Correlation-ID
+          in: header
+          required: false
+          description: Optional caller-supplied correlation ID.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SummarizeRequest"
+      responses:
+        "200":
+          description: Server-Sent Events stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              examples:
+                stream:
+                  value: |
+                    event: chunk
+                    data: {"delta":"AI "}
+
+                    event: chunk
+                    data: {"delta":"summarizes text."}
+
+                    event: done
+                    data: {"result":"AI summarizes text.","receipt":"eyJyZWNlaXB0Ijp7fX0="}
+        "400":
+          description: Invalid timestamp, chain mismatch, or invalid request body.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/PublicError"
+                  - $ref: "#/components/schemas/ValidationError"
+        "402":
+          description: Payment required. Sign the returned paymentContext and retry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentRequiredResponse"
+        "403":
+          description: Invalid signature.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicError"
+        "409":
+          description: Nonce already used.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicError"
+        "413":
+          description: Request body exceeded the gateway limit.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Payload too large
+                  max_size:
+                    type: string
+                    example: 10MB
+        "501":
+          description: Configured AI provider does not support streaming.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicError"
+        "502":
+          description: Verification service or upstream AI provider unavailable before streaming starts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicError"
+        "504":
+          description: Verifier timeout before streaming starts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicError"
+        "500":
+          description: Sanitized internal server error before streaming starts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicError"
+
   /api/receipts/{id}:
     get:
       summary: Fetch a signed receipt
@@ -378,6 +505,7 @@ components:
             - verifier_timeout
             - upstream_unavailable
             - upstream_timeout
+            - streaming_unsupported
             - request_body_read_failed
             - response_encoding_failed
             - receipt_generation_failed

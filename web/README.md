@@ -10,6 +10,7 @@ The web app is a Next.js/Bun frontend on port `3001`. It lets users submit text 
 - Switch or add the requested chain when the wallet is on the wrong network.
 - Sign the gateway-provided EIP-712 payment context.
 - Retry with `X-402-Signature`, `X-402-Nonce`, and `X-402-Timestamp`.
+- Optionally stream paid summaries from the gateway and display deltas as they arrive.
 - Display summary results or user-facing errors.
 - Serve the in-app MDX documentation experience at `/docs`.
 
@@ -19,7 +20,7 @@ The frontend reads these `NEXT_PUBLIC_*` environment variables at build time:
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `NEXT_PUBLIC_GATEWAY_URL` | `http://localhost:3000` | Gateway base URL the browser fetches `/api/ai/summarize` and `/api/receipts/:id` from. |
+| `NEXT_PUBLIC_GATEWAY_URL` | `http://localhost:3000` | Gateway base URL the browser fetches `/api/ai/summarize`, `/api/ai/summarize/stream`, and `/api/receipts/:id` from. |
 | `NEXT_PUBLIC_EXPECTED_CHAIN_ID` | `84532` | Chain id the wallet widget expects. Must match the gateway's `CHAIN_ID`. Deployments on Base mainnet should set `8453` so the widget doesn't fight every payment context. |
 | `NEXT_PUBLIC_EXPECTED_CHAIN_NAME` | `Base Sepolia` | Display name used by the wallet widget's `Switch to <name>` button and the summarize form's placeholder copy. |
 | `NEXT_PUBLIC_PAYMENT_AMOUNT` | `0.001` | Pre-challenge fee label shown under the summarize form. **Informational only** — the actual signed amount is whatever the gateway embeds in the 402 payment context. |
@@ -47,6 +48,16 @@ Payment:
 ```
 
 If this shape changes, update gateway, verifier, web, E2E tests, OpenAPI, and docs together.
+
+## Streaming Summaries
+
+The summarize form uses `/api/ai/summarize/stream` when streaming is enabled. The unsigned request still receives the normal `402 Payment Required` challenge. After the wallet signs that context, the signed retry receives Server-Sent Events:
+
+- `chunk` events carry incremental `{ "delta": "..." }` text.
+- `done` carries `{ "result": "...", "receipt": "..." }` with the complete summary and a base64-encoded signed receipt.
+- `error` carries a sanitized gateway error code and optional public message.
+
+The streaming receipt lives in the final SSE event instead of the `X-402-Receipt` header because headers cannot be appended once the response body has started.
 
 ## Local Development
 

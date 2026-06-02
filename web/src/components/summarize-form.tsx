@@ -20,6 +20,7 @@ const DISPLAY_CHAIN_NAME = process.env.NEXT_PUBLIC_EXPECTED_CHAIN_NAME ?? "Base 
 
 export function SummarizeForm() {
   const [input, setInput] = useState("");
+  const [useStreaming, setUseStreaming] = useState(true);
   const { submit, reset, step, summary, receipt, error, isRunning } = useX402();
 
   const wordCount = input.trim() ? input.trim().split(/\s+/).length : 0;
@@ -28,7 +29,7 @@ export function SummarizeForm() {
 
   function handleSubmit() {
     if (!canSubmit) return;
-    void submit(input);
+    void submit(input, { stream: useStreaming });
   }
 
   function handleReset() {
@@ -80,6 +81,15 @@ export function SummarizeForm() {
             by the gateway and verifiable in your browser.
           </p>
           <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-soft">
+              <input
+                type="checkbox"
+                checked={useStreaming}
+                onChange={(e) => setUseStreaming(e.target.checked)}
+                className="h-4 w-4 accent-ink"
+              />
+              Stream
+            </label>
             {(summary || error) && (
               <Button size="sm" variant="ghost" onClick={handleReset}>
                 Reset

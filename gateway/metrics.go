@@ -29,7 +29,7 @@ func validateMetricsPath(path string) error {
 		return fmt.Errorf("metrics path %q must be a literal route without Gin wildcards", path)
 	}
 	switch path {
-	case "/healthz", "/readyz", "/docs", "/openapi.yaml", "/api/ai/summarize", "/api/receipts/:id":
+	case "/healthz", "/readyz", "/docs", "/openapi.yaml", "/api/ai/summarize", "/api/ai/summarize/stream", "/api/receipts/:id":
 		return fmt.Errorf("metrics path %q conflicts with an existing route", path)
 	}
 	if strings.HasPrefix(path, "/api/receipts/") {

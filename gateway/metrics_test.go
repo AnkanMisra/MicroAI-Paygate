@@ -49,6 +49,7 @@ func TestMetricsPathRejectsReservedRoutes(t *testing.T) {
 		"/docs",
 		"/openapi.yaml",
 		"/api/ai/summarize",
+		"/api/ai/summarize/stream",
 		"/api/receipts/:id",
 		"/api/receipts/metrics",
 		"/api/receipts/metrics/nested",

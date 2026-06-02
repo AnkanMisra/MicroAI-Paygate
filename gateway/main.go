@@ -390,94 +390,14 @@ func main() {
 func handleSummarize(c *gin.Context) {
 	// 1. Payment Verification
 	// Note: CacheMiddleware aborts on cache HIT, so this handler only runs on cache MISS or when caching is disabled
-	var requestBody []byte
-	var err error
-
-	signature := c.GetHeader("X-402-Signature")
-	nonce := c.GetHeader("X-402-Nonce")
-	timestampHeader := c.GetHeader("X-402-Timestamp")
-
-	// Basic check
-	if signature == "" || nonce == "" {
-		c.JSON(402, gin.H{
-			"error":          "Payment Required",
-			"message":        "Please sign the payment context",
-			"paymentContext": createPaymentContext(),
-		})
+	payment, ok := preparePaidSummarizeRequest(c)
+	if !ok {
 		return
 	}
-
-	if timestampHeader == "" {
-		respondError(c, 400, "invalid_timestamp", fmt.Errorf("missing X-402-Timestamp header"))
-		return
-	}
-
-	timestampValue, err := strconv.ParseUint(timestampHeader, 10, 64)
-	if err != nil || timestampValue == 0 {
-		respondError(c, 400, "invalid_timestamp", fmt.Errorf("invalid X-402-Timestamp header"))
-		return
-	}
-
-	// Check if body already read by middleware
-	if body, exists := c.Get("request_body"); exists {
-		// Cache middleware always sets this as []byte, safe to assert
-		requestBody = body.([]byte)
-	}
-
-	// Read body if not already available
-	if requestBody == nil {
-		// Read body with limit (only if middleware didn't process it)
-		const maxBodySize = 10 * 1024 * 1024
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodySize))
-		requestBody, err = io.ReadAll(c.Request.Body)
-		if err != nil {
-			var maxBytesErr *http.MaxBytesError
-			if errors.As(err, &maxBytesErr) {
-				c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
-			} else {
-				respondError(c, 500, "request_body_read_failed", err)
-			}
-			return
-		}
-	}
-
-	// Verify
-	verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, uint64(timestampValue))
-	if err != nil {
-		verificationTotal.WithLabelValues("error").Inc()
-
-		if errors.Is(err, context.DeadlineExceeded) {
-			respondError(c, 504, "verifier_timeout", err)
-		} else {
-			respondError(c, 502, "verification_unavailable", err)
-		}
-		return
-	}
-
-	if !verifyResp.IsValid {
-		verificationTotal.WithLabelValues("invalid").Inc()
-
-		respondVerificationFailure(c, verifyResp)
-		return
-	}
-	if verifyResp.RecoveredAddress == "" {
-		verificationTotal.WithLabelValues("error").Inc()
-		respondError(c, 502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
-		return
-	}
-
-	verificationTotal.WithLabelValues("success").Inc()
 
 	// 2. Parse Request
-	var req SummarizeRequest
-	if err := json.Unmarshal(requestBody, &req); err != nil {
-		c.JSON(400, gin.H{"error": "Invalid request body"})
-		return
-	}
-
-	// Validate text is not empty (also validated in cache middleware, but needed here for non-cached requests)
-	if req.Text == "" {
-		c.JSON(400, gin.H{"error": "Invalid request", "message": "text field cannot be empty"})
+	req, ok := parseSummarizeRequest(c, payment.requestBody)
+	if !ok {
 		return
 	}
 
@@ -493,12 +413,207 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	// 4. Generate & Send Receipt
-	if err := generateAndSendReceipt(c, *paymentCtx, verifyResp.RecoveredAddress, requestBody, summary); err != nil {
+	if err := generateAndSendReceipt(c, *payment.paymentCtx, payment.verifyResp.RecoveredAddress, payment.requestBody, summary); err != nil {
 		log.Printf("Failed to generate receipt: %v", err)
-		// generateAndSendReceipt sends error response if it fails?
-		// No, it returns error, we might have already written status if we aren't careful.
-		// Let's implement generateAndSendReceipt to handle sending response.
 		return
+	}
+}
+
+type paidSummarizeRequest struct {
+	requestBody []byte
+	verifyResp  *VerifyResponse
+	paymentCtx  *PaymentContext
+}
+
+func preparePaidSummarizeRequest(c *gin.Context) (*paidSummarizeRequest, bool) {
+	var requestBody []byte
+
+	signature := c.GetHeader("X-402-Signature")
+	nonce := c.GetHeader("X-402-Nonce")
+	timestampHeader := c.GetHeader("X-402-Timestamp")
+
+	// Basic check
+	if signature == "" || nonce == "" {
+		c.JSON(402, gin.H{
+			"error":          "Payment Required",
+			"message":        "Please sign the payment context",
+			"paymentContext": createPaymentContext(),
+		})
+		return nil, false
+	}
+
+	if timestampHeader == "" {
+		respondError(c, 400, "invalid_timestamp", fmt.Errorf("missing X-402-Timestamp header"))
+		return nil, false
+	}
+
+	timestampValue, err := strconv.ParseUint(timestampHeader, 10, 64)
+	if err != nil || timestampValue == 0 {
+		respondError(c, 400, "invalid_timestamp", fmt.Errorf("invalid X-402-Timestamp header"))
+		return nil, false
+	}
+
+	// Check if body already read by middleware
+	if body, exists := c.Get("request_body"); exists {
+		// Cache middleware always sets this as []byte, safe to assert
+		requestBody = body.([]byte)
+	}
+
+	// Read body if not already available
+	if requestBody == nil {
+		// Read body with limit (only if middleware didn't process it)
+		const maxBodySize = 10 * 1024 * 1024
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodySize))
+		var err error
+		requestBody, err = io.ReadAll(c.Request.Body)
+		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
+			} else {
+				respondError(c, 500, "request_body_read_failed", err)
+			}
+			return nil, false
+		}
+	}
+
+	// Verify
+	verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, uint64(timestampValue))
+	if err != nil {
+		verificationTotal.WithLabelValues("error").Inc()
+
+		if errors.Is(err, context.DeadlineExceeded) {
+			respondError(c, 504, "verifier_timeout", err)
+		} else {
+			respondError(c, 502, "verification_unavailable", err)
+		}
+		return nil, false
+	}
+
+	if !verifyResp.IsValid {
+		verificationTotal.WithLabelValues("invalid").Inc()
+
+		respondVerificationFailure(c, verifyResp)
+		return nil, false
+	}
+	if verifyResp.RecoveredAddress == "" {
+		verificationTotal.WithLabelValues("error").Inc()
+		respondError(c, 502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
+		return nil, false
+	}
+
+	verificationTotal.WithLabelValues("success").Inc()
+
+	return &paidSummarizeRequest{
+		requestBody: requestBody,
+		verifyResp:  verifyResp,
+		paymentCtx:  paymentCtx,
+	}, true
+}
+
+func parseSummarizeRequest(c *gin.Context, requestBody []byte) (SummarizeRequest, bool) {
+	var req SummarizeRequest
+	if err := json.Unmarshal(requestBody, &req); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid request body"})
+		return SummarizeRequest{}, false
+	}
+
+	// Validate text is not empty (also validated in cache middleware, but needed here for non-cached requests)
+	if req.Text == "" {
+		c.JSON(400, gin.H{"error": "Invalid request", "message": "text field cannot be empty"})
+		return SummarizeRequest{}, false
+	}
+
+	return req, true
+}
+
+func handleSummarizeStream(c *gin.Context) {
+	payment, ok := preparePaidSummarizeRequest(c)
+	if !ok {
+		return
+	}
+
+	req, ok := parseSummarizeRequest(c, payment.requestBody)
+	if !ok {
+		return
+	}
+
+	streamingProvider, ok := aiProvider.(ai.StreamingProvider)
+	if !ok {
+		respondError(c, 501, "streaming_unsupported", fmt.Errorf("configured AI provider does not support streaming"))
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	chunks, errs := streamingProvider.StreamGenerate(c.Request.Context(), req.Text)
+	var full strings.Builder
+
+	sendSSE := func(event string, payload any) bool {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			log.Printf("Failed to encode SSE payload: %v", err)
+			return false
+		}
+		c.SSEvent(event, json.RawMessage(encoded))
+		c.Writer.Flush()
+		return true
+	}
+
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case err, ok := <-errs:
+			if ok && err != nil {
+				if errors.Is(err, context.DeadlineExceeded) || errors.Is(c.Request.Context().Err(), context.DeadlineExceeded) {
+					_ = sendSSE("error", gin.H{"error": "upstream_timeout", "message": "AI provider timed out"})
+				} else {
+					log.Printf("Streaming AI provider failed: %v", err)
+					_ = sendSSE("error", gin.H{"error": "upstream_unavailable", "message": "AI provider unavailable"})
+				}
+				return
+			}
+			errs = nil
+		case chunk, ok := <-chunks:
+			if !ok {
+				chunks = nil
+				continue
+			}
+			if chunk.Content != "" {
+				full.WriteString(chunk.Content)
+				if !sendSSE("chunk", gin.H{"delta": chunk.Content}) {
+					return
+				}
+			}
+			if chunk.Done {
+				receiptBase64, err := generateStreamingReceipt(
+					c,
+					*payment.paymentCtx,
+					payment.verifyResp.RecoveredAddress,
+					payment.requestBody,
+					full.String(),
+				)
+				if err != nil {
+					log.Printf("Failed to generate streaming receipt: %v", err)
+					_ = sendSSE("error", gin.H{"error": "receipt_generation_failed", "message": "failed to generate receipt"})
+					return
+				}
+				_ = sendSSE("done", gin.H{
+					"result":  full.String(),
+					"receipt": receiptBase64,
+				})
+				return
+			}
+		}
+
+		if chunks == nil && errs == nil {
+			_ = sendSSE("error", gin.H{"error": "upstream_unavailable", "message": "stream ended before completion"})
+			return
+		}
 	}
 }
 
@@ -607,6 +722,30 @@ func generateAndSendReceipt(c *gin.Context, paymentCtx PaymentContext, recovered
 	c.Header("X-402-Receipt", receiptBase64)
 	c.JSON(200, responseMap)
 	return nil
+}
+
+func generateStreamingReceipt(c *gin.Context, paymentCtx PaymentContext, recoveredAddr string, requestBody []byte, aiResult string) (string, error) {
+	responseMap := map[string]interface{}{
+		"result": aiResult,
+	}
+	responseBody, err := json.Marshal(responseMap)
+	if err != nil {
+		return "", fmt.Errorf("encode streaming receipt response body: %w", err)
+	}
+
+	receipt, err := GenerateReceipt(paymentCtx, recoveredAddr, c.Request.URL.Path, requestBody, responseBody)
+	if err != nil {
+		return "", fmt.Errorf("generate receipt: %w", err)
+	}
+	if err := storeReceiptWithContext(c.Request.Context(), receipt, getReceiptTTL()); err != nil {
+		return "", fmt.Errorf("store receipt: %w", err)
+	}
+
+	receiptJSON, err := json.Marshal(receipt)
+	if err != nil {
+		return "", fmt.Errorf("encode receipt: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(receiptJSON), nil
 }
 
 // createPaymentContext constructs a PaymentContext prefilled with the recipient address (from RECIPIENT_ADDRESS or a fallback), the USDC token, amount "0.001", a newly generated UUID nonce, and the configured chain ID.

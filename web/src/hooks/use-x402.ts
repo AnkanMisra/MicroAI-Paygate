@@ -5,8 +5,10 @@ import { ethers } from "ethers";
 import {
   buildSignedHeaders,
   postSummarize,
+  postSummarizeStream,
   readPaymentChallenge,
   readSummarizeSuccess,
+  readSummarizeStream,
   signPaymentContext,
 } from "@/lib/x402-client";
 import {
@@ -47,7 +49,7 @@ export function useX402() {
     setState(INITIAL_STATE);
   }, []);
 
-  const submit = useCallback(async (text: string) => {
+  const submit = useCallback(async (text: string, options: { stream?: boolean } = {}) => {
     if (!text.trim()) return;
     const myRun = ++runId.current;
 
@@ -59,7 +61,7 @@ export function useX402() {
     update({ step: "request", summary: null, receipt: null, error: null, isRunning: true });
 
     try {
-      const first = await postSummarize(text);
+      const first = options.stream ? await postSummarizeStream(text) : await postSummarize(text);
 
       if (first.status === 200) {
         update({ step: "receipt" });
@@ -121,7 +123,9 @@ export function useX402() {
       const aiStepTimer = setTimeout(() => update({ step: "ai" }), 700);
       let retry: Response;
       try {
-        retry = await postSummarize(text, buildSignedHeaders(context, signature));
+        retry = options.stream
+          ? await postSummarizeStream(text, buildSignedHeaders(context, signature))
+          : await postSummarize(text, buildSignedHeaders(context, signature));
       } finally {
         clearTimeout(aiStepTimer);
       }
@@ -147,7 +151,13 @@ export function useX402() {
       }
 
       update({ step: "receipt" });
-      const { summary, receipt } = await readSummarizeSuccess(retry);
+      let streamedSummary = "";
+      const { summary, receipt } = options.stream
+        ? await readSummarizeStream(retry, (delta) => {
+            streamedSummary += delta;
+            update({ step: "ai", summary: streamedSummary });
+          })
+        : await readSummarizeSuccess(retry);
       if (receipt) saveReceipt(receipt, text);
       update({ step: "done", summary, receipt, isRunning: false });
     } catch (err) {
