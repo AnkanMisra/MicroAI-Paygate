@@ -385,17 +385,24 @@ func main() {
 		Handler: r,
 	}
 
+	startupErrCh := make(chan error, 1)
 	go func() {
 		log.Printf("Go Gateway listening on port %s", port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed: %v", err)
+			startupErrCh <- err
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-quit
-	log.Printf("Signal %s received, shutting down (max 30s)...", sig)
+
+	select {
+	case sig := <-quit:
+		log.Printf("Signal %s received, shutting down (max 30s)...", sig)
+	case err := <-startupErrCh:
+		log.Printf("Server failed to start: %v", err)
+		return
+	}
 
 	signal.Stop(quit)
 
