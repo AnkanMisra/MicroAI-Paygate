@@ -397,6 +397,8 @@ func main() {
 	sig := <-quit
 	log.Printf("Signal %s received, shutting down (max 30s)...", sig)
 
+	signal.Stop(quit)
+
 	cleanupCancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
