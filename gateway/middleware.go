@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -315,4 +316,57 @@ func recordRequestMetrics(method, path string, statusCode int, start time.Time) 
 
 	requestsTotal.WithLabelValues(method, path, status).Inc()
 	requestsDuration.WithLabelValues(method, path).Observe(time.Since(start).Seconds())
+}
+
+type JSONLogEntry struct {
+	Timestamp     string  `json:"timestamp"`
+	Level         string  `json:"level"`
+	Status        int     `json:"status"`
+	Path          string  `json:"path"`
+	Method        string  `json:"method"`
+	LatencyMs     float64 `json:"latency_ms"`
+	ClientIP      string  `json:"client_ip"`
+	CorrelationID string  `json:"correlation_id"`
+	PaymentStatus string  `json:"payment_status,omitempty"`
+	PaymentError  string  `json:"payment_error,omitempty"`
+	Payer         string  `json:"payer,omitempty"`
+	InternalError string  `json:"internal_error,omitempty"`
+}
+
+func JSONLoggerMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
+		latency := time.Since(start)
+
+		status := c.Writer.Status()
+		level := "info"
+		if status >= 500 {
+			level = "error"
+		} else if status >= 400 {
+			level = "warn"
+		}
+
+		correlationID, _ := c.Get("correlation_id")
+		corrStr, _ := correlationID.(string)
+
+		entry := JSONLogEntry{
+			Timestamp:     time.Now().UTC().Format(time.RFC3339),
+			Level:         level,
+			Status:        status,
+			Path:          c.Request.URL.Path,
+			Method:        c.Request.Method,
+			LatencyMs:     float64(latency.Nanoseconds()) / 1e6,
+			ClientIP:      c.ClientIP(),
+			CorrelationID: corrStr,
+			PaymentStatus: c.GetString("payment_status"),
+			PaymentError:  c.GetString("payment_error"),
+			Payer:         c.GetString("payer"),
+			InternalError: c.GetString("internal_error"),
+		}
+
+		if data, err := json.Marshal(entry); err == nil {
+			fmt.Println(string(data))
+		}
+	}
 }

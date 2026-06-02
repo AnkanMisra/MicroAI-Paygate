@@ -269,7 +269,15 @@ func main() {
 		fmt.Println("[WARN] CHAIN_ID not set, using default: 84532(Base Sepolia)")
 	}
 
-	r := gin.Default()
+	var r *gin.Engine
+	if os.Getenv("LOG_FORMAT") == "json" {
+		gin.SetMode(gin.ReleaseMode)
+		r = gin.New()
+		r.Use(gin.Recovery())
+		r.Use(JSONLoggerMiddleware())
+	} else {
+		r = gin.Default()
+	}
 
 	// Restrict trusted proxies to prevent X-Forwarded-For spoofing.
 	// IP-based rate limiting relies on c.ClientIP(), which reads
@@ -504,6 +512,9 @@ func handleSummarize(c *gin.Context) {
 		respondError(c, 502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
 		return
 	}
+
+	c.Set("payment_status", "success")
+	c.Set("payer", verifyResp.RecoveredAddress)
 
 	verificationTotal.WithLabelValues("success").Inc()
 

@@ -753,3 +753,60 @@ func TestHandleGetReceipt_ValidationAndLookupPaths(t *testing.T) {
 		})
 	}
 }
+
+func TestJSONLoggerMiddleware(t *testing.T) {
+	// Capturing stdout
+	oldStdout := os.Stdout
+	rPipe, wPipe, _ := os.Pipe()
+	os.Stdout = wPipe
+
+	defer func() {
+		os.Stdout = oldStdout
+	}()
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("correlation_id", "test-corr-123")
+		c.Set("payment_status", "success")
+		c.Set("payer", "0xPayerAddress")
+		c.Next()
+	})
+	r.Use(JSONLoggerMiddleware())
+
+	r.GET("/test-json-log", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
+	req, _ := http.NewRequest("GET", "/test-json-log", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Close write pipe and read captured output
+	wPipe.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(rPipe)
+	output := buf.String()
+
+	require.NotEmpty(t, output)
+
+	// Parse JSON output
+	var logEntry JSONLogEntry
+	err := json.Unmarshal([]byte(output), &logEntry)
+	require.NoError(t, err)
+
+	require.Equal(t, 200, logEntry.Status)
+	require.Equal(t, "/test-json-log", logEntry.Path)
+	require.Equal(t, "GET", logEntry.Method)
+	require.Equal(t, "test-corr-123", logEntry.CorrelationID)
+	require.Equal(t, "success", logEntry.PaymentStatus)
+	require.Equal(t, "0xPayerAddress", logEntry.Payer)
+	require.Equal(t, "info", logEntry.Level)
+	require.NotEmpty(t, logEntry.Timestamp)
+	require.True(t, logEntry.LatencyMs >= 0)
+
+	// Verify no sensitive fields (like private key or signature) are leaked
+	require.NotContains(t, output, "PRIVATE_KEY")
+	require.NotContains(t, output, "0x1234567890abcdef") // sample private key / sig values
+}

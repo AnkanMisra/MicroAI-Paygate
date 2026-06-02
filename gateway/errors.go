@@ -10,6 +10,12 @@ import (
 )
 
 func respondError(c *gin.Context, code int, publicMsg string, internalErr error) {
+	c.Set("payment_status", "failed")
+	c.Set("payment_error", publicMsg)
+	if internalErr != nil {
+		c.Set("internal_error", internalErr.Error())
+	}
+
 	correlationID := responseCorrelationID(c)
 	if internalErr != nil {
 		log.Printf(
