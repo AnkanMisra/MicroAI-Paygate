@@ -83,6 +83,58 @@ cd sdk/typescript
 bun run examples/summarize.ts "Text to summarize"
 ```
 
+## Receipt Verification Example
+
+Receipt verification with a trusted public key (replace the placeholder with the gateway's real public key):
+
+```ts
+import { ethers } from "ethers";
+import { PaygateClient, PaygateSdkError } from "@microai/paygate-sdk";
+
+async function main(): Promise<void> {
+  const client = new PaygateClient({
+    gatewayUrl: process.env.PAYGATE_GATEWAY_URL ?? "http://localhost:3000",
+    signer: new ethers.Wallet(process.env.EVM_PRIVATE_KEY!),
+    trustedServerPublicKey: process.env.PAYGATE_SERVER_PUBLIC_KEY ?? "0xYOUR_GATEWAY_PUBLIC_KEY",
+  });
+
+  try {
+    const response = await client.summarize("Text to summarize");
+
+    if (!response.receipt) {
+      console.warn("No receipt returned; treat the response as untrusted.");
+      return;
+    }
+
+    if (!response.receiptVerified) {
+      console.warn("Receipt was present but did not verify; discard the response.");
+      return;
+    }
+
+    console.log("Verified receipt ID:", response.receipt.receipt.id);
+    console.log("Summary:", response.data.result);
+  } catch (error) {
+    if (
+      error instanceof PaygateSdkError &&
+      (error.code === "receipt_verification_failed" || error.code === "receipt_decode_failed")
+    ) {
+      console.error("Receipt verification failed; treat the response as untrusted.");
+      return;
+    }
+    throw error;
+  }
+}
+
+await main();
+```
+
+Run the receipt verification example:
+
+```bash
+cd sdk/typescript
+bun run examples/verify-receipt.ts "Text to summarize"
+```
+
 ## Optional Live Test
 
 The live SDK test is skipped by default. Start the local stack first:

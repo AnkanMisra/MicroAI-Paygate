@@ -36,7 +36,8 @@ build: build-gateway build-verifier build-web
 test:
 	cd gateway && go test -v ./...
 	cd verifier && cargo test
-	cd web && bun run test
+	cd web && bun run typecheck
+	cd web && bun run test:unit
 
 lint:
 	cd gateway && go vet ./...

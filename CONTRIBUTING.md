@@ -112,7 +112,7 @@ Run the checks for the area you touched. When a change crosses services, run eve
 | --- | --- |
 | `gateway/**` | `cd gateway && gofmt -w . && go test -v ./... && go vet ./...` |
 | `verifier/**` | `cd verifier && cargo fmt -- --check && cargo clippy -- -D warnings && cargo test` |
-| `web/**` | `cd web && bun run lint && bun run build && bun run test` |
+| `web/**` | `cd web && bun run lint && bun run typecheck && bun run test:unit && bun run build` |
 | `sdk/typescript/**` | `cd sdk/typescript && bun run typecheck && bun run test` |
 | `tests/**` or x402 flow | `bun run test:e2e` when `OPENROUTER_API_KEY` is available |
 | `gateway/openapi.yaml` | YAML parse plus compare against gateway routes |

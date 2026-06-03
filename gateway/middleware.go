@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -215,10 +216,11 @@ func RequestTimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 			// running handler may write directly to the real writer after the
 			// timeout response was already sent (causing panics or corruption).
 			bw.mu.Lock()
+			bw.status = http.StatusGatewayTimeout
 			bw.closed = true
 			bw.mu.Unlock()
 			origWriter.Header().Set("Content-Type", "application/json; charset=utf-8")
-			origWriter.WriteHeader(504)
+			origWriter.WriteHeader(http.StatusGatewayTimeout)
 			_, _ = origWriter.Write([]byte(`{"error":"Gateway Timeout","message":"Request exceeded maximum allowed time"}`))
 			return
 		}
@@ -278,4 +280,39 @@ func (rws *responseWriterShim) CloseNotify() <-chan bool {
 	close(ch)
 	return ch
 
+}
+func MetricsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		path := c.FullPath()
+		if path == "" {
+			path = "unknown"
+		}
+
+		activeRequests.Inc()
+
+		defer func() {
+			statusCode := c.Writer.Status()
+			if recovered := recover(); recovered != nil {
+				if statusCode < http.StatusInternalServerError {
+					statusCode = http.StatusInternalServerError
+				}
+				recordRequestMetrics(c.Request.Method, path, statusCode, start)
+				activeRequests.Dec()
+				panic(recovered)
+			}
+
+			recordRequestMetrics(c.Request.Method, path, statusCode, start)
+			activeRequests.Dec()
+		}()
+
+		c.Next()
+	}
+}
+
+func recordRequestMetrics(method, path string, statusCode int, start time.Time) {
+	status := strconv.Itoa(statusCode)
+
+	requestsTotal.WithLabelValues(method, path, status).Inc()
+	requestsDuration.WithLabelValues(method, path).Observe(time.Since(start).Seconds())
 }

@@ -40,6 +40,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/ReadyzResponse"
 
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      description: Exposes Prometheus text-format gateway metrics when METRICS_ENABLED is not false. The default path is /metrics and can be changed with METRICS_PATH.
+      responses:
+        "200":
+          description: Prometheus exposition text containing gateway request, latency, cache, verification, rate-limit, and in-flight metrics.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # HELP gateway_requests_total Total number of HTTP requests
+                  # TYPE gateway_requests_total counter
+                  gateway_requests_total{method="GET",path="/healthz",status="200"} 1
+
   /api/ai/summarize:
     post:
       summary: Summarize text with x402 payment enforcement

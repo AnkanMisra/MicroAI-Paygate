@@ -117,6 +117,12 @@ func CacheMiddleware() gin.HandlerFunc {
 		if cached, err := getFromCache(c.Request.Context(), cacheKey); err == nil {
 			log.Printf("Cache HIT: %s", cacheKey)
 
+			routePath := c.FullPath()
+			if routePath == "" {
+				routePath = "unknown"
+			}
+			cacheHits.WithLabelValues(routePath).Inc()
+
 			// Cache HIT! -> Verify Payment *BEFORE* serving
 			// verifyPayment creates its own timeout context, so pass request context directly
 			timestampStr := c.GetHeader("X-402-Timestamp")
@@ -133,6 +139,10 @@ func CacheMiddleware() gin.HandlerFunc {
 			}
 			verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, timestamp)
 			if err != nil {
+
+				verificationTotal.WithLabelValues("error").Inc()
+				log.Printf("Verification error on cache hit: %v", err)
+
 				if errors.Is(err, context.DeadlineExceeded) {
 					respondError(c, 504, "verifier_timeout", err)
 				} else {
@@ -143,16 +153,18 @@ func CacheMiddleware() gin.HandlerFunc {
 			}
 
 			if !verifyResp.IsValid {
+				verificationTotal.WithLabelValues("invalid").Inc()
 				respondVerificationFailure(c, verifyResp)
 				c.Abort()
 				return
 			}
 			if verifyResp.RecoveredAddress == "" {
+				verificationTotal.WithLabelValues("error").Inc()
 				respondError(c, 502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
 				c.Abort()
 				return
 			}
-
+			verificationTotal.WithLabelValues("success").Inc()
 			// Payment Verified. Store verification for downstream if needed (though we abort)
 			c.Set("payment_verification", verifyResp)
 			c.Set("payment_context", paymentCtx)
@@ -172,6 +184,12 @@ func CacheMiddleware() gin.HandlerFunc {
 
 		// Cache MISS
 		log.Printf("Cache MISS: %s", cacheKey)
+
+		routePath := c.FullPath()
+		if routePath == "" {
+			routePath = "unknown"
+		}
+		cacheMisses.WithLabelValues(routePath).Inc()
 
 		// Prepare to capture response
 		writer := &cachedWriter{

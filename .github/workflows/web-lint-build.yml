@@ -37,6 +37,14 @@ jobs:
         working-directory: web
         run: bun run lint
 
+      - name: Typecheck (tsc)
+        working-directory: web
+        run: bun run typecheck
+
+      - name: Unit tests (Bun)
+        working-directory: web
+        run: bun run test:unit
+
       - name: Build (Next.js)
         working-directory: web
         run: bun run build

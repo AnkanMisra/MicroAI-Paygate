@@ -13,6 +13,8 @@ services:
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3001}
       - RECEIPT_STORE=${RECEIPT_STORE:-redis}
       - CHAIN_ID=${CHAIN_ID:-84532}
+      - METRICS_ENABLED=${METRICS_ENABLED:-true}
+      - METRICS_PATH=${METRICS_PATH:-/metrics}
       # Pass through from .env file
       - OPENROUTER_API_KEY
       - OPENROUTER_MODEL

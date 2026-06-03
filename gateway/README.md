@@ -47,6 +47,7 @@ sequenceDiagram
 | --- | --- |
 | `GET /healthz` | Liveness check for gateway process health. |
 | `GET /readyz` | Dependency readiness check for verifier, active AI provider, Redis when required, and gateway self metrics. |
+| `GET /metrics` | Prometheus metrics endpoint when `METRICS_ENABLED` is not `false`. |
 | `GET /openapi.yaml` | OpenAPI 3.1 contract for public gateway endpoints. |
 | `GET /docs` | Swagger UI backed by `openapi.yaml`. |
 | `POST /api/ai/summarize` | Payment-gated summarize endpoint. |
@@ -67,7 +68,8 @@ The verifier route `POST /verify` is not a gateway route. It belongs to the inte
 | `redis.go` | Redis client and response cache configuration. |
 | `cache.go` | Optional response cache. Cache hits still require valid payment verification. |
 | `ratelimit.go` | Token bucket implementation. |
-| `middleware.go` | Request timeout and correlation ID middleware. |
+| `metrics.go` | Prometheus metric definitions and metrics endpoint config helpers. |
+| `middleware.go` | Request timeout, correlation ID, and request metrics middleware. |
 | `internal/ai/` | OpenRouter and Ollama provider implementations. |
 | `openapi.yaml` | Public gateway API contract. |
 
@@ -101,6 +103,8 @@ Common optional variables:
 | `RECEIPT_TTL` | `86400` | Receipt TTL in seconds. |
 | `CACHE_ENABLED` | `false` | Optional response cache. |
 | `CACHE_TTL_SECONDS` | `3600` | Response cache TTL. |
+| `METRICS_ENABLED` | enabled unless set to `false` | Exposes Prometheus metrics. |
+| `METRICS_PATH` | `/metrics` | Gateway metrics endpoint path. Missing leading slash is normalized. |
 | `RATE_LIMIT_ENABLED` | disabled unless set to `true` or `1` | Enables token bucket middleware. |
 | `REQUEST_TIMEOUT_SECONDS` | `60` | Global request timeout. |
 | `AI_REQUEST_TIMEOUT_SECONDS` | `30` | AI route timeout. |
@@ -137,6 +141,20 @@ go vet ./...
 ```
 
 Run gateway tests after changing handlers, middleware, config parsing, receipt storage, cache, Redis, rate limits, OpenAPI, or provider behavior.
+
+## Metrics
+
+The gateway emits Prometheus metrics for HTTP request counts and durations, cache hits and misses, verifier outcomes, rate-limit rejections, and active requests. The default endpoint is `GET /metrics`.
+
+Example local scrape config:
+
+```yaml
+scrape_configs:
+  - job_name: microai-gateway
+    static_configs:
+      - targets: ["localhost:3000"]
+    metrics_path: /metrics
+```
 
 ## API Errors
 

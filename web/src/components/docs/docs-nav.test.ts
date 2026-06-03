@@ -1,3 +1,4 @@
+import { readdirSync, statSync } from "node:fs";
 import { describe, expect, it } from "bun:test";
 import { DOCS_NAV_ITEMS } from "./docs-nav";
 
@@ -19,4 +20,21 @@ describe("docs navigation", () => {
     expect(new Set(DOCS_NAV_ITEMS.map((item) => item.href)).size).toBe(DOCS_NAV_ITEMS.length);
     expect(new Set(DOCS_NAV_ITEMS.map((item) => item.label)).size).toBe(DOCS_NAV_ITEMS.length);
   });
+
+  it("keeps docs navigation routes in sync with docs pages", () => {
+  const docsEntries = readdirSync("./src/app/docs");
+
+  const docsRoutes = docsEntries
+  .filter((entry) =>
+    statSync(`./src/app/docs/${entry}`).isDirectory()
+  )
+  .map((entry) => `/docs/${entry}`)
+  .sort();
+
+  const navRoutes = DOCS_NAV_ITEMS.map((item) => item.href)
+    .filter((href) => href !== "/docs")
+    .sort();
+
+  expect(navRoutes).toEqual(docsRoutes);
+});
 });

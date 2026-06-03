@@ -33,7 +33,7 @@ cd gateway && go vet ./...
 cd verifier && cargo test
 cd verifier && cargo fmt -- --check
 cd verifier && cargo clippy -- -D warnings
-cd web && bun run lint && bun run build && bun run test
+cd web && bun run lint && bun run typecheck && bun run test:unit && bun run build
 cd sdk/typescript && bun run typecheck && bun run test
 bun run test:e2e
 bun run test:unit

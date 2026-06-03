@@ -18,10 +18,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -31,6 +33,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type PaymentContext struct {
@@ -284,11 +287,21 @@ func main() {
 	// including those rejected by later middleware, carries an ID for tracing.
 	r.Use(CorrelationIDMiddleware())
 
+	metricsPath := getMetricsPath()
+
+	if getMetricsEnabled() {
+		if err := validateMetricsPath(metricsPath); err != nil {
+			log.Fatalf("Invalid metrics configuration: %v", err)
+		}
+		r.Use(MetricsMiddleware())
+		r.GET(metricsPath, gin.WrapH(promhttp.Handler()))
+	}
+
 	// Configure GZIP compression for API responses
 	// - Uses DefaultCompression for balance between speed and size
 	// - Excludes /metrics endpoint (if added in future)
 	// - Compression is transparent to receipt verification (hashes uncompressed body)
-	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/metrics"})))
+	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{metricsPath})))
 
 	// Initialize Redis early to fail-fast if Redis required but unavailable
 	if err := initRedis(); err != nil {
@@ -367,8 +380,42 @@ func main() {
 		port = "3000"
 	}
 
-	log.Printf("Go Gateway running on port %s", port)
-	r.Run(":" + port)
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: r,
+	}
+
+	startupErrCh := make(chan error, 1)
+	go func() {
+		log.Printf("Go Gateway listening on port %s", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			startupErrCh <- err
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case sig := <-quit:
+		log.Printf("Signal %s received, shutting down (max 30s)...", sig)
+	case err := <-startupErrCh:
+		log.Printf("Server failed to start: %v", err)
+		return
+	}
+
+	signal.Stop(quit)
+
+	cleanupCancel()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server forced to shutdown: %v", err)
+	} else {
+		log.Println("Server stopped gracefully")
+	}
 }
 
 // handleSummarize handles POST /api/ai/summarize requests. It validates
@@ -433,6 +480,8 @@ func handleSummarize(c *gin.Context) {
 	// Verify
 	verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, uint64(timestampValue))
 	if err != nil {
+		verificationTotal.WithLabelValues("error").Inc()
+
 		if errors.Is(err, context.DeadlineExceeded) {
 			respondError(c, 504, "verifier_timeout", err)
 		} else {
@@ -442,13 +491,18 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	if !verifyResp.IsValid {
+		verificationTotal.WithLabelValues("invalid").Inc()
+
 		respondVerificationFailure(c, verifyResp)
 		return
 	}
 	if verifyResp.RecoveredAddress == "" {
+		verificationTotal.WithLabelValues("error").Inc()
 		respondError(c, 502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
 		return
 	}
+
+	verificationTotal.WithLabelValues("success").Inc()
 
 	// 2. Parse Request
 	var req SummarizeRequest
@@ -676,6 +730,13 @@ func RateLimitMiddleware(limiters map[string]RateLimiter) gin.HandlerFunc {
 		// Check if request is allowed
 		if !limiter.Allow(key) {
 			retryAfter := calculateRetryAfter(limiter, key)
+
+			routePath := c.FullPath()
+			if routePath == "" {
+				routePath = "unknown"
+			}
+			rateLimitHits.WithLabelValues(routePath).Inc()
+
 			c.Header("Retry-After", strconv.Itoa(retryAfter))
 			c.Header("X-RateLimit-Limit", strconv.Itoa(getLimitForTier(tier)))
 			c.Header("X-RateLimit-Remaining", "0")
