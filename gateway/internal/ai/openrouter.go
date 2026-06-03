@@ -113,6 +113,25 @@ func (p *OpenRouterProvider) StreamGenerate(ctx context.Context, text string) (<
 		defer close(chunks)
 		defer close(errs)
 
+		sendErr := func(err error) bool {
+			select {
+			case errs <- err:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+
+		sendChunk := func(chunk StreamChunk) bool {
+			select {
+			case chunks <- chunk:
+				return true
+			case <-ctx.Done():
+				_ = sendErr(ctx.Err())
+				return false
+			}
+		}
+
 		prompt := fmt.Sprintf("Summarize this text in 2 sentences: %s", text)
 		reqBody, _ := json.Marshal(map[string]interface{}{
 			"model":  p.model,
@@ -124,7 +143,7 @@ func (p *OpenRouterProvider) StreamGenerate(ctx context.Context, text string) (<
 
 		req, err := http.NewRequestWithContext(ctx, "POST", p.url, bytes.NewBuffer(reqBody))
 		if err != nil {
-			errs <- fmt.Errorf("failed to create OpenRouter stream request: %w", err)
+			_ = sendErr(fmt.Errorf("failed to create OpenRouter stream request: %w", err))
 			return
 		}
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
@@ -134,17 +153,17 @@ func (p *OpenRouterProvider) StreamGenerate(ctx context.Context, text string) (<
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
-				errs <- context.DeadlineExceeded
+				_ = sendErr(context.DeadlineExceeded)
 				return
 			}
-			errs <- err
+			_ = sendErr(err)
 			return
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			body, _ := io.ReadAll(resp.Body)
-			errs <- fmt.Errorf("openrouter returned status %d: %s", resp.StatusCode, string(body))
+			_ = sendErr(fmt.Errorf("openrouter returned status %d: %s", resp.StatusCode, string(body)))
 			return
 		}
 
@@ -161,7 +180,7 @@ func (p *OpenRouterProvider) StreamGenerate(ctx context.Context, text string) (<
 
 			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if payload == "[DONE]" {
-				chunks <- StreamChunk{Done: true}
+				_ = sendChunk(StreamChunk{Done: true})
 				return
 			}
 
@@ -173,26 +192,23 @@ func (p *OpenRouterProvider) StreamGenerate(ctx context.Context, text string) (<
 				} `json:"choices"`
 			}
 			if err := json.Unmarshal([]byte(payload), &event); err != nil {
-				errs <- fmt.Errorf("failed to decode OpenRouter stream event: %w", err)
+				_ = sendErr(fmt.Errorf("failed to decode OpenRouter stream event: %w", err))
 				return
 			}
 			if len(event.Choices) == 0 {
 				continue
 			}
 			if content := event.Choices[0].Delta.Content; content != "" {
-				select {
-				case chunks <- StreamChunk{Content: content}:
-				case <-ctx.Done():
-					errs <- ctx.Err()
+				if !sendChunk(StreamChunk{Content: content}) {
 					return
 				}
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			errs <- fmt.Errorf("failed reading OpenRouter stream: %w", err)
+			_ = sendErr(fmt.Errorf("failed reading OpenRouter stream: %w", err))
 			return
 		}
-		chunks <- StreamChunk{Done: true}
+		_ = sendErr(fmt.Errorf("openrouter stream ended before done event"))
 	}()
 
 	return chunks, errs

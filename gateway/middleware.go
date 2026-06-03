@@ -154,6 +154,11 @@ func (b *bufferedWriter) flushTo(w http.ResponseWriter) {
 // response writes and ensures safe behavior with Gin.
 func RequestTimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if c.Request.URL.Path == summarizeStreamPath {
+			c.Next()
+			return
+		}
+
 		// Choose a deadline that ensures a per-route timeout can shorten any
 		// existing deadline but will not extend an earlier (shorter) deadline.
 		// This avoids surprising nested timeout behavior while allowing route

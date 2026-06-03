@@ -51,13 +51,15 @@ If this shape changes, update gateway, verifier, web, E2E tests, OpenAPI, and do
 
 ## Streaming Summaries
 
-The summarize form uses `/api/ai/summarize/stream` when streaming is enabled. The unsigned request still receives the normal `402 Payment Required` challenge. After the wallet signs that context, the signed retry receives Server-Sent Events:
+The summarize form uses `/api/ai/summarize/stream` when the stream toggle is enabled. The unsigned request still receives the normal `402 Payment Required` challenge. After the wallet signs that context, the signed retry receives standard Server-Sent Events with a `text/event-stream` response:
 
 - `chunk` events carry incremental `{ "delta": "..." }` text.
 - `done` carries `{ "result": "...", "receipt": "..." }` with the complete summary and a base64-encoded signed receipt.
 - `error` carries a sanitized gateway error code and optional public message.
 
 The streaming receipt lives in the final SSE event instead of the `X-402-Receipt` header because headers cannot be appended once the response body has started.
+
+If the gateway is configured with a provider that cannot stream, the endpoint returns `501` with the public `streaming_unsupported` error before payment verification, so the UI can fall back to the normal non-streaming summarize request without burning the signed nonce.
 
 ## Local Development
 

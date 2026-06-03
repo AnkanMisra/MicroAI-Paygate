@@ -65,7 +65,13 @@ export function useX402() {
 
       if (first.status === 200) {
         update({ step: "receipt" });
-        const { summary, receipt } = await readSummarizeSuccess(first);
+        let streamedSummary = "";
+        const { summary, receipt } = options.stream
+          ? await readSummarizeStream(first, (delta) => {
+              streamedSummary += delta;
+              update({ step: "ai", summary: streamedSummary });
+            })
+          : await readSummarizeSuccess(first);
         if (receipt) saveReceipt(receipt, text);
         update({ step: "done", summary, receipt, isRunning: false });
         return;

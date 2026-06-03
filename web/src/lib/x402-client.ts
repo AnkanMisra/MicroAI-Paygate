@@ -126,6 +126,16 @@ export type StreamEvent =
   | { type: "done"; result: string; receipt: SignedReceipt | null }
   | { type: "error"; error: string; message?: string };
 
+export class StreamResponseError extends Error {
+  constructor(
+    public readonly code: string,
+    message?: string,
+  ) {
+    super(message ? `${code}: ${message}` : code);
+    this.name = "StreamResponseError";
+  }
+}
+
 export async function readSummarizeStream(
   res: Response,
   onChunk: (delta: string) => void,
@@ -176,31 +186,38 @@ export async function readSummarizeStream(
       return null;
     }
     if (event.type === "error") {
-      throw new Error(event.message || event.error);
+      throw new StreamResponseError(event.error, event.message);
     }
     return event;
   };
 
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-    buffer = buffer.replace(/\r\n/g, "\n");
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+      buffer = buffer.replace(/\r\n/g, "\n");
 
-    let separatorIndex: number;
-    while ((separatorIndex = buffer.indexOf("\n\n")) !== -1) {
-      const rawEvent = buffer.slice(0, separatorIndex);
-      buffer = buffer.slice(separatorIndex + 2);
-      for (const line of rawEvent.split("\n")) {
-        if (line.startsWith("event:")) eventName = line.slice(6).trim();
-        if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+      let separatorIndex: number;
+      while ((separatorIndex = buffer.indexOf("\n\n")) !== -1) {
+        const rawEvent = buffer.slice(0, separatorIndex);
+        buffer = buffer.slice(separatorIndex + 2);
+        for (const line of rawEvent.split("\n")) {
+          if (line.startsWith("event:")) eventName = line.slice(6).trim();
+          if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+        }
+        const finalEvent = dispatch(parseEvent());
+        if (finalEvent?.type === "done") {
+          return { summary: finalEvent.result, receipt: finalEvent.receipt };
+        }
       }
-      const finalEvent = dispatch(parseEvent());
-      if (finalEvent?.type === "done") {
-        return { summary: finalEvent.result, receipt: finalEvent.receipt };
-      }
+
+      if (done) break;
     }
-
-    if (done) break;
+  } finally {
+    try {
+      await reader.cancel();
+    } catch {}
+    reader.releaseLock();
   }
 
   throw new Error("Streaming response ended before the done event");

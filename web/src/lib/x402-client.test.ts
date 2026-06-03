@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { readSummarizeStream } from "./x402-client";
+import { readSummarizeStream, StreamResponseError } from "./x402-client";
 
 function streamResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
@@ -50,7 +50,14 @@ describe("readSummarizeStream", () => {
       'event: error\ndata: {"error":"upstream_timeout","message":"provider timed out"}\n\n',
     ]);
 
-    await expect(readSummarizeStream(res, () => {})).rejects.toThrow("provider timed out");
+    try {
+      await readSummarizeStream(res, () => {});
+      throw new Error("expected readSummarizeStream to reject");
+    } catch (err) {
+      expect(err).toBeInstanceOf(StreamResponseError);
+      expect((err as StreamResponseError).code).toBe("upstream_timeout");
+      expect((err as Error).message).toContain("provider timed out");
+    }
   });
 
   it("throws when the stream closes before a done event", async () => {

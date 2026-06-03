@@ -24,6 +24,27 @@ func TestRequestTimeoutMiddleware_AllowsFastHandlers(t *testing.T) {
 	}
 }
 
+func TestRequestTimeoutMiddleware_BypassesStreamingSummarizePath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(RequestTimeoutMiddleware(time.Nanosecond))
+	r.POST(summarizeStreamPath, func(c *gin.Context) {
+		time.Sleep(time.Millisecond)
+		c.String(200, "chunk")
+	})
+
+	req, _ := http.NewRequest("POST", summarizeStreamPath, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("Expected streaming path to bypass buffered timeout, got %d; body=%s", w.Code, w.Body.String())
+	}
+	if w.Body.String() != "chunk" {
+		t.Fatalf("Expected streaming handler body to pass through, got %q", w.Body.String())
+	}
+}
+
 func TestRequestTimeoutMiddleware_PreservesPanicRecovery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.Default() // Uses Recovery middleware

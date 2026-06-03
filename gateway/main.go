@@ -297,9 +297,9 @@ func main() {
 
 	// Configure GZIP compression for API responses
 	// - Uses DefaultCompression for balance between speed and size
-	// - Excludes /metrics endpoint (if added in future)
+	// - Excludes metrics and SSE endpoints that must flush incrementally
 	// - Compression is transparent to receipt verification (hashes uncompressed body)
-	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{metricsPath})))
+	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{metricsPath, summarizeStreamPath})))
 
 	// Initialize Redis early to fail-fast if Redis required but unavailable
 	if err := initRedis(); err != nil {
@@ -528,6 +528,12 @@ func parseSummarizeRequest(c *gin.Context, requestBody []byte) (SummarizeRequest
 }
 
 func handleSummarizeStream(c *gin.Context) {
+	streamingProvider, ok := aiProvider.(ai.StreamingProvider)
+	if !ok {
+		respondError(c, 501, "streaming_unsupported", fmt.Errorf("configured AI provider does not support streaming"))
+		return
+	}
+
 	payment, ok := preparePaidSummarizeRequest(c)
 	if !ok {
 		return
@@ -538,18 +544,15 @@ func handleSummarizeStream(c *gin.Context) {
 		return
 	}
 
-	streamingProvider, ok := aiProvider.(ai.StreamingProvider)
-	if !ok {
-		respondError(c, 501, "streaming_unsupported", fmt.Errorf("configured AI provider does not support streaming"))
-		return
-	}
-
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 
-	chunks, errs := streamingProvider.StreamGenerate(c.Request.Context(), req.Text)
+	streamCtx, cancelStream := context.WithCancel(c.Request.Context())
+	defer cancelStream()
+
+	chunks, errs := streamingProvider.StreamGenerate(streamCtx, req.Text)
 	var full strings.Builder
 
 	sendSSE := func(event string, payload any) bool {
@@ -565,11 +568,11 @@ func handleSummarizeStream(c *gin.Context) {
 
 	for {
 		select {
-		case <-c.Request.Context().Done():
+		case <-streamCtx.Done():
 			return
 		case err, ok := <-errs:
 			if ok && err != nil {
-				if errors.Is(err, context.DeadlineExceeded) || errors.Is(c.Request.Context().Err(), context.DeadlineExceeded) {
+				if errors.Is(err, context.DeadlineExceeded) || errors.Is(streamCtx.Err(), context.DeadlineExceeded) {
 					_ = sendSSE("error", gin.H{"error": "upstream_timeout", "message": "AI provider timed out"})
 				} else {
 					log.Printf("Streaming AI provider failed: %v", err)

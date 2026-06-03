@@ -322,6 +322,25 @@ paths:
                   max_size:
                     type: string
                     example: 10MB
+        "429":
+          description: Rate limit exceeded when rate limiting is enabled.
+          headers:
+            Retry-After:
+              schema:
+                type: string
+            X-RateLimit-Limit:
+              schema:
+                type: string
+            X-RateLimit-Remaining:
+              schema:
+                type: string
+            X-RateLimit-Reset:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RateLimitError"
         "501":
           description: Configured AI provider does not support streaming.
           content:

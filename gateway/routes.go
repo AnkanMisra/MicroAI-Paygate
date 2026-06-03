@@ -4,6 +4,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const summarizeStreamPath = "/api/ai/summarize/stream"
+
 // swaggerUIPage is the HTML served at GET /docs.
 const swaggerUIPage = `
 <!DOCTYPE html>
@@ -51,7 +53,8 @@ func registerAPIRoutes(r *gin.Engine) {
 	} else {
 		aiGroup.POST("/summarize", handleSummarize)
 	}
-	aiGroup.POST("/summarize/stream", handleSummarizeStream)
+
+	r.POST(summarizeStreamPath, handleSummarizeStream)
 
 	r.GET("/api/receipts/:id", handleGetReceipt)
 }
