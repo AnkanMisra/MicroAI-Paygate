@@ -103,6 +103,7 @@ Common optional variables:
 | `RECEIPT_TTL` | `86400` | Receipt TTL in seconds. |
 | `CACHE_ENABLED` | `false` | Optional response cache. |
 | `CACHE_TTL_SECONDS` | `3600` | Response cache TTL. |
+| `MAX_REQUEST_BODY_MB` | `10` | Maximum request body size in MB (clamped to 10240). |
 | `METRICS_ENABLED` | enabled unless set to `false` | Exposes Prometheus metrics. |
 | `METRICS_PATH` | `/metrics` | Gateway metrics endpoint path. Missing leading slash is normalized. |
 | `RATE_LIMIT_ENABLED` | disabled unless set to `true` or `1` | Enables token bucket middleware. |

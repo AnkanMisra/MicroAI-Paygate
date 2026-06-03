@@ -474,3 +474,47 @@ func TestGetReceiptTTL(t *testing.T) {
 func stringPtr(value string) *string {
 	return &value
 }
+
+func TestGetMaxBodySize(t *testing.T) {
+	t.Run("default when unset", func(t *testing.T) {
+		t.Setenv("MAX_REQUEST_BODY_MB", "")
+		if got := getMaxBodySize(); got != 10*1024*1024 {
+			t.Fatalf("expected 10MB default, got %d", got)
+		}
+	})
+
+	t.Run("custom value", func(t *testing.T) {
+		t.Setenv("MAX_REQUEST_BODY_MB", "25")
+		if got := getMaxBodySize(); got != 25*1024*1024 {
+			t.Fatalf("expected 25MB, got %d", got)
+		}
+	})
+
+	t.Run("zero falls back to default", func(t *testing.T) {
+		t.Setenv("MAX_REQUEST_BODY_MB", "0")
+		if got := getMaxBodySize(); got != 10*1024*1024 {
+			t.Fatalf("expected 10MB fallback for zero, got %d", got)
+		}
+	})
+
+	t.Run("negative falls back to default", func(t *testing.T) {
+		t.Setenv("MAX_REQUEST_BODY_MB", "-5")
+		if got := getMaxBodySize(); got != 10*1024*1024 {
+			t.Fatalf("expected 10MB fallback for negative, got %d", got)
+		}
+	})
+
+	t.Run("overflow clamped to max", func(t *testing.T) {
+		t.Setenv("MAX_REQUEST_BODY_MB", "99999")
+		if got := getMaxBodySize(); got != 10240*1024*1024 {
+			t.Fatalf("expected 10240MB clamped max, got %d", got)
+		}
+	})
+
+	t.Run("non-numeric falls back to default", func(t *testing.T) {
+		t.Setenv("MAX_REQUEST_BODY_MB", "not-a-number")
+		if got := getMaxBodySize(); got != 10*1024*1024 {
+			t.Fatalf("expected 10MB fallback for non-numeric, got %d", got)
+		}
+	})
+}
