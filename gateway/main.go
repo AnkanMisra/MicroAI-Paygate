@@ -18,10 +18,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -378,8 +380,42 @@ func main() {
 		port = "3000"
 	}
 
-	log.Printf("Go Gateway running on port %s", port)
-	r.Run(":" + port)
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: r,
+	}
+
+	startupErrCh := make(chan error, 1)
+	go func() {
+		log.Printf("Go Gateway listening on port %s", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			startupErrCh <- err
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case sig := <-quit:
+		log.Printf("Signal %s received, shutting down (max 30s)...", sig)
+	case err := <-startupErrCh:
+		log.Printf("Server failed to start: %v", err)
+		return
+	}
+
+	signal.Stop(quit)
+
+	cleanupCancel()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server forced to shutdown: %v", err)
+	} else {
+		log.Println("Server stopped gracefully")
+	}
 }
 
 // handleSummarize handles POST /api/ai/summarize requests. It validates
