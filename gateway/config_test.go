@@ -506,8 +506,8 @@ func TestGetMaxBodySize(t *testing.T) {
 
 	t.Run("overflow clamped to max", func(t *testing.T) {
 		t.Setenv("MAX_REQUEST_BODY_MB", "99999")
-		if got := getMaxBodySize(); got != 10240*1024*1024 {
-			t.Fatalf("expected 10240MB clamped max, got %d", got)
+		if got := getMaxBodySize(); got != 100*1024*1024 {
+			t.Fatalf("expected 100MB clamped max, got %d", got)
 		}
 	})
 

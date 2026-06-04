@@ -95,7 +95,7 @@ func getHealthCheckTimeout() time.Duration {
 }
 
 const maxBodySizeMB = 10
-const maxBodySizeMBMax = 10240 // 10 GB — safe upper bound to prevent int64 overflow
+const maxBodySizeMBMax = 100 // prevents memory exhaustion from io.ReadAll buffering
 
 // getMaxBodySize returns the maximum request body size in bytes, configured via
 // the MAX_REQUEST_BODY_MB environment variable. Defaults to 10MB. Clamped to
