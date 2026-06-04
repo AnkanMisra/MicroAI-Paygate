@@ -2,15 +2,17 @@ package ai
 
 import "context"
 
-// MockProvider implements the Provider interface for local/demo testing
-type MockProvider struct{}
-
-// NewMockProvider creates a new MockProvider instance
-func NewMockProvider() *MockProvider {
-	return &MockProvider{}
+type MockProvider struct {
+	Name string
 }
 
-// Generate returns a deterministic mock summary response
-func (p *MockProvider) Generate(ctx context.Context, text string) (string, error) {
+func NewMockProvider() *MockProvider {
+	return &MockProvider{Name: "Mock"}
+}
+
+func (m *MockProvider) Generate(ctx context.Context, text string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	return "This is a deterministic mock summary of the input text for local/demo testing.", nil
 }

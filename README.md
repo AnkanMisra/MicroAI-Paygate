@@ -66,7 +66,7 @@ flowchart TB
     Gateway["gateway/ Go Gin API :3000"]
     Verifier["verifier/ Rust Axum :3002"]
     Redis["Redis 7 receipt store by default\noptional response cache"]
-    AI["AI provider: OpenRouter or Ollama"]
+    AI["AI provider: OpenRouter, Ollama, or Mock"]
     Wallet["EVM wallet on configured chain\nBase Sepolia default"]
 
     Client --> Web
@@ -107,7 +107,7 @@ flowchart TB
       Summarize["POST /api/ai/summarize"]
       PaymentContext["Create PaymentContext\nrecipient, token, amount, chainId, nonce, timestamp"]
       VerifyClient["Verifier HTTP client\nVERIFIER_URL"]
-      AIClient["AI provider client\nOpenRouter or Ollama"]
+      AIClient["AI provider client\nOpenRouter, Ollama, or Mock"]
       ReceiptSigner["Receipt signer\nserver wallet key"]
       ReceiptLookup["GET /api/receipts/{id}"]
       Health["/healthz and /readyz"]
@@ -132,6 +132,7 @@ flowchart TB
     subgraph Providers["AI providers"]
       OpenRouter["OpenRouter chat completions"]
       Ollama["Local Ollama generate API"]
+      Mock["Mock offline provider"]
     end
 
     Browser --> Gin
@@ -148,6 +149,7 @@ flowchart TB
     Summarize -->|verified cache miss| AIClient
     AIClient --> OpenRouter
     AIClient --> Ollama
+    AIClient --> Mock
     Summarize --> ReceiptSigner --> Receipts
     ReceiptSigner --> MemoryStore
     Cache -->|cached response receipt| ReceiptSigner
@@ -316,7 +318,7 @@ Core local variables live in [.env.example](.env.example). Production placeholde
 
 | Variable | Service | Notes |
 | --- | --- | --- |
-| `AI_PROVIDER` | Gateway | `openrouter` by default, `ollama` for local Ollama experiments. |
+| `AI_PROVIDER` | Gateway | `openrouter` by default, `ollama` for local Ollama experiments, or `mock` for offline local/demo use. |
 | `OPENROUTER_API_KEY` | Gateway | Required when using OpenRouter. Never commit a real key. |
 | `OPENROUTER_MODEL` | Gateway | OpenRouter model name. Demo docs use `z-ai/glm-4.5-air:free` unless overridden. |
 | `OLLAMA_URL`, `OLLAMA_MODEL` | Gateway | Used only when `AI_PROVIDER=ollama`. |

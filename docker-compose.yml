@@ -16,6 +16,9 @@ services:
       - METRICS_ENABLED=${METRICS_ENABLED:-true}
       - METRICS_PATH=${METRICS_PATH:-/metrics}
       # Pass through from .env file
+      - AI_PROVIDER
+      - OLLAMA_URL
+      - OLLAMA_MODEL
       - OPENROUTER_API_KEY
       - OPENROUTER_MODEL
       - SERVER_WALLET_PRIVATE_KEY

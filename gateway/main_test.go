@@ -733,14 +733,13 @@ func TestHandleSummarize_MockProvider(t *testing.T) {
 	origReceiptStore := getActiveReceiptStore()
 	origKey := serverPrivateKey
 	origKeyErr := serverPrivateKeyErr
-	origOnce := serverPrivateKeyOnce
 
 	defer func() {
 		aiProvider = origAIProvider
 		setActiveReceiptStore(origReceiptStore)
 		serverPrivateKey = origKey
 		serverPrivateKeyErr = origKeyErr
-		serverPrivateKeyOnce = origOnce
+		serverPrivateKeyOnce = sync.Once{}
 
 		receiptGlobalsTestMu.Unlock()
 		serverPrivateKeyTestMu.Unlock()

@@ -70,7 +70,7 @@ The verifier route `POST /verify` is not a gateway route. It belongs to the inte
 | `ratelimit.go` | Token bucket implementation. |
 | `metrics.go` | Prometheus metric definitions and metrics endpoint config helpers. |
 | `middleware.go` | Request timeout, correlation ID, and request metrics middleware. |
-| `internal/ai/` | OpenRouter and Ollama provider implementations. |
+| `internal/ai/` | OpenRouter, Ollama, and Mock provider implementations. |
 | `openapi.yaml` | Public gateway API contract. |
 
 ## Configuration
