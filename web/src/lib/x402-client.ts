@@ -216,7 +216,9 @@ export async function readSummarizeStream(
   } finally {
     try {
       await reader.cancel();
-    } catch {}
+    } catch {
+      // The reader may already be closed after a successful done event.
+    }
     reader.releaseLock();
   }
 
