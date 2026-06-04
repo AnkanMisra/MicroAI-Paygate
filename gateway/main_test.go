@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"gateway/internal/ai"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -616,3 +618,96 @@ func TestHandleReadyz_RedisUnreachable(t *testing.T) {
 	checks := response["checks"].(map[string]interface{})
 	require.Equal(t, "unreachable", checks["redis"])
 }
+
+func TestHandleReadyz_MockProvider(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("AI_PROVIDER", "mock")
+	t.Setenv("RECEIPT_STORE", "memory")
+	t.Setenv("CACHE_ENABLED", "false")
+
+	origVerifier := checkVerifierHealth
+	defer func() {
+		checkVerifierHealth = origVerifier
+	}()
+
+	checkVerifierHealth = func() string { return "ok" }
+
+	r := gin.Default()
+	r.GET("/readyz", handleReadyz)
+
+	req, _ := http.NewRequest(http.MethodGet, "/readyz", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	require.Equal(t, true, response["ready"])
+
+	checks := response["checks"].(map[string]interface{})
+	require.Equal(t, "ok", checks["verifier"])
+	require.Equal(t, "ok", checks["mock"])
+
+	aiProviderCheck := checks["ai_provider"].(map[string]interface{})
+	require.Equal(t, "mock", aiProviderCheck["provider"])
+	require.Equal(t, "ok", aiProviderCheck["status"])
+}
+
+func TestHandleSummarize_MockProvider(t *testing.T) {
+	// Set up a verifier that returns valid immediately
+	verifier := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		w.Write([]byte(`{"is_valid":true, "recovered_address":"0xabc","error":""}`))
+	}))
+	defer verifier.Close()
+
+	// Environment
+	t.Setenv("AI_PROVIDER", "mock")
+	t.Setenv("VERIFIER_URL", verifier.URL)
+	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	t.Setenv("RECEIPT_STORE", "memory")
+	t.Setenv("CACHE_ENABLED", "false")
+
+	// Initialize AI provider for this test
+	var err error
+	aiProvider, err = ai.NewProvider()
+	require.NoError(t, err)
+
+	// Initialize receipt store for this test
+	err = initReceiptStore()
+	require.NoError(t, err)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/api/ai/summarize", handleSummarize)
+
+	// Build a valid request with signature/nonce
+	reqBody := strings.NewReader(`{"text":"hello world text to summarize"}`)
+	req, _ := http.NewRequest("POST", "/api/ai/summarize", reqBody)
+	req.Header.Set("X-402-Signature", "sig")
+	req.Header.Set("X-402-Nonce", "nonce")
+	req.Header.Set("X-402-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	// Verify deterministic response
+	expected := "This is a deterministic mock summary of the input text for local/demo testing."
+	require.Equal(t, expected, response["result"])
+
+	// Check that X-402-Receipt header is set
+	receiptHeader := w.Header().Get("X-402-Receipt")
+	require.NotEmpty(t, receiptHeader)
+}
+

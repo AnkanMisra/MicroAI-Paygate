@@ -108,6 +108,8 @@ func CacheMiddleware() gin.HandlerFunc {
 			if model == "" {
 				model = "llama2"
 			}
+		} else if os.Getenv("AI_PROVIDER") == "mock" {
+			model = "mock"
 		} else if model == "" {
 			model = "z-ai/glm-4.5-air:free"
 		}

@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"context"
 	"testing"
 )
 
@@ -27,6 +28,12 @@ func TestNewProvider(t *testing.T) {
 			name:         "ollama provider",
 			providerType: "ollama",
 			wantType:     "*ai.OllamaProvider",
+			wantErr:      false,
+		},
+		{
+			name:         "mock provider",
+			providerType: "mock",
+			wantType:     "*ai.MockProvider",
 			wantErr:      false,
 		},
 		{
@@ -69,6 +76,10 @@ func TestNewProvider(t *testing.T) {
 			case "*ai.OllamaProvider":
 				if _, ok := provider.(*OllamaProvider); !ok {
 					t.Errorf("NewProvider() returned %T, want *OllamaProvider", provider)
+				}
+			case "*ai.MockProvider":
+				if _, ok := provider.(*MockProvider); !ok {
+					t.Errorf("NewProvider() returned %T, want *MockProvider", provider)
 				}
 			}
 		})
@@ -133,5 +144,19 @@ func TestNewOllamaProvider_Defaults(t *testing.T) {
 	}
 	if provider.model != "llama2" {
 		t.Errorf("expected default model 'llama2', got '%s'", provider.model)
+	}
+}
+
+func TestMockProvider(t *testing.T) {
+	provider := NewMockProvider()
+	ctx := context.Background()
+	resp, err := provider.Generate(ctx, "hello world")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	expected := "This is a deterministic mock summary of the input text for local/demo testing."
+	if resp != expected {
+		t.Errorf("expected '%s', got '%s'", expected, resp)
 	}
 }

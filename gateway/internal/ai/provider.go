@@ -25,6 +25,8 @@ func NewProvider() (Provider, error) {
 		return NewOpenRouterProvider(), nil
 	case "ollama":
 		return NewOllamaProvider(), nil
+	case "mock":
+		return NewMockProvider(), nil
 	default:
 		return nil, fmt.Errorf("unsupported AI provider: %s", providerType)
 	}

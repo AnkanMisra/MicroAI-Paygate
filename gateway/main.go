@@ -1040,6 +1040,9 @@ func handleReadyz(c *gin.Context) {
 	case "ollama":
 		aiStatus = checkOllamaHealth()
 		checks["ollama"] = aiStatus
+	case "mock":
+		aiStatus = "ok"
+		checks["mock"] = aiStatus
 	}
 	checks["ai_provider"] = gin.H{
 		"provider": providerType,

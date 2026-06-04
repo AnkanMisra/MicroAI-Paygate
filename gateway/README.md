@@ -88,7 +88,7 @@ Common optional variables:
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `PORT` | `3000` | Gateway listen port. |
-| `AI_PROVIDER` | `openrouter` | Supported values: `openrouter`, `ollama`. |
+| `AI_PROVIDER` | `openrouter` | Supported values: `openrouter`, `ollama`, `mock` (local/demo only). |
 | `OPENROUTER_MODEL` | `z-ai/glm-4.5-air:free` in code/docs unless overridden | OpenRouter model. |
 | `OPENROUTER_URL` | `https://openrouter.ai/api/v1/chat/completions` provider default | Used by tests and custom OpenRouter-compatible endpoints. |
 | `OLLAMA_URL` | `http://localhost:11434` | Used when `AI_PROVIDER=ollama`. |
@@ -129,7 +129,7 @@ cd gateway
 RECEIPT_STORE=memory CACHE_ENABLED=false go run .
 ```
 
-The verifier must be reachable at `VERIFIER_URL` for signed requests. OpenRouter startup requires `OPENROUTER_API_KEY` unless `AI_PROVIDER=ollama`.
+The verifier must be reachable at `VERIFIER_URL` for signed requests. OpenRouter startup requires `OPENROUTER_API_KEY` unless `AI_PROVIDER` is set to `ollama` or `mock`.
 
 ## Testing
 
