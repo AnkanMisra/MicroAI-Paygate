@@ -20,7 +20,7 @@ MicroAI Paygate is split into small services so each trust boundary is visible.
 5. Gateway calls the verifier.
 6. Verifier recovers and validates the wallet signature.
 7. Gateway calls the AI provider.
-8. Gateway signs and stores the receipt.
+8. Gateway signs the receipt and stores it for lookup when the receipt store is available.
 9. Browser or SDK verifies the receipt locally.
 
 ## Boundaries

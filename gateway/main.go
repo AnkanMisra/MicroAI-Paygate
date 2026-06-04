@@ -564,6 +564,11 @@ func parseSummarizeRequest(c *gin.Context, requestBody []byte) (SummarizeRequest
 }
 
 func handleSummarizeStream(c *gin.Context) {
+	if c.GetHeader("X-402-Signature") == "" || c.GetHeader("X-402-Nonce") == "" {
+		_, _ = preparePaidSummarizeRequest(c)
+		return
+	}
+
 	streamingProvider, ok := aiProvider.(ai.StreamingProvider)
 	if !ok {
 		respondError(c, 501, "streaming_unsupported", fmt.Errorf("configured AI provider does not support streaming"))
@@ -780,7 +785,7 @@ func generateStreamingReceipt(c *gin.Context, paymentCtx PaymentContext, recover
 		return "", fmt.Errorf("generate receipt: %w", err)
 	}
 	if err := storeReceiptWithContext(c.Request.Context(), receipt, getReceiptTTL()); err != nil {
-		return "", fmt.Errorf("store receipt: %w", err)
+		log.Printf("Failed to store streaming receipt %s: %v", receipt.Receipt.ID, err)
 	}
 
 	receiptJSON, err := json.Marshal(receipt)

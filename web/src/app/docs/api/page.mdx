@@ -20,7 +20,9 @@ stream starts, the gateway emits an `error` SSE event with a public error code.
 
 ### `GET /api/receipts/{id}`
 
-Fetches a stored signed receipt until the configured receipt TTL expires.
+Fetches a stored signed receipt until the configured receipt TTL expires. A
+streaming response can still deliver the signed receipt in the final `done`
+event if receipt lookup storage is temporarily unavailable.
 
 ### `GET /healthz`
 
@@ -71,7 +73,8 @@ after SSE chunks have started.
 - Replayed nonce.
 - Verifier timeout or unavailable.
 - AI provider timeout or unavailable.
-- Receipt generation, encoding, or storage failure.
+- Receipt generation or encoding failure.
+- Receipt storage failure for non-streaming responses.
 
 ## OpenAPI
 

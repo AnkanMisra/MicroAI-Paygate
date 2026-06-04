@@ -2,13 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -45,11 +49,98 @@ func TestHandleSummarize_NoHeaders(t *testing.T) {
 	}
 }
 
+func TestHandleSummarizeStream_NoHeadersReturnsPaymentChallengeBeforeProviderCheck(t *testing.T) {
+	origProvider := aiProvider
+	aiProvider = failingProvider{err: errors.New("non-streaming provider")}
+	t.Cleanup(func() { aiProvider = origProvider })
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST(summarizeStreamPath, handleSummarizeStream)
+
+	req := httptest.NewRequest(http.MethodPost, summarizeStreamPath, strings.NewReader(`{"text":"hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected unsigned streaming request to receive 402 challenge, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to parse response JSON: %v", err)
+	}
+	if response["paymentContext"] == nil {
+		t.Fatal("expected paymentContext to be present before provider capability checks")
+	}
+}
+
 func TestGetChainIDDefaultBaseSepolia(t *testing.T) {
 	t.Setenv("CHAIN_ID", "")
 
 	if got := getChainID(); got != 84532 {
 		t.Fatalf("expected Base Sepolia default chain ID 84532, got %d", got)
+	}
+}
+
+type failingReceiptStore struct{}
+
+func (f failingReceiptStore) Store(context.Context, *SignedReceipt, time.Duration) error {
+	return errors.New("receipt store unavailable")
+}
+
+func (f failingReceiptStore) Get(context.Context, string) (*SignedReceipt, bool, error) {
+	return nil, false, nil
+}
+
+func (f failingReceiptStore) CleanupExpired(context.Context) error { return nil }
+
+func (f failingReceiptStore) Close() error { return nil }
+
+func TestGenerateStreamingReceiptReturnsSignedReceiptWhenStoreFails(t *testing.T) {
+	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+
+	origStore := getActiveReceiptStore()
+	setActiveReceiptStore(failingReceiptStore{})
+	t.Cleanup(func() { setActiveReceiptStore(origStore) })
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, summarizeStreamPath, nil)
+
+	encoded, err := generateStreamingReceipt(
+		c,
+		PaymentContext{
+			Recipient: "0x0000000000000000000000000000000000000001",
+			Token:     "USDC",
+			Amount:    "0.001",
+			Nonce:     "nonce-stream-store-failure",
+			ChainID:   84532,
+			Timestamp: uint64(time.Now().Unix()),
+		},
+		"0x0000000000000000000000000000000000000002",
+		[]byte(`{"text":"hello"}`),
+		"summary",
+	)
+	if err != nil {
+		t.Fatalf("expected signed receipt even when persistence fails, got error: %v", err)
+	}
+	if encoded == "" {
+		t.Fatal("expected non-empty base64 receipt")
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("receipt is not valid base64: %v", err)
+	}
+	var receipt SignedReceipt
+	if err := json.Unmarshal(decoded, &receipt); err != nil {
+		t.Fatalf("receipt is not valid JSON: %v", err)
+	}
+	if receipt.Receipt.Service.Endpoint != summarizeStreamPath {
+		t.Fatalf("receipt endpoint mismatch: got %q", receipt.Receipt.Service.Endpoint)
 	}
 }
 
