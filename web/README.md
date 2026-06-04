@@ -59,7 +59,7 @@ The summarize form uses `/api/ai/summarize/stream` when the stream toggle is ena
 
 The streaming receipt lives in the final SSE event instead of the `X-402-Receipt` header because headers cannot be appended once the response body has started.
 
-If the gateway is configured with a provider that cannot stream, the endpoint returns `501` with the public `streaming_unsupported` error before payment verification, so the UI can fall back to the normal non-streaming summarize request without burning the signed nonce.
+If the gateway is configured with a provider that cannot stream, the unsigned request still receives the normal `402` challenge first. On the signed retry, the endpoint returns `501` with the public `streaming_unsupported` error, so the UI can fall back to the normal non-streaming summarize request without burning a second nonce.
 
 ## Local Development
 
