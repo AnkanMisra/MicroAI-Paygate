@@ -585,7 +585,7 @@ func handleSummarizeStream(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 
-	streamCtx, cancelStream := context.WithCancel(c.Request.Context())
+	streamCtx, cancelStream := context.WithTimeout(c.Request.Context(), getAITimeout())
 	defer cancelStream()
 
 	chunks, errs := streamingProvider.StreamGenerate(streamCtx, req.Text)
@@ -605,6 +605,9 @@ func handleSummarizeStream(c *gin.Context) {
 	for {
 		select {
 		case <-streamCtx.Done():
+			if errors.Is(streamCtx.Err(), context.DeadlineExceeded) {
+				_ = sendSSE("error", gin.H{"error": "upstream_timeout", "message": "AI provider timed out"})
+			}
 			return
 		case err, ok := <-errs:
 			if ok && err != nil {

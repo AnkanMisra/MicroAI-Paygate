@@ -348,13 +348,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/PublicError"
         "502":
-          description: Verification service or upstream AI provider unavailable before streaming starts.
+          description: >-
+            Verification service unavailable before streaming starts. After a signed streaming response starts,
+            upstream AI failures are delivered as `event: error` SSE frames with a public error code such as
+            `upstream_unavailable`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicError"
         "504":
-          description: Verifier timeout before streaming starts.
+          description: >-
+            Verifier timeout before streaming starts. After a signed streaming response starts, AI deadline
+            failures are delivered as `event: error` SSE frames with `upstream_timeout`.
           content:
             application/json:
               schema:
