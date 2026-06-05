@@ -50,12 +50,59 @@ func TestNewProvider(t *testing.T) {
 			},
 		},
 		{
+			name:         "mock provider allowed via ALLOW_MOCK_PROVIDER=1",
+			providerType: "mock",
+			wantType:     "*ai.MockProvider",
+			wantErr:      false,
+			setupEnv: func(t *testing.T) {
+				t.Setenv("ALLOW_MOCK_PROVIDER", "1")
+			},
+		},
+		{
+			name:         "mock provider allowed via ALLOW_MOCK_PROVIDER=yes",
+			providerType: "mock",
+			wantType:     "*ai.MockProvider",
+			wantErr:      false,
+			setupEnv: func(t *testing.T) {
+				t.Setenv("ALLOW_MOCK_PROVIDER", "yes")
+			},
+		},
+		{
+			name:         "mock provider allowed via ALLOW_MOCK_PROVIDER=TRUE (case insensitive)",
+			providerType: "mock",
+			wantType:     "*ai.MockProvider",
+			wantErr:      false,
+			setupEnv: func(t *testing.T) {
+				t.Setenv("ALLOW_MOCK_PROVIDER", "TRUE")
+			},
+		},
+		{
 			name:         "mock provider rejected in production",
 			providerType: "mock",
 			wantType:     "",
 			wantErr:      true,
 			setupEnv: func(t *testing.T) {
 				t.Setenv("NODE_ENV", "production")
+				t.Setenv("ALLOW_MOCK_PROVIDER", "true")
+			},
+		},
+		{
+			name:         "mock provider rejected in production prefix (prod-east)",
+			providerType: "mock",
+			wantType:     "",
+			wantErr:      true,
+			setupEnv: func(t *testing.T) {
+				t.Setenv("NODE_ENV", "prod-east")
+				t.Setenv("ALLOW_MOCK_PROVIDER", "true")
+			},
+		},
+		{
+			name:         "mock provider rejected in production prefix (PROD) (case insensitive)",
+			providerType: "mock",
+			wantType:     "",
+			wantErr:      true,
+			setupEnv: func(t *testing.T) {
+				t.Setenv("APP_ENV", "PROD")
 				t.Setenv("ALLOW_MOCK_PROVIDER", "true")
 			},
 		},
