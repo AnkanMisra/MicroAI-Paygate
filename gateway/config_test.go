@@ -1,10 +1,19 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestValidateConfig_MissingRequiredEnv(t *testing.T) {
@@ -517,4 +526,95 @@ func TestGetMaxBodySize(t *testing.T) {
 			t.Fatalf("expected 10MB fallback for non-numeric, got %d", got)
 		}
 	})
+}
+
+func TestRequestBodyLimit_EnforcedAtRouteLevel(t *testing.T) {
+	tests := []struct {
+		name       string
+		envMB      string
+		bodySize   int
+		wantStatus int
+		wantMax    string
+	}{
+		{
+			name:       "body below limit succeeds",
+			envMB:      "10",
+			bodySize:   1024,
+			wantStatus: 200,
+			wantMax:    "",
+		},
+		{
+			name:       "body just under limit succeeds",
+			envMB:      "1",
+			bodySize:   1024*1024 - 1,
+			wantStatus: 200,
+			wantMax:    "",
+		},
+		{
+			name:       "body at limit succeeds",
+			envMB:      "1",
+			bodySize:   1024 * 1024,
+			wantStatus: 200,
+			wantMax:    "",
+		},
+		{
+			name:       "body exceeds limit returns 413",
+			envMB:      "1",
+			bodySize:   2 * 1024 * 1024,
+			wantStatus: 413,
+			wantMax:    "1MB",
+		},
+		{
+			name:       "body way over limit returns 413",
+			envMB:      "2",
+			bodySize:   10 * 1024 * 1024,
+			wantStatus: 413,
+			wantMax:    "2MB",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("MAX_REQUEST_BODY_MB", tt.envMB)
+			gin.SetMode(gin.TestMode)
+			r := gin.Default()
+			r.POST("/test", func(c *gin.Context) {
+				maxSize := getMaxBodySize()
+				c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSize)
+				_, err := io.ReadAll(c.Request.Body)
+				if err != nil {
+					var maxBytesErr *http.MaxBytesError
+					if errors.As(err, &maxBytesErr) {
+						c.JSON(413, gin.H{
+							"error":    "Payload too large",
+							"max_size": fmt.Sprintf("%dMB", maxSize/1024/1024),
+						})
+						return
+					}
+					c.JSON(500, gin.H{"error": err.Error()})
+					return
+				}
+				c.JSON(200, gin.H{"ok": true})
+			})
+
+			body := bytes.Repeat([]byte("A"), tt.bodySize)
+			req, _ := http.NewRequest("POST", "/test", bytes.NewReader(body))
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Fatalf("expected status %d, got %d", tt.wantStatus, w.Code)
+			}
+
+			if tt.wantMax != "" {
+				var resp map[string]interface{}
+				if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+					t.Fatalf("failed to parse response: %v", err)
+				}
+				if resp["max_size"] != tt.wantMax {
+					t.Errorf("expected max_size %q, got %v", tt.wantMax, resp["max_size"])
+				}
+			}
+		})
+	}
 }
