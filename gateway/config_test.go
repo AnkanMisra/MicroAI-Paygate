@@ -336,6 +336,9 @@ func TestTimeoutConfigHelpers(t *testing.T) {
 	if getVerifierTimeout() != 2*time.Second {
 		t.Fatalf("expected default verifier timeout 2s, got %v", getVerifierTimeout())
 	}
+	if getReceiptStoreTimeout() != 2*time.Second {
+		t.Fatalf("expected default receipt store timeout 2s, got %v", getReceiptStoreTimeout())
+	}
 	if getHealthCheckTimeout() != 2*time.Second {
 		t.Fatalf("expected default health check timeout 2s, got %v", getHealthCheckTimeout())
 	}
@@ -344,6 +347,7 @@ func TestTimeoutConfigHelpers(t *testing.T) {
 	t.Setenv("REQUEST_TIMEOUT_SECONDS", "10")
 	t.Setenv("AI_REQUEST_TIMEOUT_SECONDS", "5")
 	t.Setenv("VERIFIER_TIMEOUT_SECONDS", "1")
+	t.Setenv("RECEIPT_STORE_TIMEOUT_SECONDS", "3")
 	t.Setenv("HEALTH_CHECK_TIMEOUT_SECONDS", "3")
 
 	if getRequestTimeout() != 10*time.Second {
@@ -355,6 +359,9 @@ func TestTimeoutConfigHelpers(t *testing.T) {
 	if getVerifierTimeout() != 1*time.Second {
 		t.Fatalf("expected verifier timeout 1s, got %v", getVerifierTimeout())
 	}
+	if getReceiptStoreTimeout() != 3*time.Second {
+		t.Fatalf("expected receipt store timeout 3s, got %v", getReceiptStoreTimeout())
+	}
 	if getHealthCheckTimeout() != 3*time.Second {
 		t.Fatalf("expected health check timeout 3s, got %v", getHealthCheckTimeout())
 	}
@@ -363,6 +370,10 @@ func TestTimeoutConfigHelpers(t *testing.T) {
 	t.Setenv("REQUEST_TIMEOUT_SECONDS", "0")
 	if getRequestTimeout() != 60*time.Second {
 		t.Fatalf("expected request timeout to fall back to 60s on non-positive value, got %v", getRequestTimeout())
+	}
+	t.Setenv("RECEIPT_STORE_TIMEOUT_SECONDS", "0")
+	if getReceiptStoreTimeout() != 2*time.Second {
+		t.Fatalf("expected receipt store timeout to fall back to 2s on non-positive value, got %v", getReceiptStoreTimeout())
 	}
 }
 

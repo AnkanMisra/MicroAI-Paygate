@@ -784,7 +784,9 @@ func generateStreamingReceipt(c *gin.Context, paymentCtx PaymentContext, recover
 	if err != nil {
 		return "", fmt.Errorf("generate receipt: %w", err)
 	}
-	if err := storeReceiptWithContext(c.Request.Context(), receipt, getReceiptTTL()); err != nil {
+	storeCtx, cancelStore := context.WithTimeout(c.Request.Context(), getReceiptStoreTimeout())
+	defer cancelStore()
+	if err := storeReceiptWithContext(storeCtx, receipt, getReceiptTTL()); err != nil {
 		log.Printf("Failed to store streaming receipt %s: %v", receipt.Receipt.ID, err)
 	}
 
