@@ -17,10 +17,12 @@ services:
       - METRICS_PATH=${METRICS_PATH:-/metrics}
       # Pass through from .env file
       - AI_PROVIDER
-      - OLLAMA_URL
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
       - OLLAMA_MODEL
       - OPENROUTER_API_KEY
       - OPENROUTER_MODEL
+      - OPENROUTER_URL
+      - RUNNING_IN_DOCKER=true
       - SERVER_WALLET_PRIVATE_KEY
       - RECIPIENT_ADDRESS
       - PAYMENT_AMOUNT
@@ -40,6 +42,8 @@ services:
       start_period: 10s
     networks:
       - microai-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   verifier:
     build: ./verifier

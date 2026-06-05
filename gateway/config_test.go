@@ -474,3 +474,64 @@ func TestGetReceiptTTL(t *testing.T) {
 func stringPtr(value string) *string {
 	return &value
 }
+
+func TestValidateConfig_MockProvider(t *testing.T) {
+	t.Run("allowed in dev environment", func(t *testing.T) {
+		t.Setenv("AI_PROVIDER", "mock")
+		t.Setenv("NODE_ENV", "development")
+		t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+		t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
+		t.Setenv("RECEIPT_STORE", "memory")
+
+		err := validateConfig()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("allowed with ALLOW_MOCK_PROVIDER", func(t *testing.T) {
+		t.Setenv("AI_PROVIDER", "mock")
+		t.Setenv("NODE_ENV", "")
+		t.Setenv("ALLOW_MOCK_PROVIDER", "true")
+		t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+		t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
+		t.Setenv("RECEIPT_STORE", "memory")
+
+		err := validateConfig()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("rejected in production", func(t *testing.T) {
+		t.Setenv("AI_PROVIDER", "mock")
+		t.Setenv("NODE_ENV", "production")
+		t.Setenv("ALLOW_MOCK_PROVIDER", "true")
+		t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+		t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
+		t.Setenv("RECEIPT_STORE", "memory")
+
+		err := validateConfig()
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "disabled in production") {
+			t.Fatalf("expected error to mention disabled in production, got %v", err)
+		}
+	})
+
+	t.Run("rejected outside allowed env", func(t *testing.T) {
+		t.Setenv("AI_PROVIDER", "mock")
+		t.Setenv("NODE_ENV", "")
+		t.Setenv("APP_ENV", "")
+		t.Setenv("ALLOW_MOCK_PROVIDER", "")
+		t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+		t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
+		t.Setenv("RECEIPT_STORE", "memory")
+
+		err := validateConfig()
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
+}

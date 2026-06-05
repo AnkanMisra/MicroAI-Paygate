@@ -11,6 +11,7 @@ func TestNewProvider(t *testing.T) {
 		providerType string
 		wantType     string
 		wantErr      bool
+		setupEnv     func(t *testing.T)
 	}{
 		{
 			name:         "default to openrouter",
@@ -31,10 +32,43 @@ func TestNewProvider(t *testing.T) {
 			wantErr:      false,
 		},
 		{
-			name:         "mock provider",
+			name:         "mock provider allowed via NODE_ENV=test",
 			providerType: "mock",
 			wantType:     "*ai.MockProvider",
 			wantErr:      false,
+			setupEnv: func(t *testing.T) {
+				t.Setenv("NODE_ENV", "test")
+			},
+		},
+		{
+			name:         "mock provider allowed via ALLOW_MOCK_PROVIDER=true",
+			providerType: "mock",
+			wantType:     "*ai.MockProvider",
+			wantErr:      false,
+			setupEnv: func(t *testing.T) {
+				t.Setenv("ALLOW_MOCK_PROVIDER", "true")
+			},
+		},
+		{
+			name:         "mock provider rejected in production",
+			providerType: "mock",
+			wantType:     "",
+			wantErr:      true,
+			setupEnv: func(t *testing.T) {
+				t.Setenv("NODE_ENV", "production")
+				t.Setenv("ALLOW_MOCK_PROVIDER", "true")
+			},
+		},
+		{
+			name:         "mock provider rejected outside allowed environments",
+			providerType: "mock",
+			wantType:     "",
+			wantErr:      true,
+			setupEnv: func(t *testing.T) {
+				t.Setenv("NODE_ENV", "")
+				t.Setenv("APP_ENV", "")
+				t.Setenv("ALLOW_MOCK_PROVIDER", "")
+			},
 		},
 		{
 			name:         "unsupported provider",
@@ -46,7 +80,14 @@ func TestNewProvider(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("NODE_ENV", "")
+			t.Setenv("APP_ENV", "")
+			t.Setenv("ALLOW_MOCK_PROVIDER", "")
+
 			t.Setenv("AI_PROVIDER", tt.providerType)
+			if tt.setupEnv != nil {
+				tt.setupEnv(t)
+			}
 
 			provider, err := NewProvider()
 

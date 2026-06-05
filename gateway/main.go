@@ -74,6 +74,21 @@ func validateConfig() error {
 	providerType := os.Getenv("AI_PROVIDER")
 	if providerType == "" || providerType == "openrouter" {
 		required = append(required, "OPENROUTER_API_KEY")
+	} else if providerType == "mock" {
+		nodeEnv := os.Getenv("NODE_ENV")
+		appEnv := os.Getenv("APP_ENV")
+		allowMock := os.Getenv("ALLOW_MOCK_PROVIDER") == "true"
+
+		if nodeEnv == "production" || appEnv == "production" {
+			return fmt.Errorf("mock AI provider is disabled in production environments")
+		}
+
+		isAllowedEnv := nodeEnv == "development" || nodeEnv == "local" || nodeEnv == "demo" || nodeEnv == "test" || nodeEnv == "dev" ||
+			appEnv == "development" || appEnv == "local" || appEnv == "demo" || appEnv == "test" || appEnv == "dev"
+
+		if !isAllowedEnv && !allowMock {
+			return fmt.Errorf("mock AI provider is disabled. Enable it by setting ALLOW_MOCK_PROVIDER=true, or set NODE_ENV/APP_ENV to development/local/demo/test")
+		}
 	}
 
 	if err := validateReceiptStoreMode(); err != nil {
@@ -1129,6 +1144,12 @@ var checkOllamaHealth = func() string {
 	ollamaURL := os.Getenv("OLLAMA_URL")
 	if ollamaURL == "" {
 		ollamaURL = "http://localhost:11434"
+	}
+	if os.Getenv("RUNNING_IN_DOCKER") == "true" {
+		if ollamaURL == "http://localhost:11434" || ollamaURL == "http://localhost:11434/" ||
+			ollamaURL == "http://127.0.0.1:11434" || ollamaURL == "http://127.0.0.1:11434/" {
+			ollamaURL = "http://host.docker.internal:11434"
+		}
 	}
 	healthURL := strings.TrimSuffix(ollamaURL, "/") + "/api/tags"
 

@@ -622,6 +622,7 @@ func TestHandleReadyz_RedisUnreachable(t *testing.T) {
 func TestHandleReadyz_MockProvider(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("AI_PROVIDER", "mock")
+	t.Setenv("NODE_ENV", "test")
 	t.Setenv("RECEIPT_STORE", "memory")
 	t.Setenv("CACHE_ENABLED", "false")
 
@@ -720,6 +721,7 @@ func TestHandleSummarize_MockProvider(t *testing.T) {
 
 	// Environment
 	t.Setenv("AI_PROVIDER", "mock")
+	t.Setenv("NODE_ENV", "test")
 	t.Setenv("VERIFIER_URL", verifier.URL)
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("RECEIPT_STORE", "memory")
