@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"gateway/internal/ai"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +18,20 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+type noopStreamingProvider struct{}
+
+func (noopStreamingProvider) Generate(context.Context, string) (string, error) {
+	return "unused", nil
+}
+
+func (noopStreamingProvider) StreamGenerate(context.Context, string) (<-chan ai.StreamChunk, <-chan error) {
+	chunks := make(chan ai.StreamChunk)
+	errs := make(chan error)
+	close(chunks)
+	close(errs)
+	return chunks, errs
+}
 
 func TestHandleSummarize_NoHeaders(t *testing.T) {
 	// Setup
@@ -73,6 +88,52 @@ func TestHandleSummarizeStream_NoHeadersReturnsPaymentChallengeBeforeProviderChe
 	}
 	if response["paymentContext"] == nil {
 		t.Fatal("expected paymentContext to be present before provider capability checks")
+	}
+}
+
+func TestHandleSummarizeStream_PreflightUsesAIRequestTimeout(t *testing.T) {
+	verifier := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"is_valid":true, "recovered_address":"0xabc","error":""}`))
+	}))
+	defer verifier.Close()
+
+	t.Setenv("VERIFIER_URL", verifier.URL)
+	t.Setenv("AI_REQUEST_TIMEOUT_SECONDS", "1")
+	t.Setenv("VERIFIER_TIMEOUT_SECONDS", "5")
+
+	origProvider := aiProvider
+	aiProvider = noopStreamingProvider{}
+	t.Cleanup(func() { aiProvider = origProvider })
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST(summarizeStreamPath, handleSummarizeStream)
+
+	req := httptest.NewRequest(http.MethodPost, summarizeStreamPath, strings.NewReader(`{"text":"hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-402-Signature", "sig")
+	req.Header.Set("X-402-Nonce", "nonce")
+	req.Header.Set("X-402-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
+
+	w := httptest.NewRecorder()
+	start := time.Now()
+	r.ServeHTTP(w, req)
+	elapsed := time.Since(start)
+
+	if w.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected verifier timeout before streaming begins, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "verifier_timeout") {
+		t.Fatalf("expected verifier_timeout response, got %s", w.Body.String())
+	}
+	if elapsed < 900*time.Millisecond || elapsed > 2500*time.Millisecond {
+		t.Fatalf("expected streaming preflight to respect 1s AI timeout, took %v", elapsed)
 	}
 }
 

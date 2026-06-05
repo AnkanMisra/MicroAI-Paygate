@@ -501,11 +501,13 @@ func preparePaidSummarizeRequest(c *gin.Context) (*paidSummarizeRequest, bool) {
 		const maxBodySize = 10 * 1024 * 1024
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodySize))
 		var err error
-		requestBody, err = io.ReadAll(c.Request.Body)
+		requestBody, err = readRequestBodyWithContext(c.Request.Context(), c.Request.Body)
 		if err != nil {
 			var maxBytesErr *http.MaxBytesError
 			if errors.As(err, &maxBytesErr) {
 				c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
+			} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				respondError(c, 504, "request_timeout", err)
 			} else {
 				respondError(c, 500, "request_body_read_failed", err)
 			}
@@ -547,6 +549,27 @@ func preparePaidSummarizeRequest(c *gin.Context) (*paidSummarizeRequest, bool) {
 	}, true
 }
 
+func readRequestBodyWithContext(ctx context.Context, body io.ReadCloser) ([]byte, error) {
+	type readResult struct {
+		body []byte
+		err  error
+	}
+
+	resultCh := make(chan readResult, 1)
+	go func() {
+		body, err := io.ReadAll(body)
+		resultCh <- readResult{body: body, err: err}
+	}()
+
+	select {
+	case result := <-resultCh:
+		return result.body, result.err
+	case <-ctx.Done():
+		_ = body.Close()
+		return nil, ctx.Err()
+	}
+}
+
 func parseSummarizeRequest(c *gin.Context, requestBody []byte) (SummarizeRequest, bool) {
 	var req SummarizeRequest
 	if err := json.Unmarshal(requestBody, &req); err != nil {
@@ -575,6 +598,11 @@ func handleSummarizeStream(c *gin.Context) {
 		return
 	}
 
+	streamCtx, cancelStream := context.WithTimeout(c.Request.Context(), getAITimeout())
+	defer cancelStream()
+
+	c.Request = c.Request.WithContext(streamCtx)
+
 	payment, ok := preparePaidSummarizeRequest(c)
 	if !ok {
 		return
@@ -589,9 +617,6 @@ func handleSummarizeStream(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
-
-	streamCtx, cancelStream := context.WithTimeout(c.Request.Context(), getAITimeout())
-	defer cancelStream()
 
 	chunks, errs := streamingProvider.StreamGenerate(streamCtx, req.Text)
 	var full strings.Builder
