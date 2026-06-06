@@ -460,6 +460,167 @@ func TestVerifyReceiptSignature(t *testing.T) {
 	}
 }
 
+func TestVerifySignatureFailsForTamperedSignature(t *testing.T) {
+	// Test that VerifySignature correctly rejects tampered signatures
+	privateKey, err := getServerPrivateKey()
+	if err != nil || privateKey == nil {
+		t.Skip("Skipping verification test: SERVER_WALLET_PRIVATE_KEY not set")
+	}
+
+	receiptID, err := generateReceiptID()
+	if err != nil {
+		t.Fatalf("generateReceiptID() failed: %v", err)
+	}
+
+	receipt := Receipt{
+		ID:        receiptID,
+		Version:   "1.0",
+		Timestamp: time.Now().UTC(),
+		Payment: PaymentDetails{
+			Payer:     "0x742d35Cc6634C0532925a3b844Bc9e7595f8fE21",
+			Recipient: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219",
+			Amount:    "0.001",
+			Token:     "USDC",
+			ChainID:   8453,
+			Nonce:     "test-nonce-tamper",
+		},
+		Service: ServiceDetails{
+			Endpoint:     "/api/ai/summarize",
+			RequestHash:  "sha256:testrequest",
+			ResponseHash: "sha256:testresponse",
+		},
+	}
+
+	signedReceipt, err := signReceipt(receipt)
+	if err != nil {
+		t.Fatalf("Failed to sign receipt: %v", err)
+	}
+
+	receiptBytes, _ := json.Marshal(signedReceipt.Receipt)
+	hash := crypto.Keccak256Hash(receiptBytes)
+
+	// Decode signature
+	sigHex := signedReceipt.Signature[2:]
+	sigBytes, err := hex.DecodeString(sigHex)
+	if err != nil {
+		t.Fatalf("Failed to decode signature: %v", err)
+	}
+
+	serverPubBytes := crypto.FromECDSAPub(&privateKey.PublicKey)
+
+	// First verify the original signature works
+	if !crypto.VerifySignature(serverPubBytes, hash.Bytes(), sigBytes[:64]) {
+		t.Fatal("Original signature verification failed - test setup issue")
+	}
+
+	// Tamper with the signature by flipping a bit
+	tamperedSig := make([]byte, 64)
+	copy(tamperedSig, sigBytes[:64])
+	tamperedSig[0] ^= 0x01 // Flip one bit
+
+	// Verification should fail for tampered signature
+	if crypto.VerifySignature(serverPubBytes, hash.Bytes(), tamperedSig) {
+		t.Error("VerifySignature should fail for tampered signature")
+	}
+
+	// Tamper with a different byte
+	tamperedSig2 := make([]byte, 64)
+	copy(tamperedSig2, sigBytes[:64])
+	tamperedSig2[32] ^= 0xFF // Flip all bits in middle byte
+
+	if crypto.VerifySignature(serverPubBytes, hash.Bytes(), tamperedSig2) {
+		t.Error("VerifySignature should fail for tampered signature (2nd test)")
+	}
+}
+
+func TestVerifySignatureFailsForInvalidDigestLength(t *testing.T) {
+	// Test that VerifySignature correctly handles non-32-byte digests
+	privateKey, err := getServerPrivateKey()
+	if err != nil || privateKey == nil {
+		t.Skip("Skipping verification test: SERVER_WALLET_PRIVATE_KEY not set")
+	}
+
+	receiptID, err := generateReceiptID()
+	if err != nil {
+		t.Fatalf("generateReceiptID() failed: %v", err)
+	}
+
+	receipt := Receipt{
+		ID:        receiptID,
+		Version:   "1.0",
+		Timestamp: time.Now().UTC(),
+		Payment: PaymentDetails{
+			Payer:     "0x742d35Cc6634C0532925a3b844Bc9e7595f8fE21",
+			Recipient: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219",
+			Amount:    "0.001",
+			Token:     "USDC",
+			ChainID:   8453,
+			Nonce:     "test-nonce-length",
+		},
+		Service: ServiceDetails{
+			Endpoint:     "/api/ai/summarize",
+			RequestHash:  "sha256:testrequest",
+			ResponseHash: "sha256:testresponse",
+		},
+	}
+
+	signedReceipt, err := signReceipt(receipt)
+	if err != nil {
+		t.Fatalf("Failed to sign receipt: %v", err)
+	}
+
+	receiptBytes, _ := json.Marshal(signedReceipt.Receipt)
+	hash := crypto.Keccak256Hash(receiptBytes)
+
+	// Decode signature
+	sigHex := signedReceipt.Signature[2:]
+	sigBytes, err := hex.DecodeString(sigHex)
+	if err != nil {
+		t.Fatalf("Failed to decode signature: %v", err)
+	}
+
+	serverPubBytes := crypto.FromECDSAPub(&privateKey.PublicKey)
+
+	// First verify the correct 32-byte digest works
+	if !crypto.VerifySignature(serverPubBytes, hash.Bytes(), sigBytes[:64]) {
+		t.Fatal("Original signature verification failed - test setup issue")
+	}
+
+	// Test with digest that's too short (16 bytes)
+	shortDigest := make([]byte, 16)
+	copy(shortDigest, hash.Bytes()[:16])
+	if crypto.VerifySignature(serverPubBytes, shortDigest, sigBytes[:64]) {
+		t.Error("VerifySignature should fail for 16-byte digest (too short)")
+	}
+
+	// Test with digest that's too long (48 bytes)
+	longDigest := make([]byte, 48)
+	copy(longDigest, hash.Bytes())
+	if crypto.VerifySignature(serverPubBytes, longDigest, sigBytes[:64]) {
+		t.Error("VerifySignature should fail for 48-byte digest (too long)")
+	}
+
+	// Test with empty digest
+	emptyDigest := make([]byte, 0)
+	if crypto.VerifySignature(serverPubBytes, emptyDigest, sigBytes[:64]) {
+		t.Error("VerifySignature should fail for empty digest")
+	}
+
+	// Test with 31-byte digest (off by one)
+	digest31 := make([]byte, 31)
+	copy(digest31, hash.Bytes()[:31])
+	if crypto.VerifySignature(serverPubBytes, digest31, sigBytes[:64]) {
+		t.Error("VerifySignature should fail for 31-byte digest")
+	}
+
+	// Test with 33-byte digest (off by one)
+	digest33 := make([]byte, 33)
+	copy(digest33, hash.Bytes())
+	if crypto.VerifySignature(serverPubBytes, digest33, sigBytes[:64]) {
+		t.Error("VerifySignature should fail for 33-byte digest")
+	}
+}
+
 func TestReceiptFullFlowIntegration(t *testing.T) {
 	// Integration test for complete receipt lifecycle:
 	// 1. Generate receipt
