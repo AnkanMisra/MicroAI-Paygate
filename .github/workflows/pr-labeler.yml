@@ -1,0 +1,70 @@
+name: PR Labeler
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure PR labels exist
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const labels = [
+              { name: 'go', color: '00ADD8', description: 'Touches Go gateway code.' },
+              { name: 'rust', color: 'DEA584', description: 'Touches Rust verifier code.' },
+              { name: 'TypeScript', color: '3178C6', description: 'Touches TypeScript or frontend code.' },
+              { name: 'documentation', color: '0075CA', description: 'Documentation updates.' },
+              { name: 'github_actions', color: '5319E7', description: 'Touches GitHub Actions or repo automation.' },
+              { name: 'type:docs', color: '0075CA', description: 'Documentation-related work.' },
+              { name: 'type:devops', color: '5319E7', description: 'CI, deployment, or automation work.' },
+              { name: 'type:testing', color: 'FBCA04', description: 'Testing-related work.' },
+            ];
+
+            const existing = new Set(
+              (
+                await github.paginate(github.rest.issues.listLabelsForRepo, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  per_page: 100,
+                })
+              ).map((label) => label.name),
+            );
+
+            for (const label of labels) {
+              if (existing.has(label.name)) {
+                continue;
+              }
+
+              try {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name,
+                  color: label.color,
+                  description: label.description,
+                });
+              } catch (error) {
+                if (error.status !== 422) {
+                  throw error;
+                }
+              }
+            }
+
+      - name: Apply path-based labels
+        uses: actions/labeler@1375c42512e0b855687040307d6dcaf403da9a4e # v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          sync-labels: true
+          dot: true

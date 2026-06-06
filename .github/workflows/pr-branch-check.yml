@@ -53,12 +53,17 @@ jobs:
       - name: Add PR comment
         if: ${{ failure() }}
         uses: actions/github-script@v8
+        env:
+          BRANCH_STATUS_BEHIND: ${{ steps.check.outputs.behind }}
+          BRANCH_STATUS_AHEAD: ${{ steps.check.outputs.ahead }}
+          BRANCH_STATUS_BASE: ${{ github.event.pull_request.base.ref }}
+          BRANCH_STATUS_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         with:
           script: |
-            const behind = '${{ steps.check.outputs.behind }}';
-            const ahead = '${{ steps.check.outputs.ahead }}';
-            const base = '${{ github.event.pull_request.base.ref }}';
-            const headRef = '${{ github.event.pull_request.head.ref }}';
+            const behind = process.env.BRANCH_STATUS_BEHIND;
+            const ahead = process.env.BRANCH_STATUS_AHEAD;
+            const base = process.env.BRANCH_STATUS_BASE;
+            const headRef = process.env.BRANCH_STATUS_HEAD_REF;
             
             const body = [
               '## Branch Out of Date',

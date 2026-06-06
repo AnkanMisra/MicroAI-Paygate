@@ -1,0 +1,335 @@
+name: Issue Triage Bot
+
+on:
+  issues:
+    types: [opened, reopened, edited]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    if: ${{ github.event.issue.pull_request == null }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Triage issue labels and claims
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue = context.payload.issue;
+
+            const managedLabels = [
+              {
+                name: 'triage',
+                color: 'd876e3',
+                description: 'Needs maintainer triage.',
+              },
+              {
+                name: 'bug',
+                color: 'd73a4a',
+                description: 'Something is not working.',
+              },
+              {
+                name: 'type:bug',
+                color: 'd73a4a',
+                description: 'Bug report or bug fix work.',
+              },
+              {
+                name: 'enhancement',
+                color: 'a2eeef',
+                description: 'New feature or request.',
+              },
+              {
+                name: 'type:feature',
+                color: 'a2eeef',
+                description: 'Feature request or feature work.',
+              },
+              {
+                name: 'documentation',
+                color: '0075ca',
+                description: 'Documentation updates.',
+              },
+              {
+                name: 'type:docs',
+                color: '0075ca',
+                description: 'Documentation-related work.',
+              },
+              {
+                name: 'type:devops',
+                color: '5319e7',
+                description: 'CI, deployment, or automation work.',
+              },
+              {
+                name: 'go',
+                color: '00ADD8',
+                description: 'Touches Go gateway code.',
+              },
+              {
+                name: 'rust',
+                color: 'DEA584',
+                description: 'Touches Rust verifier code.',
+              },
+              {
+                name: 'TypeScript',
+                color: '3178C6',
+                description: 'Touches TypeScript or frontend code.',
+              },
+              {
+                name: 'type:testing',
+                color: 'FBCA04',
+                description: 'Testing-related work.',
+              },
+              {
+                name: 'type:security',
+                color: 'B60205',
+                description: 'Security-sensitive report or work.',
+              },
+            ];
+
+            const existingLabels = new Set(
+              (
+                await github.paginate(github.rest.issues.listLabelsForRepo, {
+                  owner,
+                  repo,
+                  per_page: 100,
+                })
+              ).map((label) => label.name),
+            );
+
+            async function ensureLabel(label) {
+              if (existingLabels.has(label.name)) {
+                return;
+              }
+
+              try {
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name: label.name,
+                  color: label.color,
+                  description: label.description,
+                });
+              } catch (error) {
+                if (error.status !== 422) {
+                  throw error;
+                }
+              }
+
+              existingLabels.add(label.name);
+            }
+
+            async function ensureLabels(labels) {
+              for (const label of labels) {
+                await ensureLabel(label);
+              }
+            }
+
+            async function addLabels(labels) {
+              const filtered = [...new Set(labels)].filter((label) =>
+                existingLabels.has(label),
+              );
+              if (filtered.length === 0) {
+                return;
+              }
+
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: issue.number,
+                labels: filtered,
+              });
+            }
+
+            async function assignUser(login) {
+              try {
+                await github.rest.issues.addAssignees({
+                  owner,
+                  repo,
+                  issue_number: issue.number,
+                  assignees: [login],
+                });
+                return true;
+              } catch (error) {
+                if (error.status === 403 || error.status === 422) {
+                  return false;
+                }
+                throw error;
+              }
+            }
+
+            async function comment(body) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issue.number,
+                body,
+              });
+            }
+
+            async function fetchIssueState() {
+              const { data } = await github.rest.issues.get({
+                owner,
+                repo,
+                issue_number: issue.number,
+              });
+              return data;
+            }
+
+            function hasAssignee(issueState, login) {
+              return issueState.assignees.some(
+                (assignee) => assignee.login === login,
+              );
+            }
+
+            function currentAssignees(issueState) {
+              return issueState.assignees.map((assignee) => assignee.login);
+            }
+
+            await ensureLabels(managedLabels);
+
+            if (context.eventName === 'issues') {
+              const title = issue.title || '';
+              const body = issue.body || '';
+              const text = `${title}\n${body}`.toLowerCase();
+              const labels = new Set();
+              const shouldAddTriage =
+                context.payload.action === 'opened' ||
+                context.payload.action === 'reopened';
+              const componentGateway = /affected component\s*\n+\s*gateway/i.test(body);
+              const componentVerifier = /affected component\s*\n+\s*verifier/i.test(body);
+              const componentWeb = /affected component\s*\n+\s*web/i.test(body);
+              const componentE2E = /affected component\s*\n+\s*e2e tests/i.test(body);
+              const componentDeployment =
+                /affected component\s*\n+\s*deployment/i.test(body) ||
+                /affected component\s*\n+\s*docker\/compose/i.test(body);
+              const componentDocs = /affected component\s*\n+\s*documentation/i.test(body);
+              const isSecurityFallback =
+                text.includes('i need to report a security issue privately') ||
+                text.includes('need to report a security issue privately') ||
+                text.includes('report a security issue privately');
+
+              if (shouldAddTriage) {
+                labels.add('triage');
+              }
+
+              const isBug =
+                text.includes('[bug]') ||
+                text.includes('steps to reproduce') ||
+                text.includes('expected behavior') ||
+                text.includes('actual behavior');
+              const isFeature =
+                text.includes('[feature]') ||
+                text.includes('feature request') ||
+                text.includes('problem or use case') ||
+                text.includes('proposed solution');
+
+              if (isBug) {
+                labels.add('bug');
+                labels.add('type:bug');
+              } else if (isFeature) {
+                labels.add('enhancement');
+                labels.add('type:feature');
+              }
+
+              if (
+                componentDocs ||
+                text.includes('documentation') ||
+                text.includes('readme') ||
+                text.includes('openapi') ||
+                text.includes('.env.example')
+              ) {
+                labels.add('documentation');
+                labels.add('type:docs');
+              }
+
+              if (
+                componentDeployment ||
+                text.includes('docker-compose') ||
+                text.includes('workflow') ||
+                text.includes('github action') ||
+                text.includes('github actions')
+              ) {
+                labels.add('type:devops');
+              }
+
+              if (componentGateway || text.includes('gateway/')) {
+                labels.add('go');
+              }
+              if (componentVerifier || text.includes('verifier/')) {
+                labels.add('rust');
+              }
+              if (componentWeb || text.includes('web/')) {
+                labels.add('TypeScript');
+              }
+              if (componentE2E || text.includes('run_e2e.sh')) {
+                labels.add('type:testing');
+              }
+              if (isSecurityFallback) {
+                labels.add('type:security');
+              }
+
+              await addLabels([...labels]);
+
+              const requestedSelfAssign =
+                /please\s+assign\s+me|assign\s+me|i(?:'d|\swould)?\s+like\s+to\s+work\s+on\s+this|i\s+want\s+to\s+work\s+on\s+this/i.test(
+                  body,
+                );
+
+              const currentIssue = await fetchIssueState();
+              if (requestedSelfAssign && currentIssue.assignees.length === 0) {
+                const assigned = await assignUser(issue.user.login);
+                await comment(
+                  assigned
+                    ? `Assigned @${issue.user.login} based on the issue request.`
+                    : `GitHub did not allow assigning @${issue.user.login} automatically. A maintainer will need to assign this issue manually.`,
+                );
+              }
+
+              return;
+            }
+
+            const issueComment = context.payload.comment;
+            if (issueComment.user.type === 'Bot') {
+              return;
+            }
+
+            const wantsClaim =
+              /^\s*\/claim\b/i.test(issueComment.body) ||
+              /^\s*\/assign\b/i.test(issueComment.body) ||
+              /\bassign me\b/i.test(issueComment.body);
+
+            if (!wantsClaim) {
+              return;
+            }
+
+            const commenter = issueComment.user.login;
+            const currentIssue = await fetchIssueState();
+            if (hasAssignee(currentIssue, commenter)) {
+              return;
+            }
+
+            const assignees = currentAssignees(currentIssue);
+            if (assignees.length > 0) {
+              await comment(
+                `@${commenter} this issue is already assigned to ${assignees
+                  .map((login) => `@${login}`)
+                  .join(', ')}.`,
+              );
+              return;
+            }
+
+            const assigned = await assignUser(commenter);
+            await comment(
+              assigned
+                ? `Assigned @${commenter}.`
+                : `@${commenter} GitHub did not allow automatic assignment. A maintainer will need to assign this issue manually.`,
+            );

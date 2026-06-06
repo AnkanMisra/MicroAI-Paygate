@@ -55,7 +55,7 @@ This is a demo and contributor-friendly reference implementation. A valid signat
 | `tests/` and `run_e2e.sh` | Bun E2E flow covering unsigned challenge, signed retry, verifier acceptance, and replay rejection. |
 | `bench/` | Reproducible verifier-only micro-benchmark. It does not measure end-to-end latency. |
 | `deploy/`, `DEPLOY.md`, `.env.production.example` | Deployment prep for Render gateway/verifier, Vercel web, and Upstash Redis. Real deploy commands are manual. |
-| `.github/workflows/` | CI for Go, Rust, web, SDK, E2E, branch freshness, and Claude review integration. |
+| `.github/workflows/` | CI and repo automation for Go, Rust, web, SDK, E2E, branch freshness, PR labeling, issue triage, stale cleanup, and Claude review integration. |
 
 ## Architecture
 

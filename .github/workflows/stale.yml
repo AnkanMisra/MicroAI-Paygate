@@ -1,0 +1,40 @@
+name: Stale Issues And PRs
+
+on:
+  schedule:
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark inactive items as stale
+        uses: actions/stale@5bef64f19d7facfb25b37b414482c7164d639639 # v9
+        with:
+          days-before-stale: 45
+          days-before-close: 7
+          stale-issue-message: >
+            This issue has been marked stale because it has had no activity for
+            45 days. If it is still relevant, add a current status update or new
+            validation details.
+          stale-pr-message: >
+            This pull request has been marked stale because it has had no
+            activity for 45 days. Rebase, respond to review, or add a status
+            update to keep it open.
+          close-issue-message: >
+            Closing as stale after 7 more days without activity. Reopen with
+            fresh context if this is still relevant.
+          close-pr-message: >
+            Closing as stale after 7 more days without activity. Reopen or open
+            a fresh PR when you are ready to continue.
+          exempt-all-assignees: true
+          exempt-issue-labels: "level:critical,type:security,good first issue,help wanted"
+          exempt-pr-labels: "type:security"
+          remove-stale-when-updated: true
+          operations-per-run: 200
