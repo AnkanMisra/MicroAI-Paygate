@@ -36,8 +36,8 @@ flowchart LR
 
 Install:
 
-- Bun `1.3.13+`
-- Go `1.24.x`
+- Bun `1.3.14+`
+- Go `1.25.x`
 - Rust stable
 - Docker and Redis only when using Docker Compose or Redis-backed local receipts/cache
 

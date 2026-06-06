@@ -1,4 +1,4 @@
-FROM oven/bun:1 AS deps
+FROM oven/bun:1.3.14 AS deps
 WORKDIR /app
 COPY package.json bun.lock* ./
 RUN bun install --frozen-lockfile
@@ -22,7 +22,7 @@ ENV NEXT_PUBLIC_PAYMENT_TOKEN=$NEXT_PUBLIC_PAYMENT_TOKEN
 COPY . .
 RUN bun run build
 
-FROM oven/bun:1 AS runtime
+FROM oven/bun:1.3.14 AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

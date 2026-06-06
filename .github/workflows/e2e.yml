@@ -58,7 +58,7 @@ jobs:
         if: env.OPENROUTER_API_KEY != ''
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24.x'
+          go-version: '1.25.10'
 
       - name: Set up Rust
         if: env.OPENROUTER_API_KEY != ''
@@ -68,7 +68,7 @@ jobs:
         if: env.OPENROUTER_API_KEY != ''
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: '1.3.13'
+          bun-version: '1.3.14'
 
       - name: Install JS deps
         if: env.OPENROUTER_API_KEY != ''

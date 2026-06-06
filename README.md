@@ -212,8 +212,8 @@ flowchart LR
 
 | Tool | Version | Used by |
 | --- | --- | --- |
-| Bun | `1.3.13+` recommended | Root scripts, web install/build, E2E tests |
-| Go | `1.24.x` | Gateway |
+| Bun | `1.3.14+` recommended | Root scripts, web install/build, E2E tests |
+| Go | `1.25.x` | Gateway |
 | Rust | Stable | Verifier |
 | Docker | Optional | Compose stack and Redis |
 | Redis | Optional for quick start | Required for Docker/production-style Redis receipts |
