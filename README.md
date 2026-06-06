@@ -50,9 +50,9 @@ This is a demo and contributor-friendly reference implementation. A valid signat
 | --- | --- |
 | `gateway/` | Go/Gin API gateway on port `3000`. Owns CORS, gzip, rate limits, timeouts, Redis cache, receipt storage, AI provider calls, x402 challenge creation, verifier calls, and receipt signing. |
 | `verifier/` | Rust/Axum service on port `3002`. Verifies EIP-712 payment signatures, chain ID, timestamp freshness, and nonce replay for a single verifier instance. |
-| `web/` | Next.js/Bun frontend on port `3001`. Requests summaries, handles `402` payment contexts, switches wallet chain, signs typed data, and retries with `X-402-*` headers. |
+| `web/` | Next.js/Bun frontend on port `3001`. Requests summaries (streaming by default), handles `402` payment contexts, switches wallet chain, signs typed data, and retries with `X-402-*` headers. |
 | `sdk/typescript/` | Private/local TypeScript SDK package for AI API builders. Handles `402` challenges, EIP-712 signing, signed retries, receipt decoding, and trusted-key receipt verification. |
-| `tests/` and `run_e2e.sh` | Bun E2E flow covering unsigned challenge, signed retry, verifier acceptance, and replay rejection. |
+| `tests/` and `run_e2e.sh` | Bun E2E flow covering unsigned challenge, signed retry, verifier acceptance, streaming SSE receipts, and replay rejection. |
 | `bench/` | Reproducible verifier-only micro-benchmark. It does not measure end-to-end latency. |
 | `deploy/`, `DEPLOY.md`, `.env.production.example` | Deployment prep for Render gateway/verifier, Vercel web, and Upstash Redis. Real deploy commands are manual. |
 | `.github/workflows/` | CI and repo automation for Go, Rust, web, SDK, E2E, branch freshness, PR labeling, issue triage, stale cleanup, and Claude review integration. |
@@ -138,23 +138,27 @@ flowchart TB
     CLI --> Gin
     Gin --> LoggerRecovery --> Correlation --> Compression --> CORS --> RateLimit --> Timeout --> Cache
     Cache -->|cache miss or disabled| Summarize
-    Cache -->|signed cache hit| VerifyClient
-    Summarize -->|missing X-402 headers| PaymentContext
-    PaymentContext --> Browser
-    PaymentContext --> CLI
-    Summarize -->|signed retry| VerifyClient --> VerifyRoute
-    VerifyRoute --> BodyLimit --> Domain --> Timestamp --> Nonce --> Recovery
-    Recovery -->|valid or structured error_code| VerifyClient
-    Summarize -->|verified cache miss| AIClient
-    AIClient --> OpenRouter
-    AIClient --> Ollama
-    Summarize --> ReceiptSigner --> Receipts
-    ReceiptSigner --> MemoryStore
-    Cache -->|cached response receipt| ReceiptSigner
-    Cache <--> ResponseCache
-    ReceiptLookup --> Receipts
-    ReceiptLookup --> MemoryStore
-    Gin --> Health
+     Cache -->|signed cache hit| VerifyClient
+     Summarize -->|missing X-402 headers| PaymentContext
+     SummarizeStream["POST /api/ai/summarize/stream"] -->|missing X-402 headers| PaymentContext
+     PaymentContext --> Browser
+     PaymentContext --> CLI
+     Summarize -->|signed retry| VerifyClient --> VerifyRoute
+     SummarizeStream -->|signed retry| VerifyClient --> VerifyRoute
+     VerifyRoute --> BodyLimit --> Domain --> Timestamp --> Nonce --> Recovery
+     Recovery -->|valid or structured error_code| VerifyClient
+     Summarize -->|verified cache miss| AIClient
+     SummarizeStream -->|verified| AIClient
+     AIClient --> OpenRouter
+     AIClient --> Ollama
+     Summarize --> ReceiptSigner --> Receipts
+     SummarizeStream --> ReceiptSigner --> Receipts
+     ReceiptSigner --> MemoryStore
+     Cache -->|cached response receipt| ReceiptSigner
+     Cache <--> ResponseCache
+     ReceiptLookup --> Receipts
+     ReceiptLookup --> MemoryStore
+     Gin --> Health
 ```
 
 ### x402-Style Payment Flow
@@ -167,7 +171,7 @@ sequenceDiagram
     participant A as AI Provider
     participant R as Receipt Store / Optional Cache
 
-    C->>G: POST /api/ai/summarize
+    C->>G: POST /api/ai/summarize (or /api/ai/summarize/stream)
     G-->>C: 402 + paymentContext(recipient, token, amount, chainId, nonce, timestamp)
     C->>C: Sign EIP-712 Payment typed data
     C->>G: Retry with X-402-Signature, X-402-Nonce, X-402-Timestamp
@@ -184,7 +188,11 @@ sequenceDiagram
     end
     G->>G: Sign receipt over request/response hashes
     G->>R: Store receipt with TTL
-    G-->>C: 200 { result } + X-402-Receipt
+    alt Streaming SSE endpoint
+      G-->>C: SSE events (chunk ... done + receipt)
+    else Standard endpoint
+      G-->>C: 200 { result } + X-402-Receipt
+    end
 ```
 
 ### Receipt Lifecycle
@@ -367,10 +375,11 @@ The gateway serves OpenAPI at `GET /openapi.yaml` and Swagger UI at `GET /docs`.
 | `GET /healthz` | Liveness check for the gateway process. |
 | `GET /readyz` | Readiness check for verifier, active AI provider, Redis when required, and the gateway's own metrics. |
 | `GET /metrics` | Prometheus metrics for gateway request rate, latency, cache, verification, rate-limit, and active-request signals. |
-| `POST /api/ai/summarize` | Payment-gated text summarization endpoint. |
+| `POST /api/ai/summarize` | Payment-gated text summarization endpoint (non-streaming). |
+| `POST /api/ai/summarize/stream` | Payment-gated text summarization endpoint (streaming SSE). |
 | `GET /api/receipts/{id}` | Fetch a stored signed receipt until its TTL expires. |
 
-Signed retries to `POST /api/ai/summarize` must include:
+Signed retries to both summarize endpoints must include:
 
 ```http
 X-402-Signature: <wallet signature>
@@ -378,7 +387,7 @@ X-402-Nonce: <nonce from paymentContext>
 X-402-Timestamp: <timestamp from paymentContext>
 ```
 
-Successful summarize responses return:
+**Non-streaming** responses return:
 
 ```json
 {
@@ -387,6 +396,18 @@ Successful summarize responses return:
 ```
 
 The signed receipt is returned in the `X-402-Receipt` response header as base64-encoded `SignedReceipt` JSON.
+
+**Streaming** responses use SSE (`text/event-stream`) and emit incremental `chunk` events. The final `done` event includes the full result and the signed receipt:
+
+```json
+{
+  "event": "done",
+  "data": {
+    "result": "AI summary text...",
+    "receipt": "base64-encoded SignedReceipt JSON"
+  }
+}
+```
 
 ## Observability
 

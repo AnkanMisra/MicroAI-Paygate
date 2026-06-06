@@ -36,7 +36,7 @@ const STEPS = [
     num: "06",
     title: "Receipt",
     desc:
-      "Gateway signs a receipt over the request and response hashes. Returned in X-402-Receipt and verifiable client-side.",
+      "Gateway signs a receipt over the request and response hashes. Returned in X-402-Receipt or the final stream event.",
   },
 ];
 

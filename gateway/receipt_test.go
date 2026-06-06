@@ -5,11 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/gin-gonic/gin"
 )
 
 func TestGenerateReceiptID(t *testing.T) {
@@ -308,6 +310,28 @@ func (s *recordingCleanupStore) Close() error {
 	return nil
 }
 
+type blockingReceiptStore struct {
+	storeErr error
+}
+
+func (s *blockingReceiptStore) Store(ctx context.Context, receipt *SignedReceipt, ttl time.Duration) error {
+	<-ctx.Done()
+	s.storeErr = ctx.Err()
+	return ctx.Err()
+}
+
+func (s *blockingReceiptStore) Get(context.Context, string) (*SignedReceipt, bool, error) {
+	return nil, false, nil
+}
+
+func (s *blockingReceiptStore) CleanupExpired(context.Context) error {
+	return nil
+}
+
+func (s *blockingReceiptStore) Close() error {
+	return nil
+}
+
 func TestCleanupExpiredReceiptsUsesProvidedContext(t *testing.T) {
 	originalStore := getActiveReceiptStore()
 	store := &recordingCleanupStore{}
@@ -323,6 +347,52 @@ func TestCleanupExpiredReceiptsUsesProvidedContext(t *testing.T) {
 
 	if store.cleanupErr != context.Canceled {
 		t.Fatalf("cleanup used wrong context: got %v, want %v", store.cleanupErr, context.Canceled)
+	}
+}
+
+func TestGenerateStreamingReceiptBoundsStoreLatency(t *testing.T) {
+	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	t.Setenv("RECEIPT_STORE_TIMEOUT_SECONDS", "1")
+	resetServerPrivateKeyForTest(t)
+
+	originalStore := getActiveReceiptStore()
+	store := &blockingReceiptStore{}
+	setActiveReceiptStore(store)
+	t.Cleanup(func() {
+		setActiveReceiptStore(originalStore)
+	})
+
+	c := &gin.Context{
+		Request: httptest.NewRequest("POST", summarizeStreamPath, nil),
+	}
+	paymentCtx := PaymentContext{
+		Recipient: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219",
+		Token:     "USDC",
+		Amount:    "0.001",
+		Nonce:     "test-nonce",
+		ChainID:   84532,
+		Timestamp: uint64(time.Now().Unix()),
+	}
+
+	start := time.Now()
+	receiptBase64, err := generateStreamingReceipt(
+		c,
+		paymentCtx,
+		"0x742d35Cc6634C0532925a3b844Bc9e7595f8fE21",
+		[]byte(`{"text":"hello"}`),
+		"summary",
+	)
+	if err != nil {
+		t.Fatalf("expected signed receipt after bounded store timeout, got error: %v", err)
+	}
+	if receiptBase64 == "" {
+		t.Fatal("expected non-empty streaming receipt")
+	}
+	if store.storeErr != context.DeadlineExceeded {
+		t.Fatalf("store saw wrong context error: got %v, want %v", store.storeErr, context.DeadlineExceeded)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("expected receipt store timeout near 1s, took %v", elapsed)
 	}
 }
 

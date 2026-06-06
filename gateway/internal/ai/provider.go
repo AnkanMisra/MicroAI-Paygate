@@ -12,6 +12,19 @@ type Provider interface {
 	Generate(ctx context.Context, prompt string) (string, error)
 }
 
+// StreamChunk is one incremental provider response fragment.
+type StreamChunk struct {
+	Content string
+	Done    bool
+}
+
+// StreamingProvider is implemented by providers that can return incremental
+// output. Callers should gracefully fall back or fail when a provider does not
+// implement this optional interface.
+type StreamingProvider interface {
+	StreamGenerate(ctx context.Context, prompt string) (<-chan StreamChunk, <-chan error)
+}
+
 // NewProvider creates an AI provider based on the AI_PROVIDER environment variable
 // Supported providers: "openrouter" (default), "ollama"
 func NewProvider() (Provider, error) {

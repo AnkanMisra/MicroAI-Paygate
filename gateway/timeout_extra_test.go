@@ -24,6 +24,58 @@ func TestRequestTimeoutMiddleware_AllowsFastHandlers(t *testing.T) {
 	}
 }
 
+func TestRequestTimeoutMiddleware_SetsTimeoutContextOnStreamingPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(RequestTimeoutMiddleware(1 * time.Second))
+	r.POST(summarizeStreamPath, func(c *gin.Context) {
+		// Verify the timeout context is present (not a zero/background context)
+		if _, ok := c.Request.Context().Deadline(); !ok {
+			t.Fatal("Expected streaming path to have a deadline context")
+		}
+		c.String(200, "chunk")
+	})
+
+	req, _ := http.NewRequest("POST", summarizeStreamPath, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("Expected streaming path to pass through, got %d; body=%s", w.Code, w.Body.String())
+	}
+	if w.Body.String() != "chunk" {
+		t.Fatalf("Expected streaming handler body to pass through, got %q", w.Body.String())
+	}
+}
+
+func TestRequestTimeoutMiddleware_AbortsStreamingOnGlobalTimeout(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(RequestTimeoutMiddleware(50 * time.Millisecond))
+	r.POST(summarizeStreamPath, func(c *gin.Context) {
+		select {
+		case <-c.Request.Context().Done():
+			c.String(504, "timeout")
+			return
+		case <-time.After(5 * time.Second):
+			c.String(200, "ok")
+		}
+	})
+
+	req, _ := http.NewRequest("POST", summarizeStreamPath, nil)
+	w := httptest.NewRecorder()
+	start := time.Now()
+	r.ServeHTTP(w, req)
+	elapsed := time.Since(start)
+
+	if w.Code != 504 {
+		t.Fatalf("Expected global timeout to abort streaming handler, got %d; body=%s", w.Code, w.Body.String())
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("Expected streaming handler to abort within 500ms, took %v", elapsed)
+	}
+}
+
 func TestRequestTimeoutMiddleware_PreservesPanicRecovery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.Default() // Uses Recovery middleware

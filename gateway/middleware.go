@@ -182,6 +182,14 @@ func RequestTimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 		}
 		c.Request = c.Request.WithContext(ctx)
 
+		// Streaming endpoints must write directly to the response writer so they
+		// can flush incrementally. Skip the buffered writer for SSE paths; the
+		// handler still inherits the timeout context above.
+		if c.Request.URL.Path == summarizeStreamPath {
+			c.Next()
+			return
+		}
+
 		origWriter := c.Writer
 		bw := newBufferedWriter()
 		// replace the gin writer with a shim that uses bw and keeps orig writer

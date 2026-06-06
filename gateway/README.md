@@ -10,6 +10,7 @@ The gateway is the public API entry point for MicroAI Paygate. It is a Go/Gin se
 - Map verifier business failures to sanitized public gateway errors.
 - Call the configured AI provider only after payment verification succeeds.
 - Sign a receipt over request/response hashes and store it with a TTL.
+- Stream paid OpenRouter summaries as Server-Sent Events when clients request `/api/ai/summarize/stream`.
 - Serve receipt lookup responses through `GET /api/receipts/:id`.
 - Apply request timeouts, rate limits, CORS, gzip, and correlation IDs.
 
@@ -38,7 +39,7 @@ sequenceDiagram
       end
     end
     G->>R: Store signed receipt with TTL
-    G-->>C: 200 + X-402-Receipt
+    G-->>C: 200 + X-402-Receipt or SSE done event with receipt
 ```
 
 ## Public Routes
@@ -51,9 +52,12 @@ sequenceDiagram
 | `GET /openapi.yaml` | OpenAPI 3.1 contract for public gateway endpoints. |
 | `GET /docs` | Swagger UI backed by `openapi.yaml`. |
 | `POST /api/ai/summarize` | Payment-gated summarize endpoint. |
+| `POST /api/ai/summarize/stream` | Payment-gated SSE summarize endpoint. Chunk events stream text deltas and the final `done` event includes the signed receipt. |
 | `GET /api/receipts/:id` | Lookup a stored signed receipt until expiry. |
 
 The verifier route `POST /verify` is not a gateway route. It belongs to the internal verifier service.
+
+For streaming summaries, the signed receipt cannot be sent as a late response header after SSE starts. The gateway signs the same canonical JSON response shape used by the non-streaming endpoint (`{"result":"..."}`), base64-encodes the receipt, and sends it in the final `done` event.
 
 ## Key Files
 
@@ -168,6 +172,7 @@ The gateway exposes sanitized public errors and logs internal details with a `co
 - `verifier_timeout`
 - `upstream_unavailable`
 - `upstream_timeout`
+- `streaming_unsupported`
 - `request_body_read_failed`
 - `response_encoding_failed`
 - `receipt_generation_failed`

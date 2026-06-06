@@ -5,8 +5,10 @@ import { ethers } from "ethers";
 import {
   buildSignedHeaders,
   postSummarize,
+  postSummarizeStream,
   readPaymentChallenge,
   readSummarizeSuccess,
+  readSummarizeStream,
   signPaymentContext,
 } from "@/lib/x402-client";
 import {
@@ -47,7 +49,7 @@ export function useX402() {
     setState(INITIAL_STATE);
   }, []);
 
-  const submit = useCallback(async (text: string) => {
+  const submit = useCallback(async (text: string, options: { stream?: boolean } = {}) => {
     if (!text.trim()) return;
     const myRun = ++runId.current;
 
@@ -59,11 +61,23 @@ export function useX402() {
     update({ step: "request", summary: null, receipt: null, error: null, isRunning: true });
 
     try {
-      const first = await postSummarize(text);
+      let useStream = Boolean(options.stream);
+      let first = useStream ? await postSummarizeStream(text) : await postSummarize(text);
+
+      if (useStream && await isStreamingUnsupported(first)) {
+        useStream = false;
+        first = await postSummarize(text);
+      }
 
       if (first.status === 200) {
-        update({ step: "receipt" });
-        const { summary, receipt } = await readSummarizeSuccess(first);
+        update({ step: useStream ? "ai" : "receipt" });
+        let streamedSummary = "";
+        const { summary, receipt } = useStream
+          ? await readSummarizeStream(first, (delta) => {
+              streamedSummary += delta;
+              update({ step: "ai", summary: streamedSummary });
+            })
+          : await readSummarizeSuccess(first);
         if (receipt) saveReceipt(receipt, text);
         update({ step: "done", summary, receipt, isRunning: false });
         return;
@@ -120,10 +134,18 @@ export function useX402() {
       // bump the strip to "ai" on a dead run.
       const aiStepTimer = setTimeout(() => update({ step: "ai" }), 700);
       let retry: Response;
+      const signedHeaders = buildSignedHeaders(context, signature);
       try {
-        retry = await postSummarize(text, buildSignedHeaders(context, signature));
+        retry = useStream
+          ? await postSummarizeStream(text, signedHeaders)
+          : await postSummarize(text, signedHeaders);
       } finally {
         clearTimeout(aiStepTimer);
+      }
+
+      if (useStream && await isStreamingUnsupported(retry)) {
+        useStream = false;
+        retry = await postSummarize(text, signedHeaders);
       }
 
       if (!retry.ok) {
@@ -139,20 +161,26 @@ export function useX402() {
           classified.kind === "ai-timeout" ||
           classified.kind === "ai-unavailable"
         ) {
-          update({ step: "ai", error: classified, isRunning: false });
+          update({ step: "ai", summary: null, receipt: null, error: classified, isRunning: false });
         } else {
-          update({ error: classified, isRunning: false });
+          update({ summary: null, receipt: null, error: classified, isRunning: false });
         }
         return;
       }
 
-      update({ step: "receipt" });
-      const { summary, receipt } = await readSummarizeSuccess(retry);
+      update({ step: useStream ? "ai" : "receipt" });
+      let streamedSummary = "";
+      const { summary, receipt } = useStream
+        ? await readSummarizeStream(retry, (delta) => {
+            streamedSummary += delta;
+            update({ step: "ai", summary: streamedSummary });
+          })
+        : await readSummarizeSuccess(retry);
       if (receipt) saveReceipt(receipt, text);
       update({ step: "done", summary, receipt, isRunning: false });
     } catch (err) {
       if (runId.current !== myRun) return;
-      update({ error: classifyError(err), isRunning: false });
+      update({ summary: null, receipt: null, error: classifyError(err), isRunning: false });
     }
   }, []);
 
@@ -165,4 +193,10 @@ async function safeText(res: Response): Promise<string> {
   } catch {
     return "";
   }
+}
+
+async function isStreamingUnsupported(res: Response): Promise<boolean> {
+  if (res.status !== 501) return false;
+  const bodyText = await safeText(res);
+  return bodyText.includes("streaming_unsupported");
 }

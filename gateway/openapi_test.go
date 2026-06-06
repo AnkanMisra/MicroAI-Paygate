@@ -63,8 +63,9 @@ func TestOpenAPISpecMatchesRoutes(t *testing.T) {
 		}
 	}
 
-	// Defense-in-depth: hard-require the four paths called out in issue #164.
-	required := []string{"/healthz", "/readyz", "/metrics", "/api/ai/summarize", "/api/receipts/{id}"}
+	// Defense-in-depth: hard-require the public API paths that must stay
+	// documented as the gateway route surface evolves.
+	required := []string{"/healthz", "/readyz", "/metrics", "/api/ai/summarize", "/api/ai/summarize/stream", "/api/receipts/{id}"}
 	for _, p := range required {
 		if _, ok := spec.Paths[p]; !ok {
 			t.Errorf("openapi.yaml is missing required path: %s", p)

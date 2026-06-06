@@ -20,6 +20,7 @@ const DISPLAY_CHAIN_NAME = process.env.NEXT_PUBLIC_EXPECTED_CHAIN_NAME ?? "Base 
 
 export function SummarizeForm() {
   const [input, setInput] = useState("");
+  const [useStreaming, setUseStreaming] = useState(true);
   const { submit, reset, step, summary, receipt, error, isRunning } = useX402();
 
   const wordCount = input.trim() ? input.trim().split(/\s+/).length : 0;
@@ -28,7 +29,7 @@ export function SummarizeForm() {
 
   function handleSubmit() {
     if (!canSubmit) return;
-    void submit(input);
+    void submit(input, { stream: useStreaming });
   }
 
   function handleReset() {
@@ -76,10 +77,19 @@ export function SummarizeForm() {
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="max-w-md font-sans text-xs leading-relaxed text-ink-soft">
-            Wallet signs the EIP-712 challenge — no on-chain transaction, no gas. Receipt is signed
-            by the gateway and verifiable in your browser.
+            Wallet signs the EIP-712 challenge — no on-chain transaction, no gas. The gateway
+            signs a browser-verifiable receipt after the AI response completes.
           </p>
           <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-soft">
+              <input
+                type="checkbox"
+                checked={useStreaming}
+                onChange={(e) => setUseStreaming(e.target.checked)}
+                className="h-4 w-4 accent-ink"
+              />
+              Stream
+            </label>
             {(summary || error) && (
               <Button size="sm" variant="ghost" onClick={handleReset}>
                 Reset
@@ -120,7 +130,7 @@ function PlaceholderCard() {
       <p className="mt-3 font-sans text-sm text-ink-soft">
         The gateway returns <code className="font-mono text-xs text-ink">402 Payment Required</code>{" "}
         with a payment context. Your wallet signs it, the verifier checks the signature, the AI runs
-        the request, and a signed receipt is returned in the response header.
+        the request, and a signed receipt is returned in the response header or final stream event.
       </p>
     </div>
   );

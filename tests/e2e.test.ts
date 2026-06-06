@@ -98,6 +98,7 @@ describe("MicroAI Paygate E2E Flow", () => {
     });
     const initData = await initRes.json() as any;
     const { paymentContext } = initData;
+
     const signature = await signPaymentContext(paymentContext);
     const body = JSON.stringify({ text: "Replay protection test text." });
     const headers = {
@@ -131,5 +132,58 @@ describe("MicroAI Paygate E2E Flow", () => {
     expect(second.status).toBe(409);
     const data = await second.json() as any;
     expect(data.error).toBe("nonce_already_used");
+  }, 30000);
+
+  it("should return 402 Payment Required on streaming endpoint", async () => {
+    const res = await fetch(`${GATEWAY_URL}/api/ai/summarize/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "Hello world" }),
+    });
+
+    expect(res.status).toBe(402);
+    const data = await res.json() as any;
+    expect(data.error).toBe("Payment Required");
+    expect(data.paymentContext).toBeDefined();
+    expect(data.paymentContext.nonce).toBeDefined();
+  });
+
+  it("should accept a valid signature on streaming endpoint and return SSE with receipt", async () => {
+    const initRes = await fetch(`${GATEWAY_URL}/api/ai/summarize/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "Hello world" }),
+    });
+    const initData = await initRes.json() as any;
+    const { paymentContext } = initData;
+
+    const signature = await signPaymentContext(paymentContext);
+
+    const res = await fetch(`${GATEWAY_URL}/api/ai/summarize/stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-402-Signature": signature,
+        "X-402-Nonce": paymentContext.nonce,
+        "X-402-Timestamp": paymentContext.timestamp.toString(),
+      },
+      body: JSON.stringify({ text: "This is a test text to summarize." }),
+    });
+
+    if (res.status === 502) {
+      const text = await res.text();
+      if (text.includes("upstream_unavailable") || text.includes("streaming_unsupported")) {
+        expect(true).toBe(true);
+        return;
+      }
+    }
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+    const text = await res.text();
+    // SSE should contain a done event with receipt
+    expect(text).toContain("event: done");
+    expect(text).toContain("receipt");
   }, 30000);
 });

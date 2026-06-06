@@ -141,6 +141,20 @@ function statusToKind(status: number, body: string): ErrorKind {
   return "unknown";
 }
 
+function publicErrorCodeToKind(code: string): ErrorKind | null {
+  if (code === "upstream_timeout") return "ai-timeout";
+  if (code === "upstream_unavailable") return "ai-unavailable";
+  if (code === "streaming_unsupported") return "ai-unavailable";
+  if (code === "receipt_generation_failed") return "ai-unavailable";
+  if (code === "verifier_timeout") return "verifier-timeout";
+  if (code === "verification_unavailable") return "verifier-unavailable";
+  if (code === "nonce_already_used") return "duplicate-nonce";
+  if (code === "invalid_signature") return "invalid-signature";
+  if (code === "chain_id_mismatch") return "wrong-chain";
+  if (code === "invalid_timestamp") return "expired";
+  return null;
+}
+
 function looksWrongChain(message: string): boolean {
   const m = message.toLowerCase();
   return (
@@ -173,6 +187,10 @@ export function classifyError(err: unknown, ctx?: ErrorContext): ClassifiedError
   if (typeof err === "object" && err !== null) {
     const e = err as { message?: string; code?: number | string; shortMessage?: string };
     const message = e.shortMessage ?? e.message ?? "";
+    if (typeof e.code === "string") {
+      const kind = publicErrorCodeToKind(e.code);
+      if (kind) return build(kind, message);
+    }
     if (looksRejected(message, e.code)) return build("user-rejected", message);
     if (looksWrongChain(message)) return build("wrong-chain", message);
     if (message.toLowerCase().includes("no wallet") || message.toLowerCase().includes("no crypto wallet")) {

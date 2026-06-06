@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { classifyError } from "./errors";
+import { StreamResponseError } from "./x402-client";
 
 // ── HTTP status + body based classification ──────────
 
@@ -171,6 +172,20 @@ describe("classifyError via thrown Error", () => {
     const e = classifyError(new Error("Something unexpected happened"));
     expect(e.kind).toBe("unknown");
     expect(e.title).toBe("Something broke");
+  });
+
+  it("classifies stream response errors by gateway public code", () => {
+    const e = classifyError(new StreamResponseError("upstream_timeout", "provider timed out"));
+    expect(e.kind).toBe("ai-timeout");
+    expect(e.detail).toBe("upstream_timeout: provider timed out");
+  });
+
+  it("classifies unsupported streaming errors by gateway public code", () => {
+    const e = classifyError(
+      new StreamResponseError("streaming_unsupported", "provider does not support streaming"),
+    );
+    expect(e.kind).toBe("ai-unavailable");
+    expect(e.detail).toBe("streaming_unsupported: provider does not support streaming");
   });
 
   it("handles non-object err gracefully", () => {

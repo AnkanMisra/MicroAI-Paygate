@@ -10,9 +10,19 @@ The gateway also serves OpenAPI at `GET /openapi.yaml` and Swagger UI at `GET /d
 
 Summarizes text after payment authorization. The first unsigned request receives a `402 Payment Required` response with a `paymentContext`. The signed retry includes the EIP-712 signature headers.
 
+### `POST /api/ai/summarize/stream`
+
+Streams a paid summary as Server-Sent Events. It uses the same unsigned `402`
+challenge and signed `X-402-*` retry headers as the non-streaming endpoint. A
+successful stream emits `chunk` events for deltas and a final `done` event with
+the full result plus the base64 signed receipt. If the provider fails after the
+stream starts, the gateway emits an `error` SSE event with a public error code.
+
 ### `GET /api/receipts/{id}`
 
-Fetches a stored signed receipt until the configured receipt TTL expires.
+Fetches a stored signed receipt until the configured receipt TTL expires. A
+streaming response can still deliver the signed receipt in the final `done`
+event if receipt lookup storage is temporarily unavailable.
 
 ### `GET /healthz`
 
@@ -49,7 +59,10 @@ Successful paid responses include:
 X-402-Receipt: <base64 SignedReceipt JSON>
 ```
 
-The receipt is intentionally returned in a header so the response body hash can match the body the client receives.
+Non-streaming responses return the receipt in `X-402-Receipt` so the response
+body hash can match the body the client receives. Streaming responses carry the
+same receipt in the final `done` event because response headers cannot be added
+after SSE chunks have started.
 
 ## Error Categories
 
@@ -60,7 +73,8 @@ The receipt is intentionally returned in a header so the response body hash can 
 - Replayed nonce.
 - Verifier timeout or unavailable.
 - AI provider timeout or unavailable.
-- Receipt generation, encoding, or storage failure.
+- Receipt generation or encoding failure.
+- Receipt storage failure for non-streaming responses.
 
 ## OpenAPI
 

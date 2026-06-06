@@ -106,5 +106,5 @@ function describeReceiptState(state: ReceiptVerifyState): string {
   if (state === "verifying") {
     return "The X-402 receipt was decoded and signature verification is running locally.";
   }
-  return "The summary succeeded without an X-402-Receipt header, so there is no receipt ID to verify.";
+  return "The summary succeeded without a receipt header or final stream receipt, so there is no receipt ID to verify.";
 }
