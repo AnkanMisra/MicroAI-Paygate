@@ -29,6 +29,8 @@ MicroAI Paygate demonstrates a payment-gated AI microservice stack. A client ask
 
 This is a demo and contributor-friendly reference implementation. A valid signature proves wallet authorization for the payment context; it does not prove that USDC moved on-chain.
 
+<!-- Test change for star-greeting bot demo -->
+
 ## Start Here
 
 | Goal | Read |
