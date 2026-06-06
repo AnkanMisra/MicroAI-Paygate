@@ -154,11 +154,6 @@ func (b *bufferedWriter) flushTo(w http.ResponseWriter) {
 // response writes and ensures safe behavior with Gin.
 func RequestTimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.Request.URL.Path == summarizeStreamPath {
-			c.Next()
-			return
-		}
-
 		// Choose a deadline that ensures a per-route timeout can shorten any
 		// existing deadline but will not extend an earlier (shorter) deadline.
 		// This avoids surprising nested timeout behavior while allowing route
@@ -186,6 +181,14 @@ func RequestTimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 			defer cancel()
 		}
 		c.Request = c.Request.WithContext(ctx)
+
+		// Streaming endpoints must write directly to the response writer so they
+		// can flush incrementally. Skip the buffered writer for SSE paths; the
+		// handler still inherits the timeout context above.
+		if c.Request.URL.Path == summarizeStreamPath {
+			c.Next()
+			return
+		}
 
 		origWriter := c.Writer
 		bw := newBufferedWriter()

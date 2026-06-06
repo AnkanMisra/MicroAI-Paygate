@@ -5,10 +5,13 @@ The `tests/` directory contains Bun end-to-end coverage for the gateway and veri
 ## What The E2E Flow Covers
 
 - Unsigned `POST /api/ai/summarize` returns `402 Payment Required`.
+- The web UI defaults to the streaming endpoint `POST /api/ai/summarize/stream`.
 - The 402 response includes a payment context with nonce, chain ID, and timestamp.
 - A test wallet signs the payment context with EIP-712 typed data.
 - The signed retry includes `X-402-Signature`, `X-402-Nonce`, and `X-402-Timestamp`.
 - The signed request is accepted by the verifier and proceeds to the AI provider.
+- For streaming requests, the signed receipt arrives in the final SSE `done` event.
+- For non-streaming requests, the signed receipt is returned in the `X-402-Receipt` header.
 - Reusing the same signed context returns `409 nonce_already_used`.
 
 ## Prerequisites

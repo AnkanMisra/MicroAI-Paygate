@@ -137,6 +137,71 @@ func TestHandleSummarizeStream_PreflightUsesAIRequestTimeout(t *testing.T) {
 	}
 }
 
+func TestHandleSummarizeStream_GlobalTimeoutBoundsAIStream(t *testing.T) {
+	verifier := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"is_valid":true, "recovered_address":"0xabc","error":""}`))
+	}))
+	defer verifier.Close()
+
+	t.Setenv("VERIFIER_URL", verifier.URL)
+	t.Setenv("REQUEST_TIMEOUT_SECONDS", "1")
+	t.Setenv("AI_REQUEST_TIMEOUT_SECONDS", "5")
+	t.Setenv("VERIFIER_TIMEOUT_SECONDS", "5")
+
+	origProvider := aiProvider
+	aiProvider = slowStreamingProvider{delay: 3 * time.Second}
+	t.Cleanup(func() { aiProvider = origProvider })
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
+	r.POST(summarizeStreamPath, handleSummarizeStream)
+
+	req := httptest.NewRequest(http.MethodPost, summarizeStreamPath, strings.NewReader(`{"text":"hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-402-Signature", "sig")
+	req.Header.Set("X-402-Nonce", "nonce")
+	req.Header.Set("X-402-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
+
+	w := httptest.NewRecorder()
+	start := time.Now()
+	r.ServeHTTP(w, req)
+	elapsed := time.Since(start)
+
+	if elapsed > 2500*time.Millisecond {
+		t.Fatalf("expected global request timeout (1s) to bound streaming AI call, took %v", elapsed)
+	}
+	if !strings.Contains(w.Body.String(), "upstream_timeout") {
+		t.Fatalf("expected upstream_timeout in SSE output, got: %s", w.Body.String())
+	}
+}
+
+type slowStreamingProvider struct {
+	delay time.Duration
+}
+
+func (s slowStreamingProvider) Generate(context.Context, string) (string, error) {
+	return "unused", nil
+}
+
+func (s slowStreamingProvider) StreamGenerate(ctx context.Context, text string) (<-chan ai.StreamChunk, <-chan error) {
+	chunks := make(chan ai.StreamChunk)
+	errs := make(chan error)
+	go func() {
+		defer close(chunks)
+		defer close(errs)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(s.delay):
+			chunks <- ai.StreamChunk{Content: "chunk"}
+			chunks <- ai.StreamChunk{Done: true}
+		}
+	}()
+	return chunks, errs
+}
+
 func TestGetChainIDDefaultBaseSepolia(t *testing.T) {
 	t.Setenv("CHAIN_ID", "")
 
