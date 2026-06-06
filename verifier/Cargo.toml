@@ -16,6 +16,7 @@ metrics-exporter-prometheus = {version = "0.18", default-features = false }
 tower = { version = "0.5", features = ["util"] } 
 tower-http = { version = "0.6", features = ["limit"] }
 dashmap = "6.1.0"
+redis = { version = "0.27", features = ["aio", "tokio-comp"] }
 
 [dev-dependencies]
 # Optional: move testing-only tools here if they aren't needed for the main build

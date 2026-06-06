@@ -117,7 +117,7 @@ flowchart TB
       BodyLimit["Body size limit"]
       Domain["EIP-712 domain\nname, version, chainId, zero verifyingContract"]
       Timestamp["Timestamp expiry and clock skew checks"]
-      Nonce["In-memory nonce replay guard"]
+      Nonce["Nonce replay guard\nmemory or Redis"]
       Recovery["ECDSA recovery"]
       VerifyRoute["POST /verify"]
     end
@@ -303,7 +303,7 @@ Use only unfunded local or test wallets. The SDK signs the same EIP-712 payment 
 
 ### Docker Compose
 
-Docker Compose starts gateway, verifier, web, and Redis. It uses service names inside the Docker network, so the gateway reaches the verifier at `http://verifier:3002` and Redis at `redis:6379`.
+Docker Compose starts gateway, verifier, web, and Redis. It uses service names inside the Docker network, so the gateway reaches the verifier at `http://verifier:3002` and Redis at `redis:6379`. Compose defaults the verifier nonce store to Redis so replay protection is shared across verifier replicas; set `VERIFIER_NONCE_STORE=memory` only for local single-process experiments.
 
 ```bash
 cp .env.example .env
@@ -326,8 +326,11 @@ Core local variables live in [.env.example](.env.example). Production placeholde
 | `EXPECTED_CHAIN_ID` | Verifier | Verifier enforcement chain. Falls back to `CHAIN_ID` if unset. |
 | `SIGNATURE_EXPIRY_SECONDS` | Verifier | Signature freshness and nonce retention window. Default `300`. |
 | `SIGNATURE_CLOCK_SKEW_SECONDS` | Verifier | Future timestamp grace. Default `60`. |
+| `VERIFIER_NONCE_STORE` | Verifier | `memory` by default for local/tests, `redis` for shared multi-replica nonce replay protection. |
+| `VERIFIER_NONCE_KEY_PREFIX` | Verifier | Redis key prefix for verifier nonce hashes. Default `microai:verifier:nonce:`. |
+| `VERIFIER_REDIS_TIMEOUT_MS` | Verifier | Redis nonce-store connection and claim timeout in milliseconds. Default `2000`. |
 | `RECEIPT_STORE` | Gateway | `redis` by default, `memory` for tests/local experiments. |
-| `REDIS_URL` | Gateway | Required when `RECEIPT_STORE=redis` or `CACHE_ENABLED=true`. |
+| `REDIS_URL` | Gateway/Verifier | Required when `RECEIPT_STORE=redis`, `CACHE_ENABLED=true`, or `VERIFIER_NONCE_STORE=redis`. |
 | `VERIFIER_URL` | Gateway | **Required.** Where the gateway calls `/verify` (e.g. `http://127.0.0.1:3002` for `bun run stack`, `https://<app>.onrender.com` for Render). The gateway refuses to start if unset — no silent loopback fallback. |
 | `CACHE_ENABLED` | Gateway | Optional response cache. Payment verification still runs on cache hits. |
 | `METRICS_ENABLED` | Gateway | Enables the Prometheus metrics endpoint by default. Set to `false` to disable. |
@@ -419,7 +422,7 @@ Current reruns must generate enough one-time signed payloads because verifier no
 
 - A valid signature is not on-chain settlement. The verifier proves authorization, not that USDC moved.
 - The current protocol is x402-style, not official x402-compatible. It uses custom `X-402-*` headers and no official facilitator settlement path.
-- Verifier nonce replay protection is in memory for one verifier instance. Multi-replica production needs a shared nonce store.
+- Verifier nonce replay protection defaults to memory for local/tests and supports Redis for multi-replica deployments. Invalid signatures are rejected before nonce claims, and Redis outages fail closed.
 - Gateway rate limiting is per process. Horizontal scaling needs distributed limits.
 - `RECEIPT_STORE=redis` is production-style and restart-safe. `RECEIPT_STORE=memory` is for tests and local experiments.
 - The demo defaults to Base Sepolia (`84532`). Multi-chain support would require dynamic EIP-712 domain and config updates across gateway, verifier, web, tests, and docs.

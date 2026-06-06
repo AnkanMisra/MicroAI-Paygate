@@ -15,6 +15,7 @@ use ethers::utils::keccak256;
 mod metrics;
 
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+use redis::AsyncCommands;
 
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -31,10 +32,67 @@ const NONCE_SWEEP_INTERVAL_SECONDS: u64 = 60;
 struct AppState {
     max_body_size: usize,
     expected_chain_id: u64,
-    used_nonces: Arc<DashMap<[u8; 32], Instant>>,
-    last_nonce_sweep: Arc<Mutex<Instant>>,
+    nonce_store: Arc<NonceStore>,
     signature_expiry_seconds: u64,
     clock_skew_seconds: u64,
+}
+
+struct MemoryNonceStore {
+    used_nonces: Arc<DashMap<[u8; 32], Instant>>,
+    last_nonce_sweep: Arc<Mutex<Instant>>,
+}
+
+#[derive(Clone)]
+struct RedisNonceStore {
+    client: redis::Client,
+    key_prefix: String,
+    timeout: Duration,
+}
+
+enum NonceStore {
+    Memory(MemoryNonceStore),
+    Redis(RedisNonceStore),
+}
+
+impl Clone for NonceStore {
+    fn clone(&self) -> Self {
+        match self {
+            NonceStore::Memory(store) => NonceStore::Memory(MemoryNonceStore {
+                used_nonces: store.used_nonces.clone(),
+                last_nonce_sweep: store.last_nonce_sweep.clone(),
+            }),
+            NonceStore::Redis(store) => NonceStore::Redis(store.clone()),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct NonceStoreError {
+    message: String,
+}
+
+impl std::fmt::Display for NonceStoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for NonceStoreError {}
+
+impl From<redis::RedisError> for NonceStoreError {
+    fn from(err: redis::RedisError) -> Self {
+        Self {
+            message: format!("redis nonce store unavailable: {}", err),
+        }
+    }
+}
+
+impl NonceStoreError {
+    fn timeout(operation: &str) -> Self {
+        Self {
+            message: format!("redis nonce store timed out during {operation}"),
+        }
+    }
 }
 
 fn get_max_body_size() -> usize {
@@ -91,15 +149,117 @@ fn get_expected_chain_id() -> u64 {
     parse_chain_id_env("CHAIN_ID").unwrap_or(DEFAULT_EXPECTED_CHAIN_ID)
 }
 
+fn memory_nonce_store() -> Arc<NonceStore> {
+    Arc::new(NonceStore::Memory(MemoryNonceStore {
+        used_nonces: Arc::new(DashMap::new()),
+        last_nonce_sweep: Arc::new(Mutex::new(Instant::now())),
+    }))
+}
+
+fn normalize_redis_url(raw_url: &str) -> String {
+    if raw_url.starts_with("redis://") || raw_url.starts_with("rediss://") {
+        raw_url.to_string()
+    } else {
+        format!("redis://{raw_url}")
+    }
+}
+
+fn redis_url_has_database(redis_url: &str) -> bool {
+    let without_scheme = redis_url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(redis_url);
+    let path_end = without_scheme
+        .find(['?', '#'])
+        .unwrap_or(without_scheme.len());
+    let Some(path_start) = without_scheme[..path_end].find('/') else {
+        return false;
+    };
+
+    !without_scheme[path_start + 1..path_end].trim().is_empty()
+}
+
+fn get_non_empty_env(key: &str) -> Option<String> {
+    env::var(key).ok().filter(|value| !value.trim().is_empty())
+}
+
+fn verifier_redis_connection_info(
+    raw_url: &str,
+) -> Result<redis::ConnectionInfo, redis::RedisError> {
+    let redis_url = normalize_redis_url(raw_url);
+    let has_database = redis_url_has_database(&redis_url);
+    let mut connection_info: redis::ConnectionInfo = redis_url.as_str().parse()?;
+
+    if connection_info.redis.password.is_none() {
+        connection_info.redis.password = get_non_empty_env("REDIS_PASSWORD");
+    }
+    if !has_database {
+        if let Some(db) = get_non_empty_env("REDIS_DB").and_then(|value| value.parse::<i64>().ok())
+        {
+            connection_info.redis.db = db;
+        }
+    }
+
+    Ok(connection_info)
+}
+
+fn get_redis_nonce_key_prefix() -> String {
+    env::var("VERIFIER_NONCE_KEY_PREFIX")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "microai:verifier:nonce:".to_string())
+}
+
+fn redis_nonce_timeout() -> Duration {
+    const DEFAULT_REDIS_TIMEOUT_MS: u64 = 2_000;
+
+    let timeout_ms = env::var("VERIFIER_REDIS_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_REDIS_TIMEOUT_MS);
+
+    Duration::from_millis(timeout_ms)
+}
+
+fn build_nonce_store_from_env() -> Result<Arc<NonceStore>, String> {
+    let mode = env::var("VERIFIER_NONCE_STORE")
+        .unwrap_or_else(|_| "memory".to_string())
+        .to_ascii_lowercase();
+
+    match mode.as_str() {
+        "memory" => Ok(memory_nonce_store()),
+        "redis" => {
+            let redis_url = env::var("REDIS_URL")
+                .map_err(|_| "VERIFIER_NONCE_STORE=redis requires REDIS_URL".to_string())?;
+            let client = redis::Client::open(
+                verifier_redis_connection_info(&redis_url)
+                    .map_err(|err| format!("invalid REDIS_URL for verifier nonce store: {err}"))?,
+            )
+            .map_err(|err| format!("invalid REDIS_URL for verifier nonce store: {err}"))?;
+
+            Ok(Arc::new(NonceStore::Redis(RedisNonceStore {
+                client,
+                key_prefix: get_redis_nonce_key_prefix(),
+                timeout: redis_nonce_timeout(),
+            })))
+        }
+        other => Err(format!(
+            "unsupported VERIFIER_NONCE_STORE '{other}', expected 'memory' or 'redis'"
+        )),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let limit = get_max_body_size();
     let expected_chain_id = get_expected_chain_id();
+    let nonce_store =
+        build_nonce_store_from_env().expect("failed to configure verifier nonce store");
     let state = AppState {
         max_body_size: limit,
         expected_chain_id,
-        used_nonces: Arc::new(DashMap::new()),
-        last_nonce_sweep: Arc::new(Mutex::new(Instant::now())),
+        nonce_store,
         signature_expiry_seconds: get_env_u64("SIGNATURE_EXPIRY_SECONDS", 300),
         clock_skew_seconds: get_env_u64("SIGNATURE_CLOCK_SKEW_SECONDS", 60),
     };
@@ -273,8 +433,8 @@ fn nonce_retention_ttl(state: &AppState) -> Duration {
     )
 }
 
-fn maybe_evict_expired_nonces(state: &AppState, now: Instant, ttl: Duration) {
-    let mut last_sweep = state
+fn maybe_evict_expired_nonces(store: &MemoryNonceStore, now: Instant, ttl: Duration) {
+    let mut last_sweep = store
         .last_nonce_sweep
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -285,15 +445,17 @@ fn maybe_evict_expired_nonces(state: &AppState, now: Instant, ttl: Duration) {
     }
     *last_sweep = now;
     drop(last_sweep);
-    evict_expired_nonces(&state.used_nonces, now, ttl);
+    evict_expired_nonces(&store.used_nonces, now, ttl);
 }
 
-fn claim_nonce(state: &AppState, nonce: &str, now: Instant) -> bool {
-    let ttl = nonce_retention_ttl(state);
-    maybe_evict_expired_nonces(state, now, ttl);
+fn redis_nonce_key(prefix: &str, nonce: &str) -> String {
+    format!("{}{}", prefix, hex::encode(keccak256(nonce.as_bytes())))
+}
 
-    // Single-instance replay protection. Multi-replica production needs Redis.
-    match state.used_nonces.entry(keccak256(nonce.as_bytes())) {
+fn claim_memory_nonce(store: &MemoryNonceStore, nonce: &str, now: Instant, ttl: Duration) -> bool {
+    maybe_evict_expired_nonces(store, now, ttl);
+
+    match store.used_nonces.entry(keccak256(nonce.as_bytes())) {
         Entry::Occupied(mut entry) => {
             if now.saturating_duration_since(*entry.get()) > ttl {
                 entry.insert(now);
@@ -306,6 +468,43 @@ fn claim_nonce(state: &AppState, nonce: &str, now: Instant) -> bool {
             entry.insert(now);
             true
         }
+    }
+}
+
+async fn claim_redis_nonce(
+    store: &RedisNonceStore,
+    nonce: &str,
+    ttl: Duration,
+) -> Result<bool, NonceStoreError> {
+    let mut conn = tokio::time::timeout(
+        store.timeout,
+        store.client.get_multiplexed_async_connection(),
+    )
+    .await
+    .map_err(|_| NonceStoreError::timeout("connection acquisition"))??;
+    let ttl_seconds = ttl.as_secs().max(1);
+    let key = redis_nonce_key(&store.key_prefix, nonce);
+    let result: Option<String> = tokio::time::timeout(
+        store.timeout,
+        conn.set_options(
+            key,
+            "1",
+            redis::SetOptions::default()
+                .conditional_set(redis::ExistenceCheck::NX)
+                .with_expiration(redis::SetExpiry::EX(ttl_seconds)),
+        ),
+    )
+    .await
+    .map_err(|_| NonceStoreError::timeout("atomic nonce claim"))??;
+
+    Ok(result.is_some())
+}
+
+async fn claim_nonce(state: &AppState, nonce: &str, now: Instant) -> Result<bool, NonceStoreError> {
+    let ttl = nonce_retention_ttl(state);
+    match state.nonce_store.as_ref() {
+        NonceStore::Memory(store) => Ok(claim_memory_nonce(store, nonce, now, ttl)),
+        NonceStore::Redis(store) => claim_redis_nonce(store, nonce, ttl).await,
     }
 }
 
@@ -485,18 +684,34 @@ async fn verify_signature(
 
     match result {
         Ok(addr) => {
-            if !claim_nonce(&state, &payload.context.nonce, Instant::now()) {
-                metrics::record_verification(false, duration, Some("nonce_already_used"));
-                return (
-                    StatusCode::CONFLICT,
-                    res_headers,
-                    Json(VerifyResponse {
-                        is_valid: false,
-                        recovered_address: Some(format!("{:?}", addr)),
-                        error: Some("nonce already used".to_string()),
-                        error_code: Some("nonce_already_used".to_string()),
-                    }),
-                );
+            match claim_nonce(&state, &payload.context.nonce, Instant::now()).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    metrics::record_verification(false, duration, Some("nonce_already_used"));
+                    return (
+                        StatusCode::CONFLICT,
+                        res_headers,
+                        Json(VerifyResponse {
+                            is_valid: false,
+                            recovered_address: Some(format!("{:?}", addr)),
+                            error: Some("nonce already used".to_string()),
+                            error_code: Some("nonce_already_used".to_string()),
+                        }),
+                    );
+                }
+                Err(err) => {
+                    metrics::record_verification(false, duration, Some("nonce_store_unavailable"));
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        res_headers,
+                        Json(VerifyResponse {
+                            is_valid: false,
+                            recovered_address: None,
+                            error: Some(err.to_string()),
+                            error_code: Some("nonce_store_unavailable".to_string()),
+                        }),
+                    );
+                }
             }
             metrics::record_verification(true, duration, None);
             (
@@ -537,7 +752,6 @@ fn record_verification_failure(request_start: &Instant, reason: &'static str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dashmap::DashMap;
     use ethers::signers::{LocalWallet, Signer};
     use ethers::types::transaction::eip712::TypedData;
     use std::sync::Arc;
@@ -550,11 +764,22 @@ mod tests {
     }
 
     fn app_state_with_window(signature_expiry_seconds: u64, clock_skew_seconds: u64) -> AppState {
+        app_state_with_nonce_store(
+            memory_nonce_store(),
+            signature_expiry_seconds,
+            clock_skew_seconds,
+        )
+    }
+
+    fn app_state_with_nonce_store(
+        nonce_store: Arc<NonceStore>,
+        signature_expiry_seconds: u64,
+        clock_skew_seconds: u64,
+    ) -> AppState {
         AppState {
             max_body_size: MAX_BODY_SIZE,
             expected_chain_id: BASE_SEPOLIA_CHAIN_ID,
-            used_nonces: Arc::new(DashMap::new()),
-            last_nonce_sweep: Arc::new(Mutex::new(Instant::now())),
+            nonce_store,
             signature_expiry_seconds,
             clock_skew_seconds,
         }
@@ -597,6 +822,86 @@ mod tests {
         }
     }
 
+    fn with_nonce_env(
+        nonce_store: Option<&str>,
+        redis_url: Option<&str>,
+        key_prefix: Option<&str>,
+        redis_timeout_ms: Option<&str>,
+        test: impl FnOnce(),
+    ) {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let old_nonce_store = env::var("VERIFIER_NONCE_STORE").ok();
+        let old_redis_url = env::var("REDIS_URL").ok();
+        let old_key_prefix = env::var("VERIFIER_NONCE_KEY_PREFIX").ok();
+        let old_redis_timeout_ms = env::var("VERIFIER_REDIS_TIMEOUT_MS").ok();
+
+        match nonce_store {
+            Some(value) => env::set_var("VERIFIER_NONCE_STORE", value),
+            None => env::remove_var("VERIFIER_NONCE_STORE"),
+        }
+        match redis_url {
+            Some(value) => env::set_var("REDIS_URL", value),
+            None => env::remove_var("REDIS_URL"),
+        }
+        match key_prefix {
+            Some(value) => env::set_var("VERIFIER_NONCE_KEY_PREFIX", value),
+            None => env::remove_var("VERIFIER_NONCE_KEY_PREFIX"),
+        }
+        match redis_timeout_ms {
+            Some(value) => env::set_var("VERIFIER_REDIS_TIMEOUT_MS", value),
+            None => env::remove_var("VERIFIER_REDIS_TIMEOUT_MS"),
+        }
+
+        test();
+
+        match old_nonce_store {
+            Some(value) => env::set_var("VERIFIER_NONCE_STORE", value),
+            None => env::remove_var("VERIFIER_NONCE_STORE"),
+        }
+        match old_redis_url {
+            Some(value) => env::set_var("REDIS_URL", value),
+            None => env::remove_var("REDIS_URL"),
+        }
+        match old_key_prefix {
+            Some(value) => env::set_var("VERIFIER_NONCE_KEY_PREFIX", value),
+            None => env::remove_var("VERIFIER_NONCE_KEY_PREFIX"),
+        }
+        match old_redis_timeout_ms {
+            Some(value) => env::set_var("VERIFIER_REDIS_TIMEOUT_MS", value),
+            None => env::remove_var("VERIFIER_REDIS_TIMEOUT_MS"),
+        }
+    }
+
+    fn with_redis_auth_env(
+        redis_password: Option<&str>,
+        redis_db: Option<&str>,
+        test: impl FnOnce(),
+    ) {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let old_redis_password = env::var("REDIS_PASSWORD").ok();
+        let old_redis_db = env::var("REDIS_DB").ok();
+
+        match redis_password {
+            Some(value) => env::set_var("REDIS_PASSWORD", value),
+            None => env::remove_var("REDIS_PASSWORD"),
+        }
+        match redis_db {
+            Some(value) => env::set_var("REDIS_DB", value),
+            None => env::remove_var("REDIS_DB"),
+        }
+
+        test();
+
+        match old_redis_password {
+            Some(value) => env::set_var("REDIS_PASSWORD", value),
+            None => env::remove_var("REDIS_PASSWORD"),
+        }
+        match old_redis_db {
+            Some(value) => env::set_var("REDIS_DB", value),
+            None => env::remove_var("REDIS_DB"),
+        }
+    }
+
     #[test]
     fn test_get_expected_chain_id_defaults_to_base_sepolia() {
         with_chain_env(None, None, || {
@@ -623,6 +928,95 @@ mod tests {
         with_chain_env(Some("0"), Some("8453"), || {
             assert_eq!(get_expected_chain_id(), BASE_SEPOLIA_CHAIN_ID);
         });
+    }
+
+    #[test]
+    fn test_normalize_redis_url_accepts_bare_host_port() {
+        assert_eq!(normalize_redis_url("redis:6379"), "redis://redis:6379");
+        assert_eq!(
+            normalize_redis_url("redis://localhost:6379"),
+            "redis://localhost:6379"
+        );
+        assert_eq!(
+            normalize_redis_url("rediss://cache.example.com:6380"),
+            "rediss://cache.example.com:6380"
+        );
+    }
+
+    #[test]
+    fn test_verifier_redis_connection_info_uses_env_fallbacks_for_bare_url() {
+        with_redis_auth_env(Some("secret"), Some("2"), || {
+            let connection_info = verifier_redis_connection_info("redis:6379").unwrap();
+
+            assert_eq!(connection_info.redis.password.as_deref(), Some("secret"));
+            assert_eq!(connection_info.redis.db, 2);
+        });
+    }
+
+    #[test]
+    fn test_verifier_redis_connection_info_preserves_explicit_url_auth_and_db() {
+        with_redis_auth_env(Some("env-secret"), Some("2"), || {
+            let connection_info =
+                verifier_redis_connection_info("redis://user:url-secret@redis:6379/4").unwrap();
+
+            assert_eq!(connection_info.redis.username.as_deref(), Some("user"));
+            assert_eq!(
+                connection_info.redis.password.as_deref(),
+                Some("url-secret")
+            );
+            assert_eq!(connection_info.redis.db, 4);
+        });
+    }
+
+    #[test]
+    fn test_build_nonce_store_defaults_to_memory() {
+        with_nonce_env(None, None, None, None, || {
+            let store = build_nonce_store_from_env().unwrap();
+            assert!(matches!(store.as_ref(), NonceStore::Memory(_)));
+        });
+    }
+
+    #[test]
+    fn test_build_redis_nonce_store_requires_redis_url() {
+        with_nonce_env(Some("redis"), None, None, None, || {
+            let err = match build_nonce_store_from_env() {
+                Ok(_) => panic!("expected REDIS_URL error"),
+                Err(err) => err,
+            };
+            assert!(err.contains("REDIS_URL"));
+        });
+    }
+
+    #[test]
+    fn test_redis_nonce_timeout_defaults_to_two_seconds() {
+        with_nonce_env(None, None, None, None, || {
+            assert_eq!(redis_nonce_timeout(), Duration::from_millis(2_000));
+        });
+    }
+
+    #[test]
+    fn test_redis_nonce_timeout_uses_env_milliseconds() {
+        with_nonce_env(None, None, None, Some("750"), || {
+            assert_eq!(redis_nonce_timeout(), Duration::from_millis(750));
+        });
+    }
+
+    #[test]
+    fn test_redis_nonce_timeout_rejects_invalid_env() {
+        with_nonce_env(None, None, None, Some("not-a-number"), || {
+            assert_eq!(redis_nonce_timeout(), Duration::from_millis(2_000));
+        });
+        with_nonce_env(None, None, None, Some("0"), || {
+            assert_eq!(redis_nonce_timeout(), Duration::from_millis(2_000));
+        });
+    }
+
+    #[test]
+    fn test_redis_nonce_key_hashes_raw_nonce() {
+        let key = redis_nonce_key("prefix:", "sensitive-nonce-value");
+        assert!(key.starts_with("prefix:"));
+        assert!(!key.contains("sensitive-nonce-value"));
+        assert_eq!(key.len(), "prefix:".len() + 64);
     }
 
     async fn signed_request(nonce: &str, chain_id: u64, timestamp: u64) -> VerifyRequest {
@@ -931,32 +1325,42 @@ mod tests {
         assert_eq!(conflicts, 99);
     }
 
-    #[test]
-    fn test_claim_nonce_retains_entries_through_clock_skew_window() {
+    #[tokio::test]
+    async fn test_claim_nonce_retains_entries_through_clock_skew_window() {
         let state = app_state_with_window(1, 2);
         let start = Instant::now();
 
-        assert!(claim_nonce(&state, "ttl-replay-nonce", start));
+        assert!(claim_nonce(&state, "ttl-replay-nonce", start)
+            .await
+            .unwrap());
         assert!(!claim_nonce(
             &state,
             "ttl-replay-nonce",
             start + Duration::from_millis(1100)
-        ));
+        )
+        .await
+        .unwrap());
         assert!(!claim_nonce(
             &state,
             "ttl-replay-nonce",
             start + Duration::from_millis(3100)
-        ));
+        )
+        .await
+        .unwrap());
         assert!(!claim_nonce(
             &state,
             "ttl-replay-nonce",
             start + Duration::from_millis(4000)
-        ));
+        )
+        .await
+        .unwrap());
         assert!(claim_nonce(
             &state,
             "ttl-replay-nonce",
             start + Duration::from_millis(4100)
-        ));
+        )
+        .await
+        .unwrap());
     }
 
     #[tokio::test]
@@ -977,6 +1381,33 @@ mod tests {
         assert_eq!(bad_resp.error_code.as_deref(), Some("invalid_signature"));
         assert_eq!(good_status, StatusCode::OK);
         assert!(good_resp.is_valid);
+    }
+
+    #[tokio::test]
+    async fn test_verify_signature_fails_closed_when_redis_nonce_store_unavailable() {
+        let client = redis::Client::open("redis://127.0.0.1:1").unwrap();
+        let state = app_state_with_nonce_store(
+            Arc::new(NonceStore::Redis(RedisNonceStore {
+                client,
+                key_prefix: "test:verifier:nonce:".to_string(),
+                timeout: redis_nonce_timeout(),
+            })),
+            300,
+            60,
+        );
+        let req = signed_request("redis-unavailable-nonce", BASE_SEPOLIA_CHAIN_ID, now()).await;
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            verify_signature(State(state), HeaderMap::new(), Ok(Json(req))),
+        )
+        .await
+        .expect("redis-unavailable path should fail closed quickly");
+        let (status, _, Json(resp)) = result;
+
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(!resp.is_valid);
+        assert_eq!(resp.error_code.as_deref(), Some("nonce_store_unavailable"));
     }
 
     #[tokio::test]
@@ -1226,8 +1657,7 @@ mod tests {
         let state = AppState {
             max_body_size: limit,
             expected_chain_id: BASE_SEPOLIA_CHAIN_ID,
-            used_nonces: Arc::new(DashMap::new()),
-            last_nonce_sweep: Arc::new(Mutex::new(Instant::now())),
+            nonce_store: memory_nonce_store(),
             signature_expiry_seconds: 300,
             clock_skew_seconds: 60,
         };
