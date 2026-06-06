@@ -195,8 +195,16 @@ func (s slowStreamingProvider) StreamGenerate(ctx context.Context, text string) 
 		case <-ctx.Done():
 			return
 		case <-time.After(s.delay):
-			chunks <- ai.StreamChunk{Content: "chunk"}
-			chunks <- ai.StreamChunk{Done: true}
+			select {
+			case <-ctx.Done():
+				return
+			case chunks <- ai.StreamChunk{Content: "chunk"}:
+				select {
+				case <-ctx.Done():
+					return
+				case chunks <- ai.StreamChunk{Done: true}:
+				}
+			}
 		}
 	}()
 	return chunks, errs

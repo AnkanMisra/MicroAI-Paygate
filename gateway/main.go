@@ -587,8 +587,26 @@ func parseSummarizeRequest(c *gin.Context, requestBody []byte) (SummarizeRequest
 }
 
 func handleSummarizeStream(c *gin.Context) {
-	if c.GetHeader("X-402-Signature") == "" || c.GetHeader("X-402-Nonce") == "" {
-		_, _ = preparePaidSummarizeRequest(c)
+	signature := c.GetHeader("X-402-Signature")
+	nonce := c.GetHeader("X-402-Nonce")
+	timestampHeader := c.GetHeader("X-402-Timestamp")
+
+	if signature == "" || nonce == "" {
+		c.JSON(402, gin.H{
+			"error":          "Payment Required",
+			"message":        "Please sign the payment context",
+			"paymentContext": createPaymentContext(),
+		})
+		return
+	}
+
+	if timestampHeader == "" {
+		respondError(c, 400, "invalid_timestamp", fmt.Errorf("missing X-402-Timestamp header"))
+		return
+	}
+
+	if _, err := strconv.ParseUint(timestampHeader, 10, 64); err != nil {
+		respondError(c, 400, "invalid_timestamp", fmt.Errorf("invalid X-402-Timestamp header"))
 		return
 	}
 
@@ -778,7 +796,9 @@ func generateAndSendReceipt(c *gin.Context, paymentCtx PaymentContext, recovered
 		return err
 	}
 
-	if err := storeReceiptWithContext(c.Request.Context(), receipt, getReceiptTTL()); err != nil {
+	storeCtx, cancelStore := context.WithTimeout(c.Request.Context(), getReceiptStoreTimeout())
+	defer cancelStore()
+	if err := storeReceiptWithContext(storeCtx, receipt, getReceiptTTL()); err != nil {
 		respondError(c, 500, "receipt_store_failed", err)
 		return err
 	}

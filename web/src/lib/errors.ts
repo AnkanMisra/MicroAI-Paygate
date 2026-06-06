@@ -145,6 +145,7 @@ function publicErrorCodeToKind(code: string): ErrorKind | null {
   if (code === "upstream_timeout") return "ai-timeout";
   if (code === "upstream_unavailable") return "ai-unavailable";
   if (code === "streaming_unsupported") return "ai-unavailable";
+  if (code === "receipt_generation_failed") return "ai-unavailable";
   if (code === "verifier_timeout") return "verifier-timeout";
   if (code === "verification_unavailable") return "verifier-unavailable";
   if (code === "nonce_already_used") return "duplicate-nonce";
