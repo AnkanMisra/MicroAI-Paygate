@@ -1,0 +1,39 @@
+name: Star Greeting Bot
+
+on:
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  greet:
+    if: github.event.pull_request.user.login != 'AnkanMisra'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post star greeting comment
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const author = context.payload.pull_request.user.login;
+            const body = [
+              `Hi @${author}, thanks for opening this PR.`,
+              '',
+              'Every contribution helps MicroAI-Paygate grow. If you find the project useful, consider starring the repository — it helps others discover it.',
+              '',
+              '[Star MicroAI-Paygate on GitHub](https://github.com/AnkanMisra/MicroAI-Paygate)',
+              '',
+              'Looking forward to reviewing this PR.'
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
