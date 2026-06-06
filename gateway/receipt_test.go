@@ -462,9 +462,10 @@ func TestVerifyReceiptSignature(t *testing.T) {
 
 func TestVerifySignatureFailsForTamperedSignature(t *testing.T) {
 	// Test that VerifySignature correctly rejects tampered signatures
+	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 	privateKey, err := getServerPrivateKey()
 	if err != nil || privateKey == nil {
-		t.Skip("Skipping verification test: SERVER_WALLET_PRIVATE_KEY not set")
+		t.Fatal("getServerPrivateKey() failed despite setting SERVER_WALLET_PRIVATE_KEY")
 	}
 
 	receiptID, err := generateReceiptID()
@@ -496,7 +497,10 @@ func TestVerifySignatureFailsForTamperedSignature(t *testing.T) {
 		t.Fatalf("Failed to sign receipt: %v", err)
 	}
 
-	receiptBytes, _ := json.Marshal(signedReceipt.Receipt)
+	receiptBytes, err := json.Marshal(signedReceipt.Receipt)
+	if err != nil {
+		t.Fatalf("json.Marshal(signedReceipt.Receipt) failed: %v", err)
+	}
 	hash := crypto.Keccak256Hash(receiptBytes)
 
 	// Decode signature
@@ -535,9 +539,10 @@ func TestVerifySignatureFailsForTamperedSignature(t *testing.T) {
 
 func TestVerifySignatureFailsForInvalidDigestLength(t *testing.T) {
 	// Test that VerifySignature correctly handles non-32-byte digests
+	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 	privateKey, err := getServerPrivateKey()
 	if err != nil || privateKey == nil {
-		t.Skip("Skipping verification test: SERVER_WALLET_PRIVATE_KEY not set")
+		t.Fatal("getServerPrivateKey() failed despite setting SERVER_WALLET_PRIVATE_KEY")
 	}
 
 	receiptID, err := generateReceiptID()
@@ -569,7 +574,10 @@ func TestVerifySignatureFailsForInvalidDigestLength(t *testing.T) {
 		t.Fatalf("Failed to sign receipt: %v", err)
 	}
 
-	receiptBytes, _ := json.Marshal(signedReceipt.Receipt)
+	receiptBytes, err := json.Marshal(signedReceipt.Receipt)
+	if err != nil {
+		t.Fatalf("json.Marshal(signedReceipt.Receipt) failed: %v", err)
+	}
 	hash := crypto.Keccak256Hash(receiptBytes)
 
 	// Decode signature
