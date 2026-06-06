@@ -12,19 +12,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 )
 
 func TestCacheIntegration_FullFlow(t *testing.T) {
-	// 1. Check Redis availability
+	redisServer := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{
-		Addr: "127.0.0.1:6379",
+		Addr: redisServer.Addr(),
 	})
+	defer rdb.Close()
+
 	ctx := context.Background()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		t.Skipf("Redis unavailable, skipping integration test: %v", err)
-	}
 
 	// 3. Setup Dependencies (Environment)
 	// Mock Verifier
@@ -66,7 +66,7 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 	// Set Env Vars using t.Setenv for auto-cleanup
 	t.Setenv("CACHE_ENABLED", "true")
 	t.Setenv("RECEIPT_STORE", "memory")
-	t.Setenv("REDIS_URL", "127.0.0.1:6379")
+	t.Setenv("REDIS_URL", redisServer.Addr())
 	t.Setenv("VERIFIER_URL", verifier.URL)
 	t.Setenv("AI_PROVIDER", "openrouter")
 	t.Setenv("OPENROUTER_URL", aiServer.URL)
