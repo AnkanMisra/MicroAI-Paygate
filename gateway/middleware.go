@@ -362,7 +362,7 @@ func JSONLoggerMiddleware() gin.HandlerFunc {
 			PaymentStatus: c.GetString("payment_status"),
 			PaymentError:  c.GetString("payment_error"),
 			Payer:         c.GetString("payer"),
-			InternalError: c.GetString("internal_error"),
+			InternalError: sanitizeErrorString(c.GetString("internal_error")),
 		}
 
 		if data, err := json.Marshal(entry); err == nil {

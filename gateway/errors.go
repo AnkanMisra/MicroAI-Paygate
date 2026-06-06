@@ -4,26 +4,42 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
+var (
+	hex64Regex         = regexp.MustCompile(`\b[0-9a-fA-F]{64}\b`)
+	openRouterKeyRegex = regexp.MustCompile(`sk-or-[a-zA-Z0-9]+`)
+)
+
+func sanitizeErrorString(s string) string {
+	s = hex64Regex.ReplaceAllString(s, "[redacted_hex_64]")
+	s = openRouterKeyRegex.ReplaceAllString(s, "[redacted_api_key]")
+	return s
+}
+
 func respondError(c *gin.Context, code int, publicMsg string, internalErr error) {
 	c.Set("payment_status", "failed")
 	c.Set("payment_error", publicMsg)
+	
+	var sanitizedErr string
 	if internalErr != nil {
-		c.Set("internal_error", internalErr.Error())
+		sanitizedErr = sanitizeErrorString(internalErr.Error())
+		c.Set("internal_error", sanitizedErr)
 	}
 
 	correlationID := responseCorrelationID(c)
-	if internalErr != nil {
+	if internalErr != nil && os.Getenv("LOG_FORMAT") != "json" {
 		log.Printf(
-			"[ERROR] correlation_id=%s status=%d error=%s internal=%v",
+			"[ERROR] correlation_id=%s status=%d error=%s internal=%s",
 			correlationID,
 			code,
 			publicMsg,
-			internalErr,
+			sanitizedErr,
 		)
 	}
 

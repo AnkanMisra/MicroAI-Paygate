@@ -544,7 +544,9 @@ func handleSummarize(c *gin.Context) {
 
 	// 4. Generate & Send Receipt
 	if err := generateAndSendReceipt(c, *paymentCtx, verifyResp.RecoveredAddress, requestBody, summary); err != nil {
-		log.Printf("Failed to generate receipt: %v", err)
+		if os.Getenv("LOG_FORMAT") != "json" {
+			log.Printf("Failed to generate receipt: %v", err)
+		}
 		// generateAndSendReceipt sends error response if it fails?
 		// No, it returns error, we might have already written status if we aren't careful.
 		// Let's implement generateAndSendReceipt to handle sending response.
@@ -952,7 +954,9 @@ func handleGetReceipt(c *gin.Context) {
 
 	receipt, exists, err := getReceiptWithContext(c.Request.Context(), id)
 	if err != nil {
-		log.Printf("Failed to retrieve receipt %s: %v", id, err)
+		if os.Getenv("LOG_FORMAT") != "json" {
+			log.Printf("Failed to retrieve receipt %s: %v", id, err)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "failed to retrieve receipt",
 		})

@@ -810,3 +810,56 @@ func TestJSONLoggerMiddleware(t *testing.T) {
 	require.NotContains(t, output, "PRIVATE_KEY")
 	require.NotContains(t, output, "0x1234567890abcdef") // sample private key / sig values
 }
+func TestJSONLoggerMiddleware_Sanitization(t *testing.T) {
+	// Capturing stdout
+	oldStdout := os.Stdout
+	rPipe, wPipe, _ := os.Pipe()
+	os.Stdout = wPipe
+
+	defer func() {
+		os.Stdout = oldStdout
+	}()
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("correlation_id", "test-corr-123")
+		c.Set("payment_status", "failed")
+		// Seed sensitive private key hex string in internal error
+		c.Set("internal_error", "failed to connect: openrouter key sk-or-1234567890abcdef1234567890abcdef and wallet key 1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+		c.Next()
+	})
+	r.Use(JSONLoggerMiddleware())
+
+	r.GET("/test-json-log-sanitize", func(c *gin.Context) {
+		c.JSON(500, gin.H{"status": "error"})
+	})
+
+	req, _ := http.NewRequest("GET", "/test-json-log-sanitize", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Close write pipe and read captured output
+	wPipe.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(rPipe)
+	output := buf.String()
+
+	require.NotEmpty(t, output)
+
+	// Parse JSON output
+	var logEntry JSONLogEntry
+	err := json.Unmarshal([]byte(output), &logEntry)
+	require.NoError(t, err)
+
+	require.Equal(t, 500, logEntry.Status)
+	require.Equal(t, "test-corr-123", logEntry.CorrelationID)
+	require.Equal(t, "failed", logEntry.PaymentStatus)
+	require.Equal(t, "error", logEntry.Level)
+	
+	// Assert that sensitive fields are redacted in the log entry's internal error field
+	require.NotContains(t, logEntry.InternalError, "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	require.NotContains(t, logEntry.InternalError, "sk-or-1234567890abcdef1234567890abcdef")
+	require.Contains(t, logEntry.InternalError, "[redacted_hex_64]")
+	require.Contains(t, logEntry.InternalError, "[redacted_api_key]")
+}
