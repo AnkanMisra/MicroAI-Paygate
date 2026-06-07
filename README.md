@@ -342,6 +342,9 @@ Core local variables live in [.env.example](.env.example). Production placeholde
 | `NEXT_PUBLIC_EXPECTED_CHAIN_NAME` | Web | Display name paired with the chain ID — used by the wallet widget's "Switch to <name>" button, hero headline, stat bar, and page title. Must be set when `CHAIN_ID` is overridden (e.g. `Base` for `8453`). |
 | `NEXT_PUBLIC_PAYMENT_AMOUNT` | Web | Pre-challenge fee label shown in the summarize form + stat bar. Display only — the gateway's payment context controls the actual signed amount. Default `0.001`. |
 | `NEXT_PUBLIC_PAYMENT_TOKEN` | Web | Token symbol paired with the amount. Default `USDC`. |
+| `NEXT_PUBLIC_POSTHOG_ENABLED` | Web | Browser analytics kill switch for PostHog Phase 1. Default `false`. |
+| `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` | Web | PostHog project token used by the browser SDK when analytics is enabled. |
+| `NEXT_PUBLIC_POSTHOG_HOST` | Web | PostHog ingestion host. Default `https://us.i.posthog.com`. |
 
 ## Testing
 

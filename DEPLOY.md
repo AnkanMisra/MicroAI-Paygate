@@ -162,8 +162,13 @@ curl -i https://<gateway-app>.onrender.com/api/ai/summarize \
 4. Environment Variables — add:
    - `NEXT_PUBLIC_GATEWAY_URL` = `https://<gateway-app>.onrender.com`
    - `NEXT_PUBLIC_VERIFIER_URL` = `https://<verifier-app>.onrender.com` (lets the warm-up banner pre-wake the verifier too)
+   - `NEXT_PUBLIC_POSTHOG_ENABLED` = `false` unless you are intentionally turning on Phase 1 analytics
+   - `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` = `<your-posthog-project-token>` when analytics is enabled
+   - `NEXT_PUBLIC_POSTHOG_HOST` = `https://us.i.posthog.com` unless your PostHog project uses a different region/host
 
 The four other `NEXT_PUBLIC_*` vars (`EXPECTED_CHAIN_ID`, `EXPECTED_CHAIN_NAME`, `PAYMENT_AMOUNT`, `PAYMENT_TOKEN`) have correct defaults baked into the code for Base Sepolia + USDC + 0.001. Set them only if you deploy against a non-default chain.
+
+Phase 1 analytics is privacy-scoped to funnel metadata only. The web app does **not** send raw prompts, raw summaries, signatures, nonces, or full receipt payloads to PostHog.
 
 5. **Deploy**. ~1–2 min.
 6. Copy the assigned URL — e.g. `https://microai-paygate.vercel.app`.
