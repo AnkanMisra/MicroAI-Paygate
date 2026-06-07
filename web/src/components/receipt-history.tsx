@@ -1,6 +1,8 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { browserAnalytics } from "@/lib/browser-analytics";
+import { AnalyticsEvent } from "@/lib/analytics-events";
 import {
   clearReceipts,
   getReceiptsServerSnapshot,
@@ -11,15 +13,38 @@ import { Button } from "./ui/button";
 import { ReceiptCard } from "./receipt-card";
 
 export function ReceiptHistory() {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const trackedView = useRef(false);
   const entries = useSyncExternalStore(
     subscribeReceipts,
     getReceiptsSnapshot,
     getReceiptsServerSnapshot,
   );
 
+  useEffect(() => {
+    const node = rootRef.current;
+    if (!node || trackedView.current) return;
+
+    const observer = new IntersectionObserver(
+      (entriesState) => {
+        const entry = entriesState[0];
+        if (!entry?.isIntersecting || trackedView.current) return;
+        trackedView.current = true;
+        browserAnalytics.capture(AnalyticsEvent.ReceiptHistoryViewed, {
+          receipt_count: entries.length,
+        });
+        observer.disconnect();
+      },
+      { threshold: 0.35 },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [entries.length]);
+
   if (entries.length === 0) {
     return (
-      <div className="border border-dashed border-ink-faint bg-paper p-10 text-center">
+      <div ref={rootRef} className="border border-dashed border-ink-faint bg-paper p-10 text-center">
         <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink-soft">
           No receipts yet
         </p>
@@ -31,7 +56,7 @@ export function ReceiptHistory() {
   }
 
   return (
-    <div className="space-y-3">
+    <div ref={rootRef} className="space-y-3">
       <ul className="space-y-2">
         {entries.map((entry) => (
           <ReceiptCard

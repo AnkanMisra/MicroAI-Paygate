@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { browserAnalytics } from "@/lib/browser-analytics";
+import { AnalyticsEvent } from "@/lib/analytics-events";
 import { useX402 } from "@/hooks/use-x402";
 import { Button } from "./ui/button";
 import { StatusStrip } from "./status-strip";
@@ -49,7 +51,13 @@ export function SummarizeForm() {
             </h3>
             <button
               type="button"
-              onClick={() => setInput(SAMPLE_PROMPT)}
+              onClick={() => {
+                setInput(SAMPLE_PROMPT);
+                browserAnalytics.capture(AnalyticsEvent.SamplePromptLoaded, {
+                  input_word_count: SAMPLE_PROMPT.trim().split(/\s+/).length,
+                  input_char_count: SAMPLE_PROMPT.length,
+                });
+              }}
               className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:text-accent"
             >
               Use sample

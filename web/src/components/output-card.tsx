@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AnalyticsEvent } from "@/lib/analytics-events";
 import { verifyReceipt, type SignedReceipt } from "@/lib/verify-receipt";
 import { Badge } from "./ui/badge";
 import { CopyButton } from "./copy-button";
@@ -26,7 +27,12 @@ export function OutputCard({ summary, receipt }: Props) {
           </span>
           <ReceiptStatusBadge state={verifyState} />
         </div>
-        <CopyButton value={summary} label="Copy summary" />
+        <CopyButton
+          value={summary}
+          label="Copy summary"
+          analyticsEvent={AnalyticsEvent.SummaryCopied}
+          analyticsProperties={{ summary_char_count: summary.length, has_receipt: !!receipt }}
+        />
       </header>
       <div className="px-5 py-5">
         <p className="font-sans text-[15px] leading-relaxed text-ink whitespace-pre-wrap">
@@ -51,7 +57,14 @@ export function OutputCard({ summary, receipt }: Props) {
             {describeReceiptState(verifyState)}
           </p>
         </div>
-        {receipt && <CopyButton value={receipt.receipt.id} label="Copy receipt ID" />}
+        {receipt && (
+          <CopyButton
+            value={receipt.receipt.id}
+            label="Copy receipt ID"
+            analyticsEvent={AnalyticsEvent.ReceiptIdCopied}
+            analyticsProperties={{ has_receipt: true }}
+          />
+        )}
       </footer>
     </article>
   );

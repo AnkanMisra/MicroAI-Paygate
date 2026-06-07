@@ -2,6 +2,9 @@
 
 import { useCallback, useRef, useState } from "react";
 import { ethers } from "ethers";
+import { browserAnalytics } from "@/lib/browser-analytics";
+import { AnalyticsEvent } from "@/lib/analytics-events";
+import { createFlowContext } from "@/lib/analytics";
 import {
   buildSignedHeaders,
   postSummarize,
@@ -50,29 +53,64 @@ export function useX402() {
   const submit = useCallback(async (text: string) => {
     if (!text.trim()) return;
     const myRun = ++runId.current;
+    const flow = createFlowContext(text);
+    let stage:
+      | "request"
+      | "wallet-connect"
+      | "chain-switch"
+      | "sign"
+      | "verify"
+      | "done" = "request";
 
     const update = (patch: Partial<UseX402State>) => {
       if (runId.current !== myRun) return;
       setState((prev) => ({ ...prev, ...patch }));
     };
 
+    const flowProps = {
+      flow_run_id: flow.flowRunId,
+      correlation_id: flow.correlationId,
+      input_word_count: flow.inputWordCount,
+      input_char_count: flow.inputCharCount,
+    };
+
     update({ step: "request", summary: null, receipt: null, error: null, isRunning: true });
+    browserAnalytics.capture(AnalyticsEvent.SummaryRequested, {
+      ...flowProps,
+      wallet_available: hasWallet(),
+    });
 
     try {
-      const first = await postSummarize(text);
+      const first = await postSummarize(text, {
+        "X-Correlation-ID": flow.correlationId,
+      });
 
       if (first.status === 200) {
         update({ step: "receipt" });
         const { summary, receipt } = await readSummarizeSuccess(first);
         if (receipt) saveReceipt(receipt, text);
+        browserAnalytics.capture(AnalyticsEvent.SummaryCompleted, {
+          ...flowProps,
+          status_code: first.status,
+          has_receipt: !!receipt,
+          summary_char_count: summary.length,
+        });
+        stage = "done";
         update({ step: "done", summary, receipt, isRunning: false });
         return;
       }
 
       if (first.status !== 402) {
         const bodyText = await safeText(first);
+        const classified = classifyError(null, { status: first.status, bodyText });
+        browserAnalytics.capture(AnalyticsEvent.SummaryFailed, {
+          ...flowProps,
+          stage,
+          status_code: first.status,
+          error_kind: classified.kind,
+        });
         update({
-          error: classifyError(null, { status: first.status, bodyText }),
+          error: classified,
           isRunning: false,
         });
         return;
@@ -80,18 +118,45 @@ export function useX402() {
 
       update({ step: "challenge" });
       const context = await readPaymentChallenge(first);
+      browserAnalytics.capture(AnalyticsEvent.PaymentChallengeReceived, {
+        ...flowProps,
+        status_code: first.status,
+        chain_id: context.chainId,
+        payment_amount: context.amount,
+        payment_token: context.token,
+      });
 
       if (!hasWallet() || !getProvider()) {
+        browserAnalytics.capture(AnalyticsEvent.WalletConnectFailed, {
+          ...flowProps,
+          stage: "wallet-connect",
+          error_kind: "no-wallet",
+        });
         update({
           error: classifyError(new Error("No crypto wallet found")),
           isRunning: false,
         });
         return;
       }
-      const account = (await getCurrentAccount()) ?? (await connectWallet());
+      stage = "wallet-connect";
+      let account = await getCurrentAccount();
+      if (!account) {
+        browserAnalytics.capture(AnalyticsEvent.WalletConnectRequested, flowProps);
+        account = await connectWallet();
+        browserAnalytics.capture(AnalyticsEvent.WalletConnectSucceeded, {
+          ...flowProps,
+          wallet_connected: true,
+        });
+      }
 
       const currentChain = await getCurrentChainId();
       if (currentChain !== context.chainId) {
+        stage = "chain-switch";
+        browserAnalytics.capture(AnalyticsEvent.ChainSwitchRequested, {
+          ...flowProps,
+          chain_id: context.chainId,
+          current_chain_id: currentChain,
+        });
         await switchOrAddChain(context.chainId);
         // EIP-3085 (wallet_addEthereumChain) only ADDS a chain; some wallets
         // (e.g. Brave) won't auto-switch after adding. Re-check before signing
@@ -102,15 +167,33 @@ export function useX402() {
             `Wallet did not switch to chain ${context.chainId} (still on ${postSwitch}). Switch manually and retry.`,
           );
         }
+        browserAnalytics.capture(AnalyticsEvent.ChainSwitchSucceeded, {
+          ...flowProps,
+          chain_id: context.chainId,
+        });
       }
 
       const refreshedProvider = new ethers.BrowserProvider(window.ethereum!);
       const signer = await refreshedProvider.getSigner(account);
 
       update({ step: "sign" });
+      stage = "sign";
+      browserAnalytics.capture(AnalyticsEvent.PaymentSignatureStarted, {
+        ...flowProps,
+        chain_id: context.chainId,
+      });
       const signature = await signPaymentContext(signer, context);
+      browserAnalytics.identifyWallet(account, {
+        wallet_connected: true,
+        chain_id: context.chainId,
+      });
+      browserAnalytics.capture(AnalyticsEvent.PaymentSignatureSucceeded, {
+        ...flowProps,
+        chain_id: context.chainId,
+      });
 
       update({ step: "verify" });
+      stage = "verify";
 
       // Start the verify -> ai bump BEFORE awaiting the retry so the timer can
       // actually fire mid-flight. ~700ms is a reasonable verifier round-trip
@@ -121,7 +204,14 @@ export function useX402() {
       const aiStepTimer = setTimeout(() => update({ step: "ai" }), 700);
       let retry: Response;
       try {
-        retry = await postSummarize(text, buildSignedHeaders(context, signature));
+        browserAnalytics.capture(AnalyticsEvent.SignedRetrySent, {
+          ...flowProps,
+          chain_id: context.chainId,
+        });
+        retry = await postSummarize(text, {
+          ...buildSignedHeaders(context, signature),
+          "X-Correlation-ID": flow.correlationId,
+        });
       } finally {
         clearTimeout(aiStepTimer);
       }
@@ -129,6 +219,12 @@ export function useX402() {
       if (!retry.ok) {
         const bodyText = await safeText(retry);
         const classified = classifyError(null, { status: retry.status, bodyText });
+        browserAnalytics.capture(AnalyticsEvent.SummaryFailed, {
+          ...flowProps,
+          stage,
+          status_code: retry.status,
+          error_kind: classified.kind,
+        });
         // If the gateway returned an AI-side failure (upstream timeout /
         // unavailable), the signature was accepted by the verifier — show the
         // strip at the AI step so the failure UI doesn't misattribute the
@@ -149,10 +245,43 @@ export function useX402() {
       update({ step: "receipt" });
       const { summary, receipt } = await readSummarizeSuccess(retry);
       if (receipt) saveReceipt(receipt, text);
+      browserAnalytics.capture(AnalyticsEvent.SummaryCompleted, {
+        ...flowProps,
+        status_code: retry.status,
+        has_receipt: !!receipt,
+        summary_char_count: summary.length,
+      });
+      stage = "done";
       update({ step: "done", summary, receipt, isRunning: false });
     } catch (err) {
       if (runId.current !== myRun) return;
-      update({ error: classifyError(err), isRunning: false });
+      const classified = classifyError(err);
+      if (stage === "wallet-connect") {
+        browserAnalytics.capture(AnalyticsEvent.WalletConnectFailed, {
+          ...flowProps,
+          stage,
+          error_kind: classified.kind,
+        });
+      } else if (stage === "chain-switch") {
+        browserAnalytics.capture(AnalyticsEvent.ChainSwitchFailed, {
+          ...flowProps,
+          stage,
+          error_kind: classified.kind,
+        });
+      } else if (stage === "sign") {
+        browserAnalytics.capture(AnalyticsEvent.PaymentSignatureFailed, {
+          ...flowProps,
+          stage,
+          error_kind: classified.kind,
+        });
+      } else {
+        browserAnalytics.capture(AnalyticsEvent.SummaryFailed, {
+          ...flowProps,
+          stage,
+          error_kind: classified.kind,
+        });
+      }
+      update({ error: classified, isRunning: false });
     }
   }, []);
 

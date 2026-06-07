@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { browserAnalytics } from "@/lib/browser-analytics";
+import type { AnalyticsProperties } from "@/lib/analytics";
+import type { AnalyticsEventName } from "@/lib/analytics-events";
 
 type Props = {
   value: string;
@@ -8,6 +11,8 @@ type Props = {
   copiedLabel?: string;
   className?: string;
   ariaLabel?: string;
+  analyticsEvent?: AnalyticsEventName;
+  analyticsProperties?: AnalyticsProperties;
 };
 
 export function CopyButton({
@@ -16,6 +21,8 @@ export function CopyButton({
   copiedLabel = "Copied",
   className = "",
   ariaLabel,
+  analyticsEvent,
+  analyticsProperties,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
@@ -31,6 +38,9 @@ export function CopyButton({
   async function onClick() {
     try {
       await navigator.clipboard.writeText(value);
+      if (analyticsEvent) {
+        browserAnalytics.capture(analyticsEvent, analyticsProperties);
+      }
       setCopied(true);
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
       timerRef.current = window.setTimeout(() => setCopied(false), 1600);
