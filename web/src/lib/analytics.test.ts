@@ -47,7 +47,8 @@ describe("sanitizeAnalyticsProperties", () => {
 
 describe("createFlowContext", () => {
   it("builds stable flow metadata without retaining raw prompt text", () => {
-    const makeId = mock(() => "id-1").mockImplementationOnce(() => "flow-1").mockImplementationOnce(() => "corr-1");
+    let call = 0;
+    const makeId = mock(() => (++call === 1 ? "flow-1" : "corr-1"));
 
     const flow = createFlowContext("hello  world", makeId);
 

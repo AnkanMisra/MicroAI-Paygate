@@ -1,13 +1,18 @@
 import { createAnalytics, type AnalyticsClient, type AnalyticsSink } from "./analytics";
 
-const POSTHOG_TOKEN = process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN ?? "";
-const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
-const POSTHOG_ENABLED = (process.env.NEXT_PUBLIC_POSTHOG_ENABLED ?? "false").toLowerCase();
+type PostHogClient = (typeof import("posthog-js"))["default"];
+type PostHogLoader = () => Promise<{ default: PostHogClient }>;
+type BrowserAnalyticsEnv = {
+  enabledFlag: string;
+  token: string;
+  host: string;
+  hasWindow: boolean;
+};
 
 let initialized = false;
 let initPromise: Promise<void> | null = null;
-let posthogClient: (typeof import("posthog-js"))["default"] | null = null;
-const pendingOps: Array<(client: (typeof import("posthog-js"))["default"]) => void> = [];
+let posthogClient: PostHogClient | null = null;
+const pendingOps: Array<(client: PostHogClient) => void> = [];
 
 const sink: AnalyticsSink = {
   capture: (event, properties) => {
@@ -22,7 +27,7 @@ const sink: AnalyticsSink = {
 };
 
 export const browserAnalytics: AnalyticsClient = createAnalytics(sink, {
-  enabled: shouldEnablePostHog(),
+  enabled: shouldEnablePostHog(readBrowserAnalyticsEnv()),
 });
 
 /**
@@ -30,14 +35,17 @@ export const browserAnalytics: AnalyticsClient = createAnalytics(sink, {
  *
  * This is a no-op if analytics are disabled or the SDK has already been initialized. When run, it configures PostHog to disable autocapture and session recording, sets pageview/capture behavior, and marks the module as initialized.
  */
-export function initBrowserAnalytics(): void {
-  if (initialized || initPromise || !shouldEnablePostHog()) return;
+export function initBrowserAnalytics(
+  loadPostHog: PostHogLoader = () => import("posthog-js"),
+): void {
+  const env = readBrowserAnalyticsEnv();
+  if (initialized || initPromise || !shouldEnablePostHog(env)) return;
 
-  initPromise = import("posthog-js")
+  initPromise = loadPostHog()
     .then(({ default: posthog }) => {
       posthogClient = posthog;
-      posthog.init(POSTHOG_TOKEN, {
-        api_host: POSTHOG_HOST,
+      posthog.init(env.token, {
+        api_host: env.host,
         defaults: "2025-05-24",
         autocapture: false,
         capture_pageview: "history_change",
@@ -59,16 +67,25 @@ export function initBrowserAnalytics(): void {
  *
  * @returns `true` if the enable flag is not `"false"` or `"0"`, `POSTHOG_TOKEN` is non-empty, and code is running in a browser (`window` is defined); `false` otherwise.
  */
-export function shouldEnablePostHog(): boolean {
+export function shouldEnablePostHog(env: BrowserAnalyticsEnv): boolean {
   return (
-    POSTHOG_ENABLED !== "false" &&
-    POSTHOG_ENABLED !== "0" &&
-    POSTHOG_TOKEN.length > 0 &&
-    typeof window !== "undefined"
+    env.enabledFlag !== "false" &&
+    env.enabledFlag !== "0" &&
+    env.token.length > 0 &&
+    env.hasWindow
   );
 }
 
-function withPostHog(fn: (client: (typeof import("posthog-js"))["default"]) => void): void {
+function readBrowserAnalyticsEnv(): BrowserAnalyticsEnv {
+  return {
+    enabledFlag: (process.env.NEXT_PUBLIC_POSTHOG_ENABLED ?? "false").toLowerCase(),
+    token: process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN ?? "",
+    host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com",
+    hasWindow: typeof window !== "undefined",
+  };
+}
+
+function withPostHog(fn: (client: PostHogClient) => void): void {
   if (posthogClient) {
     fn(posthogClient);
     return;
@@ -84,4 +101,11 @@ function flushPendingOps(): void {
   for (const op of pendingOps.splice(0)) {
     op(posthogClient);
   }
+}
+
+export function __resetBrowserAnalyticsForTests(): void {
+  initialized = false;
+  initPromise = null;
+  posthogClient = null;
+  pendingOps.length = 0;
 }

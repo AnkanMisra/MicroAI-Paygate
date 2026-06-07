@@ -289,6 +289,12 @@ export function useX402() {
           stage,
           error_kind: classified.kind,
         });
+      } else if (stage === "verify") {
+        browserAnalytics.capture(AnalyticsEvent.SummaryFailed, {
+          ...flowProps,
+          stage,
+          error_kind: classified.kind,
+        });
       } else {
         browserAnalytics.capture(AnalyticsEvent.SummaryFailed, {
           ...flowProps,

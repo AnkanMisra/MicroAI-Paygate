@@ -1,9 +1,11 @@
 export type AnalyticsScalar = string | number | boolean | null | undefined;
 export type AnalyticsProperties = Record<string, AnalyticsScalar | object>;
+export type SanitizedAnalyticsScalar = Exclude<AnalyticsScalar, undefined>;
+export type SanitizedAnalyticsProperties = Record<string, SanitizedAnalyticsScalar>;
 
 export type AnalyticsSink = {
-  capture: (event: string, properties?: Record<string, AnalyticsScalar>) => void;
-  identify: (distinctId: string, properties?: Record<string, AnalyticsScalar>) => void;
+  capture: (event: string, properties?: SanitizedAnalyticsProperties) => void;
+  identify: (distinctId: string, properties?: SanitizedAnalyticsProperties) => void;
   reset?: () => void;
 };
 
@@ -47,8 +49,8 @@ const BLOCKED_PROPERTY_KEYS = new Set([
  */
 export function sanitizeAnalyticsProperties(
   properties: AnalyticsProperties = {},
-): Record<string, AnalyticsScalar> {
-  const sanitized: Record<string, AnalyticsScalar> = {};
+): SanitizedAnalyticsProperties {
+  const sanitized: SanitizedAnalyticsProperties = {};
 
   for (const [key, value] of Object.entries(properties)) {
     if (BLOCKED_PROPERTY_KEYS.has(key)) continue;

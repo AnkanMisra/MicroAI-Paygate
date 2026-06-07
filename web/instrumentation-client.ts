@@ -1,3 +1,7 @@
 import { initBrowserAnalytics } from "@/lib/browser-analytics";
 
-initBrowserAnalytics();
+try {
+  initBrowserAnalytics();
+} catch {
+  // Analytics must never block the client app from booting.
+}

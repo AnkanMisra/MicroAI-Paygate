@@ -27,6 +27,11 @@ export function ReceiptHistory() {
     getReceiptsSnapshot,
     getReceiptsServerSnapshot,
   );
+  const entriesLengthRef = useRef(entries.length);
+
+  useEffect(() => {
+    entriesLengthRef.current = entries.length;
+  }, [entries.length]);
 
   useEffect(() => {
     const node = rootRef.current;
@@ -38,7 +43,7 @@ export function ReceiptHistory() {
         if (!entry?.isIntersecting || trackedView.current) return;
         trackedView.current = true;
         browserAnalytics.capture(AnalyticsEvent.ReceiptHistoryViewed, {
-          receipt_count: entries.length,
+          receipt_count: entriesLengthRef.current,
         });
         observer.disconnect();
       },
@@ -47,7 +52,7 @@ export function ReceiptHistory() {
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, [entries.length]);
+  }, []);
 
   if (entries.length === 0) {
     return (
