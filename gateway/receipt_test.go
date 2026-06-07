@@ -6,11 +6,28 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 )
+
+func resetServerPrivateKeyCacheForTest(t *testing.T) {
+	t.Helper()
+
+	origKey := serverPrivateKey
+	origErr := serverPrivateKeyErr
+	serverPrivateKey = nil
+	serverPrivateKeyErr = nil
+	serverPrivateKeyOnce = sync.Once{}
+
+	t.Cleanup(func() {
+		serverPrivateKey = origKey
+		serverPrivateKeyErr = origErr
+		serverPrivateKeyOnce = sync.Once{}
+	})
+}
 
 func TestGenerateReceiptID(t *testing.T) {
 	// Generate multiple IDs and check format
@@ -74,6 +91,8 @@ func TestHashData(t *testing.T) {
 }
 
 func TestSignReceipt(t *testing.T) {
+	resetServerPrivateKeyCacheForTest(t)
+
 	// Create a test receipt
 	receipt := Receipt{
 		ID:        "rcpt_test123456",
@@ -402,6 +421,8 @@ func hashHex(data []byte) string {
 }
 
 func TestVerifyReceiptSignature(t *testing.T) {
+	resetServerPrivateKeyCacheForTest(t)
+
 	// This test verifies that signature verification works correctly
 	// Skip if private key not available
 	privateKey, err := getServerPrivateKey()
@@ -463,6 +484,7 @@ func TestVerifyReceiptSignature(t *testing.T) {
 func TestVerifySignatureFailsForTamperedSignature(t *testing.T) {
 	// Test that VerifySignature correctly rejects tampered signatures
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+	resetServerPrivateKeyCacheForTest(t)
 	privateKey, err := getServerPrivateKey()
 	if err != nil || privateKey == nil {
 		t.Fatal("getServerPrivateKey() failed despite setting SERVER_WALLET_PRIVATE_KEY")
@@ -540,6 +562,7 @@ func TestVerifySignatureFailsForTamperedSignature(t *testing.T) {
 func TestVerifySignatureFailsForInvalidDigestLength(t *testing.T) {
 	// Test that VerifySignature correctly handles non-32-byte digests
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+	resetServerPrivateKeyCacheForTest(t)
 	privateKey, err := getServerPrivateKey()
 	if err != nil || privateKey == nil {
 		t.Fatal("getServerPrivateKey() failed despite setting SERVER_WALLET_PRIVATE_KEY")
@@ -630,6 +653,8 @@ func TestVerifySignatureFailsForInvalidDigestLength(t *testing.T) {
 }
 
 func TestReceiptFullFlowIntegration(t *testing.T) {
+	resetServerPrivateKeyCacheForTest(t)
+
 	// Integration test for complete receipt lifecycle:
 	// 1. Generate receipt
 	// 2. Store with TTL
