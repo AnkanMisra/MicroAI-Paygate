@@ -12,6 +12,13 @@ import {
 import { Button } from "./ui/button";
 import { ReceiptCard } from "./receipt-card";
 
+/**
+ * Render the receipts history UI and track first-visibility analytics.
+ *
+ * Renders an empty-state card when there are no saved receipts, otherwise renders a list of receipt cards with a footer that shows the count and a "Clear local history" action. When the component's root element first becomes visible in the viewport, captures a `ReceiptHistoryViewed` browser analytics event with the current `receipt_count`.
+ *
+ * @returns The React element for the receipts history UI.
+ */
 export function ReceiptHistory() {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const trackedView = useRef(false);

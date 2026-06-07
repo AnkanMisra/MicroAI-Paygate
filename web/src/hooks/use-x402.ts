@@ -41,6 +41,13 @@ const INITIAL_STATE: UseX402State = {
   isRunning: false,
 };
 
+/**
+ * Manages the X402 summarization flow (request → optional payment challenge → wallet connect/sign → verify → receipt) and exposes the current flow state and control actions.
+ *
+ * Handles summary requests, payment challenges, wallet/chain handling, signing, verify retries, receipt persistence, error classification, and analytics emission.
+ *
+ * @returns An object containing the current hook state plus `submit(text)` to start a summarization run and `reset()` to cancel and reset the flow
+ */
 export function useX402() {
   const [state, setState] = useState<UseX402State>(INITIAL_STATE);
   const runId = useRef(0);

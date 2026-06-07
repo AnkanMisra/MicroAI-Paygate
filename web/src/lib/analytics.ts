@@ -39,6 +39,12 @@ const BLOCKED_PROPERTY_KEYS = new Set([
   "response_body",
 ]);
 
+/**
+ * Produce a sanitized properties object containing only allowed scalar values and no blocked keys.
+ *
+ * @param properties - Input analytics properties which may include objects, undefined values, or blocked keys
+ * @returns A new object with the same keys limited to `string | number | boolean | null` values; keys listed in `BLOCKED_PROPERTY_KEYS`, keys with `undefined` values, and non-scalar values are omitted
+ */
 export function sanitizeAnalyticsProperties(
   properties: AnalyticsProperties = {},
 ): Record<string, AnalyticsScalar> {
@@ -60,6 +66,13 @@ export function sanitizeAnalyticsProperties(
   return sanitized;
 }
 
+/**
+ * Builds a FlowContext containing generated IDs and input length metrics for the provided text.
+ *
+ * @param text - The input text to measure.
+ * @param createId - Optional factory to generate unique identifiers; invoked twice to produce `flowRunId` and `correlationId`.
+ * @returns A FlowContext with `flowRunId`, `correlationId`, `inputWordCount` (number of whitespace-separated tokens, 0 if the trimmed text is empty), and `inputCharCount` (the original `text.length`).
+ */
 export function createFlowContext(
   text: string,
   createId: () => string = defaultCreateId,
@@ -73,6 +86,15 @@ export function createFlowContext(
   };
 }
 
+/**
+ * Create an AnalyticsClient that forwards events and identity calls to the provided sink when enabled.
+ *
+ * The client’s `capture`, `identifyWallet`, and `reset` methods become no-ops if `config.enabled` is false or `sink` is null.
+ *
+ * @param sink - The analytics sink to forward calls to, or `null` to disable forwarding.
+ * @param config - Configuration object; forwarding occurs only when `config.enabled` is true.
+ * @returns An AnalyticsClient whose methods forward sanitized properties to `sink` when enabled, otherwise perform no action.
+ */
 export function createAnalytics(
   sink: AnalyticsSink | null,
   config: AnalyticsConfig,
@@ -95,6 +117,13 @@ export function createAnalytics(
   };
 }
 
+/**
+ * Generate a short unique identifier string.
+ *
+ * Uses `crypto.randomUUID()` when available; otherwise returns a pseudo-random base-36 string.
+ *
+ * @returns A unique identifier string.
+ */
 function defaultCreateId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();

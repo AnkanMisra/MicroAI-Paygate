@@ -15,6 +15,18 @@ type Props = {
   analyticsProperties?: AnalyticsProperties;
 };
 
+/**
+ * Render a button that copies `value` to the clipboard and shows a temporary "Copied" state.
+ *
+ * When clicked, the component attempts to write `value` to navigator.clipboard, toggles its visual
+ * state to indicate success for 1600ms, and optionally records an analytics event.
+ *
+ * @param value - The string to copy to the clipboard.
+ * @param ariaLabel - Optional override for the button's accessible label; if omitted a label is synthesized from `label` and the start of `value`.
+ * @param analyticsEvent - Optional analytics event name to record after a successful copy.
+ * @param analyticsProperties - Optional analytics properties sent with `analyticsEvent`.
+ * @returns The rendered copy button element.
+ */
 export function CopyButton({
   value,
   label = "Copy",

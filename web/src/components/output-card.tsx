@@ -13,6 +13,22 @@ type Props = {
 
 type ReceiptVerifyState = "missing" | "verifying" | "valid" | "invalid";
 
+/**
+ * Render a card showing the output summary, receipt status, and copy controls.
+ *
+ * The component returns null if `summary` is falsy. When rendered, it displays:
+ * - A header with a receipt verification badge and a copy control for the `summary`.
+ * - The `summary` text with preserved whitespace.
+ * - A footer that shows the receipt ID (or "not returned") and a descriptive receipt-state message.
+ *
+ * Copy actions emit analytics: copying the summary triggers `AnalyticsEvent.SummaryCopied`
+ * with `{ summary_char_count, has_receipt }`; copying the receipt ID (when present)
+ * triggers `AnalyticsEvent.ReceiptIdCopied` with `{ has_receipt: true }`.
+ *
+ * @param props.summary - The output text to display; if falsy, the component renders `null`.
+ * @param props.receipt - The signed receipt object or `null`; when provided the receipt ID is shown and can be copied.
+ * @returns An article element containing the summary, receipt status, and copy buttons, or `null` if `summary` is falsy.
+ */
 export function OutputCard({ summary, receipt }: Props) {
   const verifyState = useReceiptVerification(receipt);
 
