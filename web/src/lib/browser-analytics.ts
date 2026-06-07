@@ -23,6 +23,11 @@ export const browserAnalytics: AnalyticsClient = createAnalytics(sink, {
   enabled: shouldEnablePostHog(),
 });
 
+/**
+ * Initializes the PostHog browser SDK with the configured project token and host using the module's preferred settings.
+ *
+ * This is a no-op if analytics are disabled or the SDK has already been initialized. When run, it configures PostHog to disable autocapture and session recording, sets pageview/capture behavior, and marks the module as initialized.
+ */
 export function initBrowserAnalytics(): void {
   if (initialized || !shouldEnablePostHog()) return;
 
@@ -39,6 +44,11 @@ export function initBrowserAnalytics(): void {
   initialized = true;
 }
 
+/**
+ * Determine whether PostHog analytics should be enabled in the current environment.
+ *
+ * @returns `true` if the enable flag is not `"false"` or `"0"`, `POSTHOG_TOKEN` is non-empty, and code is running in a browser (`window` is defined); `false` otherwise.
+ */
 export function shouldEnablePostHog(): boolean {
   return (
     POSTHOG_ENABLED !== "false" &&

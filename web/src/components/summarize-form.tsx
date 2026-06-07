@@ -20,6 +20,13 @@ const DISPLAY_AMOUNT = process.env.NEXT_PUBLIC_PAYMENT_AMOUNT ?? "0.001";
 const DISPLAY_TOKEN = process.env.NEXT_PUBLIC_PAYMENT_TOKEN ?? "USDC";
 const DISPLAY_CHAIN_NAME = process.env.NEXT_PUBLIC_EXPECTED_CHAIN_NAME ?? "Base Sepolia";
 
+/**
+ * Renders a two-column "Summarize" form UI that accepts text input, initiates a signed summarize flow, and displays progress, errors, or the resulting summary and receipt.
+ *
+ * The left column contains a controlled textarea, sample-loading action (which records analytics), word/character counts, cost info, and submit/reset controls. The right column shows the current step, an error banner when present, the summary with its receipt when available, or an idle placeholder otherwise.
+ *
+ * @returns The React element for the summarize form.
+ */
 export function SummarizeForm() {
   const [input, setInput] = useState("");
   const { submit, reset, step, summary, receipt, error, isRunning } = useX402();
