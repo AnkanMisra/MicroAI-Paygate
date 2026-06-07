@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -50,7 +51,9 @@ func CorrelationIDMiddleware() gin.HandlerFunc {
 		c.Request = c.Request.WithContext(ctx)
 
 		c.Header("X-Correlation-ID", id)
-		log.Printf("[CorrelationID: %s] %s %s", id, c.Request.Method, c.Request.URL.Path)
+		if os.Getenv("LOG_FORMAT") != "json" {
+			log.Printf("[CorrelationID: %s] %s %s", id, c.Request.Method, c.Request.URL.Path)
+		}
 		c.Next()
 	}
 }
@@ -327,6 +330,7 @@ type JSONLogEntry struct {
 	LatencyMs     float64 `json:"latency_ms"`
 	ClientIP      string  `json:"client_ip"`
 	CorrelationID string  `json:"correlation_id"`
+	CacheStatus   string  `json:"cache_status,omitempty"`
 	PaymentStatus string  `json:"payment_status,omitempty"`
 	PaymentError  string  `json:"payment_error,omitempty"`
 	Payer         string  `json:"payer,omitempty"`
@@ -359,6 +363,7 @@ func JSONLoggerMiddleware() gin.HandlerFunc {
 			LatencyMs:     float64(latency.Nanoseconds()) / 1e6,
 			ClientIP:      c.ClientIP(),
 			CorrelationID: corrStr,
+			CacheStatus:   c.GetString("cache_status"),
 			PaymentStatus: c.GetString("payment_status"),
 			PaymentError:  c.GetString("payment_error"),
 			Payer:         c.GetString("payer"),

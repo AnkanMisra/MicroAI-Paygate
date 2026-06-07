@@ -115,7 +115,10 @@ func CacheMiddleware() gin.HandlerFunc {
 
 		// Check Cache
 		if cached, err := getFromCache(c.Request.Context(), cacheKey); err == nil {
-			log.Printf("Cache HIT: %s", cacheKey)
+			if os.Getenv("LOG_FORMAT") != "json" {
+				log.Printf("Cache HIT: %s", cacheKey)
+			}
+			c.Set("cache_status", "hit")
 
 			routePath := c.FullPath()
 			if routePath == "" {
@@ -183,7 +186,10 @@ func CacheMiddleware() gin.HandlerFunc {
 		}
 
 		// Cache MISS
-		log.Printf("Cache MISS: %s", cacheKey)
+		if os.Getenv("LOG_FORMAT") != "json" {
+			log.Printf("Cache MISS: %s", cacheKey)
+		}
+		c.Set("cache_status", "miss")
 
 		routePath := c.FullPath()
 		if routePath == "" {
