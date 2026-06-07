@@ -65,6 +65,7 @@ export function useX402() {
       | "request"
       | "wallet-connect"
       | "chain-switch"
+      | "signer"
       | "sign"
       | "verify"
       | "done" = "request";
@@ -180,6 +181,7 @@ export function useX402() {
         });
       }
 
+      stage = "signer";
       const refreshedProvider = new ethers.BrowserProvider(window.ethereum!);
       const signer = await refreshedProvider.getSigner(account);
 
@@ -276,6 +278,12 @@ export function useX402() {
           error_kind: classified.kind,
         });
       } else if (stage === "sign") {
+        browserAnalytics.capture(AnalyticsEvent.PaymentSignatureFailed, {
+          ...flowProps,
+          stage,
+          error_kind: classified.kind,
+        });
+      } else if (stage === "signer") {
         browserAnalytics.capture(AnalyticsEvent.PaymentSignatureFailed, {
           ...flowProps,
           stage,

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { browserAnalytics } from "@/lib/browser-analytics";
 import {
   connectWallet,
   getChainMeta,
@@ -32,6 +33,7 @@ type State =
 export function WalletWidget() {
   const [state, setState] = useState<State>({ kind: "loading" });
   const [switching, setSwitching] = useState(false);
+  const lastConnectedAddress = useRef<string | null>(null);
   // Visible inline error chip for non-rejection provider failures (provider
   // crash, network error, silent no-op switch). Auto-clears after a few
   // seconds so it doesn't linger forever.
@@ -42,6 +44,10 @@ export function WalletWidget() {
     const id = window.setTimeout(() => setActionError(null), ACTION_ERROR_TTL_MS);
     return () => window.clearTimeout(id);
   }, [actionError]);
+
+  useEffect(() => {
+    lastConnectedAddress.current = state.kind === "connected" ? state.address : null;
+  }, [state]);
 
   useEffect(() => {
     let mounted = true;
@@ -60,8 +66,14 @@ export function WalletWidget() {
 
         unsubAcc = subscribeAccountsChanged(async (accounts) => {
           if (!accounts[0]) {
+            if (lastConnectedAddress.current) {
+              browserAnalytics.reset();
+            }
             setState({ kind: "disconnected" });
             return;
+          }
+          if (lastConnectedAddress.current && lastConnectedAddress.current !== accounts[0]) {
+            browserAnalytics.reset();
           }
           // Read the live chainId — otherwise an external connect lands us in
           // `chainId: 0`, which is never a real EVM chain and triggers the

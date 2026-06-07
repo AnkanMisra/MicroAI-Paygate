@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AnalyticsEvent } from "@/lib/analytics-events";
 import { verifyReceipt, type SignedReceipt } from "@/lib/verify-receipt";
 import { getChainMeta, shortenAddress } from "@/lib/wallet";
 import { Badge } from "./ui/badge";
@@ -55,7 +56,12 @@ export function ReceiptCard({ signed, savedAt, promptPreview }: Props) {
           </div>
         </div>
         <div className="flex flex-shrink-0 items-center gap-1.5">
-          <CopyButton value={r.id} label="Copy" />
+          <CopyButton
+            value={r.id}
+            label="Copy"
+            analyticsEvent={AnalyticsEvent.ReceiptIdCopied}
+            analyticsProperties={{ has_receipt: true }}
+          />
           <VerifyControl state={verifyState} onClick={handleVerify} />
         </div>
       </div>

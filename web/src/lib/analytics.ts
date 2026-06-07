@@ -104,17 +104,25 @@ export function createAnalytics(
   return {
     capture(event, properties) {
       if (!enabled) return;
-      sink.capture(event, sanitizeAnalyticsProperties(properties));
+      invokeSafely(() => sink.capture(event, sanitizeAnalyticsProperties(properties)));
     },
     identifyWallet(walletAddress, properties) {
       if (!enabled) return;
-      sink.identify(walletAddress, sanitizeAnalyticsProperties(properties));
+      invokeSafely(() => sink.identify(walletAddress, sanitizeAnalyticsProperties(properties)));
     },
     reset() {
       if (!enabled) return;
-      sink.reset?.();
+      invokeSafely(() => sink.reset?.());
     },
   };
+}
+
+function invokeSafely(fn: () => void): void {
+  try {
+    fn();
+  } catch (err) {
+    console.warn("analytics: non-fatal sink failure", err);
+  }
 }
 
 /**

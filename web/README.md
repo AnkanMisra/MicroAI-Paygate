@@ -111,4 +111,6 @@ bun run build
 
 `web/vercel.json` configures Vercel to install with Bun and build with `bun run build`. Set `NEXT_PUBLIC_GATEWAY_URL` in Vercel project environment settings; do not hard-code the real gateway URL in committed files. If you enable PostHog, add the three PostHog `NEXT_PUBLIC_*` vars in Vercel too.
 
+For Docker/Compose builds, those same PostHog variables must be passed as build args because Next.js inlines `NEXT_PUBLIC_*` values at build time. `web/Dockerfile` and the root `docker-compose.yml` now wire all three PostHog args through explicitly.
+
 When linking the Vercel project, use `web` as the project root.

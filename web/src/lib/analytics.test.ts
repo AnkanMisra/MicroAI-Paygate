@@ -116,4 +116,22 @@ describe("createAnalytics", () => {
     expect(sink.identify).not.toHaveBeenCalled();
     expect(sink.reset).not.toHaveBeenCalled();
   });
+
+  it("swallows sink failures so analytics never breaks product code", () => {
+    sink.capture = mock(() => {
+      throw new Error("capture broke");
+    });
+    sink.identify = mock(() => {
+      throw new Error("identify broke");
+    });
+    sink.reset = mock(() => {
+      throw new Error("reset broke");
+    });
+
+    const analytics = createAnalytics(sink, { enabled: true });
+
+    expect(() => analytics.capture("summary requested", { flow_run_id: "flow-1" })).not.toThrow();
+    expect(() => analytics.identifyWallet("0xAbC123")).not.toThrow();
+    expect(() => analytics.reset()).not.toThrow();
+  });
 });
