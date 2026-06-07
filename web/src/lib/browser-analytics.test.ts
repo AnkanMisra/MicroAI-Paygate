@@ -42,6 +42,24 @@ describe("shouldEnablePostHog", () => {
         hasWindow: false,
       }),
     ).toBe(false);
+
+    expect(
+      shouldEnablePostHog({
+        enabledFlag: "TRUE",
+        token: "phc_test",
+        host: "https://us.i.posthog.com",
+        hasWindow: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldEnablePostHog({
+        enabledFlag: "yes",
+        token: "phc_test",
+        host: "https://us.i.posthog.com",
+        hasWindow: true,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -125,5 +143,52 @@ describe("initBrowserAnalytics", () => {
     initBrowserAnalytics(loadPostHog);
 
     expect(loadPostHog).not.toHaveBeenCalled();
+  });
+
+  it("accepts explicitly enabled values after env normalization", async () => {
+    process.env.NEXT_PUBLIC_POSTHOG_ENABLED = " TRUE ";
+    const init = mock(() => undefined);
+    const loadPostHog = mock(async () => ({
+      default: {
+        init,
+        capture: mock(() => undefined),
+        identify: mock(() => undefined),
+        reset: mock(() => undefined),
+      },
+    })) as unknown as Parameters<typeof initBrowserAnalytics>[0];
+
+    initBrowserAnalytics(loadPostHog);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(loadPostHog).toHaveBeenCalledTimes(1);
+    expect(init).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries initialization after a failed PostHog load", async () => {
+    const failingLoad = mock(async () => {
+      throw new Error("network down");
+    }) as unknown as Parameters<typeof initBrowserAnalytics>[0];
+    const init = mock(() => undefined);
+    const workingLoad = mock(async () => ({
+      default: {
+        init,
+        capture: mock(() => undefined),
+        identify: mock(() => undefined),
+        reset: mock(() => undefined),
+      },
+    })) as unknown as Parameters<typeof initBrowserAnalytics>[0];
+
+    initBrowserAnalytics(failingLoad);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    initBrowserAnalytics(workingLoad);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(failingLoad).toHaveBeenCalledTimes(1);
+    expect(workingLoad).toHaveBeenCalledTimes(1);
+    expect(init).toHaveBeenCalledTimes(1);
   });
 });

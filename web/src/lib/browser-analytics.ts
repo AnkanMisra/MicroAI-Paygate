@@ -58,6 +58,9 @@ export function initBrowserAnalytics(
     })
     .catch((err) => {
       console.warn("analytics: failed to initialize PostHog", err);
+      initialized = false;
+      initPromise = null;
+      posthogClient = null;
       pendingOps.length = 0;
     });
 }
@@ -69,8 +72,7 @@ export function initBrowserAnalytics(
  */
 export function shouldEnablePostHog(env: BrowserAnalyticsEnv): boolean {
   return (
-    env.enabledFlag !== "false" &&
-    env.enabledFlag !== "0" &&
+    (env.enabledFlag === "true" || env.enabledFlag === "1") &&
     env.token.length > 0 &&
     env.hasWindow
   );
@@ -78,7 +80,7 @@ export function shouldEnablePostHog(env: BrowserAnalyticsEnv): boolean {
 
 function readBrowserAnalyticsEnv(): BrowserAnalyticsEnv {
   return {
-    enabledFlag: (process.env.NEXT_PUBLIC_POSTHOG_ENABLED ?? "false").toLowerCase(),
+    enabledFlag: (process.env.NEXT_PUBLIC_POSTHOG_ENABLED ?? "false").trim().toLowerCase(),
     token: process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN ?? "",
     host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com",
     hasWindow: typeof window !== "undefined",

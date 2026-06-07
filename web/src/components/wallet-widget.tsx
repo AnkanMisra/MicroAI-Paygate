@@ -95,6 +95,9 @@ export function WalletWidget() {
 
         const [addr, chain] = await Promise.all([getCurrentAccount(), getCurrentChainId()]);
         if (!mounted) return;
+        if (lastConnectedAddress.current && lastConnectedAddress.current !== addr) {
+          browserAnalytics.reset();
+        }
         if (addr && chain != null) {
           setState({ kind: "connected", address: addr, chainId: chain });
         } else {
