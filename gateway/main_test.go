@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -858,10 +859,61 @@ func TestJSONLoggerMiddleware_Sanitization(t *testing.T) {
 	require.Equal(t, "test-corr-123", logEntry.CorrelationID)
 	require.Equal(t, "failed", logEntry.PaymentStatus)
 	require.Equal(t, "error", logEntry.Level)
-	
+
 	// Assert that sensitive fields are redacted in the log entry's internal error field
 	require.NotContains(t, logEntry.InternalError, "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
 	require.NotContains(t, logEntry.InternalError, "sk-or-1234567890abcdef1234567890abcdef")
 	require.Contains(t, logEntry.InternalError, "[redacted_hex_64]")
 	require.Contains(t, logEntry.InternalError, "[redacted_api_key]")
+}
+
+func TestSanitizeErrorString_RealKeyFormats(t *testing.T) {
+	// 0x-prefixed private keys are the common real-world shape. The old
+	// \b-anchored regex failed to match these because there is no word
+	// boundary between "x" and the first hex digit.
+	hex := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	withPrefix := sanitizeErrorString("signing failed with key 0x" + hex)
+	require.NotContains(t, withPrefix, hex)
+	require.Contains(t, withPrefix, "[redacted_hex_64]")
+
+	bare := sanitizeErrorString("wallet key " + hex + " leaked")
+	require.NotContains(t, bare, hex)
+	require.Contains(t, bare, "[redacted_hex_64]")
+
+	// Versioned OpenRouter keys contain dashes; the secret after sk-or-v1-
+	// must be fully redacted, not just the prefix.
+	orKey := "sk-or-v1-abcdef0123456789abcdef0123456789"
+	redactedKey := sanitizeErrorString("openrouter rejected: " + orKey)
+	require.NotContains(t, redactedKey, "abcdef0123456789abcdef0123456789")
+	require.NotContains(t, redactedKey, orKey)
+	require.Contains(t, redactedKey, "[redacted_api_key]")
+}
+
+func TestRespondError_DoesNotOverwriteSuccessfulPayment(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// A receipt-stage failure after the payment was already verified must not
+	// flip payment_status from "success" to "failed".
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/", nil)
+	c.Set("payment_status", "success")
+
+	respondError(c, 500, "receipt_store_failed", errors.New("redis down"))
+
+	require.Equal(t, "success", c.GetString("payment_status"))
+	require.Equal(t, "receipt_store_failed", c.GetString("payment_error"))
+}
+
+func TestRespondError_MarksFailedWhenNoPriorStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/", nil)
+
+	respondError(c, 502, "verification_unavailable", errors.New("verifier offline"))
+
+	require.Equal(t, "failed", c.GetString("payment_status"))
+	require.Equal(t, "verification_unavailable", c.GetString("payment_error"))
 }
