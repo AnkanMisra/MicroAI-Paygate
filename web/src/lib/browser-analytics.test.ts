@@ -165,30 +165,70 @@ describe("initBrowserAnalytics", () => {
     expect(init).toHaveBeenCalledTimes(1);
   });
 
-  it("retries initialization after a failed PostHog load", async () => {
-    const failingLoad = mock(async () => {
-      throw new Error("network down");
-    }) as unknown as Parameters<typeof initBrowserAnalytics>[0];
+  it("auto-retries initialization via the scheduler after a transient load failure", async () => {
+    let call = 0;
     const init = mock(() => undefined);
-    const workingLoad = mock(async () => ({
-      default: {
-        init,
-        capture: mock(() => undefined),
-        identify: mock(() => undefined),
-        reset: mock(() => undefined),
-      },
-    })) as unknown as Parameters<typeof initBrowserAnalytics>[0];
+    const load = mock(async () => {
+      call += 1;
+      if (call === 1) throw new Error("network down");
+      return {
+        default: {
+          init,
+          capture: mock(() => undefined),
+          identify: mock(() => undefined),
+          reset: mock(() => undefined),
+        },
+      };
+    }) as unknown as Parameters<typeof initBrowserAnalytics>[0];
 
-    initBrowserAnalytics(failingLoad);
+    const scheduled: Array<() => void> = [];
+    const schedule = (retry: () => void) => {
+      scheduled.push(retry);
+    };
+
+    initBrowserAnalytics(load, schedule);
     await Promise.resolve();
     await Promise.resolve();
 
-    initBrowserAnalytics(workingLoad);
+    // First load failed and a retry was scheduled — but NOT yet run. The single
+    // production caller never calls init twice, so the scheduler is what makes
+    // recovery happen without a full page reload.
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(init).not.toHaveBeenCalled();
+    expect(scheduled).toHaveLength(1);
+
+    scheduled[0]();
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(failingLoad).toHaveBeenCalledTimes(1);
-    expect(workingLoad).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledTimes(2);
     expect(init).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops retrying after the bounded number of attempts", async () => {
+    const load = mock(async () => {
+      throw new Error("permanently down");
+    }) as unknown as Parameters<typeof initBrowserAnalytics>[0];
+
+    const scheduled: Array<() => void> = [];
+    const schedule = (retry: () => void) => {
+      scheduled.push(retry);
+    };
+
+    initBrowserAnalytics(load, schedule);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    let guard = 0;
+    while (scheduled.length > 0 && guard < 10) {
+      const next = scheduled.shift()!;
+      next();
+      await Promise.resolve();
+      await Promise.resolve();
+      guard += 1;
+    }
+
+    // MAX_INIT_ATTEMPTS = 3 → three load attempts total, then it gives up.
+    expect(load).toHaveBeenCalledTimes(3);
   });
 });

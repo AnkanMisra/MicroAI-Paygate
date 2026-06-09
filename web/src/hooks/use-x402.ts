@@ -64,6 +64,7 @@ export function useX402() {
     let stage:
       | "request"
       | "wallet-connect"
+      | "chain-lookup"
       | "chain-switch"
       | "signer"
       | "sign"
@@ -157,6 +158,10 @@ export function useX402() {
         });
       }
 
+      // Account is in hand; a failure in the chain lookup below is NOT a
+      // wallet-connect failure, so move off the "wallet-connect" stage before
+      // awaiting it to avoid corrupting the connect-conversion metric.
+      stage = "chain-lookup";
       const currentChain = await getCurrentChainId();
       if (currentChain !== context.chainId) {
         stage = "chain-switch";

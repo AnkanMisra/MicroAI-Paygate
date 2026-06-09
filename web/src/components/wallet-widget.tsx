@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { browserAnalytics } from "@/lib/browser-analytics";
 import {
   connectWallet,
@@ -43,7 +43,6 @@ type State =
 export function WalletWidget() {
   const [state, setState] = useState<State>({ kind: "loading" });
   const [switching, setSwitching] = useState(false);
-  const lastConnectedAddress = useRef<string | null>(null);
   // Visible inline error chip for non-rejection provider failures (provider
   // crash, network error, silent no-op switch). Auto-clears after a few
   // seconds so it doesn't linger forever.
@@ -54,10 +53,6 @@ export function WalletWidget() {
     const id = window.setTimeout(() => setActionError(null), ACTION_ERROR_TTL_MS);
     return () => window.clearTimeout(id);
   }, [actionError]);
-
-  useEffect(() => {
-    lastConnectedAddress.current = state.kind === "connected" ? state.address : null;
-  }, [state]);
 
   useEffect(() => {
     let mounted = true;
@@ -75,15 +70,13 @@ export function WalletWidget() {
         }
 
         unsubAcc = subscribeAccountsChanged(async (accounts) => {
+          // Reconcile against the persisted analytics identity so a disconnect
+          // or account switch resets a stale wallet — works across reloads,
+          // unlike in-memory tracking which is lost on refresh.
+          browserAnalytics.reconcileIdentity(accounts[0] ?? null);
           if (!accounts[0]) {
-            if (lastConnectedAddress.current) {
-              browserAnalytics.reset();
-            }
             setState({ kind: "disconnected" });
             return;
-          }
-          if (lastConnectedAddress.current && lastConnectedAddress.current !== accounts[0]) {
-            browserAnalytics.reset();
           }
           // Read the live chainId — otherwise an external connect lands us in
           // `chainId: 0`, which is never a real EVM chain and triggers the
@@ -105,9 +98,10 @@ export function WalletWidget() {
 
         const [addr, chain] = await Promise.all([getCurrentAccount(), getCurrentChainId()]);
         if (!mounted) return;
-        if (lastConnectedAddress.current && lastConnectedAddress.current !== addr) {
-          browserAnalytics.reset();
-        }
+        // Initial reconciliation: a wallet identified in a previous page session
+        // is persisted by the analytics layer; if it no longer matches the live
+        // wallet (disconnected or switched while away), reset before doing anything.
+        browserAnalytics.reconcileIdentity(addr ?? null);
         if (addr && chain != null) {
           setState({ kind: "connected", address: addr, chainId: chain });
         } else {
