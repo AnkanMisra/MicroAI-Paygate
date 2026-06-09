@@ -68,7 +68,7 @@ export function initBrowserAnalytics(
 /**
  * Determine whether PostHog analytics should be enabled in the current environment.
  *
- * @returns `true` if the enable flag is not `"false"` or `"0"`, `POSTHOG_TOKEN` is non-empty, and code is running in a browser (`window` is defined); `false` otherwise.
+ * @returns `true` only when the enable flag is exactly `"true"` or `"1"` (after trim/lowercase), the project token is non-empty, and code is running in a browser (`window` is defined); `false` otherwise.
  */
 export function shouldEnablePostHog(env: BrowserAnalyticsEnv): boolean {
   return (

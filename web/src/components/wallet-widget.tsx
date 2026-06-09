@@ -30,6 +30,16 @@ type State =
   | { kind: "disconnected" }
   | { kind: "connected"; address: string; chainId: number };
 
+/**
+ * Render the wallet connection widget and keep analytics identity in sync with the live wallet.
+ *
+ * Displays the current wallet state (loading, missing provider, disconnected, or connected with a
+ * chain-switch CTA when on the wrong chain) and reacts to account/chain changes from the injected
+ * provider. Resets browser analytics identity whenever the connected wallet disconnects or changes
+ * — including during the initial reconciliation on load — so a stale wallet is never re-identified.
+ *
+ * @returns The React element for the wallet widget.
+ */
 export function WalletWidget() {
   const [state, setState] = useState<State>({ kind: "loading" });
   const [switching, setSwitching] = useState(false);
