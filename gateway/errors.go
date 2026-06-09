@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 
@@ -47,7 +46,7 @@ func respondError(c *gin.Context, code int, publicMsg string, internalErr error)
 	}
 
 	correlationID := responseCorrelationID(c)
-	if internalErr != nil && os.Getenv("LOG_FORMAT") != "json" {
+	if internalErr != nil && !jsonLogging {
 		log.Printf(
 			"[ERROR] correlation_id=%s status=%d error=%s internal=%s",
 			correlationID,

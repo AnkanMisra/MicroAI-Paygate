@@ -105,6 +105,7 @@ Common optional variables:
 | `CACHE_TTL_SECONDS` | `3600` | Response cache TTL. |
 | `METRICS_ENABLED` | enabled unless set to `false` | Exposes Prometheus metrics. |
 | `METRICS_PATH` | `/metrics` | Gateway metrics endpoint path. Missing leading slash is normalized. |
+| `LOG_FORMAT` | text | Set to `json` for one structured JSON log line per request (status, latency, correlation_id, cache/payment status, sanitized internal_error). Any other value keeps human-readable text logs. |
 | `RATE_LIMIT_ENABLED` | disabled unless set to `true` or `1` | Enables token bucket middleware. |
 | `REQUEST_TIMEOUT_SECONDS` | `60` | Global request timeout. |
 | `AI_REQUEST_TIMEOUT_SECONDS` | `30` | AI route timeout. |

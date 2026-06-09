@@ -917,3 +917,44 @@ func TestRespondError_MarksFailedWhenNoPriorStatus(t *testing.T) {
 	require.Equal(t, "failed", c.GetString("payment_status"))
 	require.Equal(t, "verification_unavailable", c.GetString("payment_error"))
 }
+
+func TestRedactingWriter_ScrubsX402Headers(t *testing.T) {
+	var buf bytes.Buffer
+	rw := redactingWriter{w: &buf}
+
+	// Mimic gin's recovery request dump where header lines are indented.
+	dump := "GET /api/ai/summarize HTTP/1.1\r\n" +
+		"Host: example.com\r\n" +
+		"X-402-Signature: 0xdeadbeefsignature\r\n" +
+		"X-402-Nonce: nonce-abc-123\r\n" +
+		"X-402-Timestamp: 1700000000\r\n" +
+		"Content-Type: application/json\r\n"
+
+	n, err := rw.Write([]byte(dump))
+	require.NoError(t, err)
+	require.Equal(t, len(dump), n, "must report original byte count to gin")
+
+	out := buf.String()
+	require.NotContains(t, out, "0xdeadbeefsignature")
+	require.NotContains(t, out, "nonce-abc-123")
+	require.NotContains(t, out, "1700000000")
+	require.Contains(t, out, "X-402-Signature: [redacted]")
+	require.Contains(t, out, "X-402-Nonce: [redacted]")
+	require.Contains(t, out, "X-402-Timestamp: [redacted]")
+	// Non-sensitive lines pass through untouched.
+	require.Contains(t, out, "Content-Type: application/json")
+	require.Contains(t, out, "Host: example.com")
+}
+
+func TestHandleSummarize_402SetsRequiredPaymentStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/api/ai/summarize", nil)
+
+	handleSummarize(c)
+
+	require.Equal(t, 402, w.Code)
+	require.Equal(t, "required", c.GetString("payment_status"))
+}

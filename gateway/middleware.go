@@ -6,11 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,6 +39,17 @@ func safeCorrelationID(id string) string {
 	return id
 }
 
+// jsonLogging is set once at startup from LOG_FORMAT and read on the request
+// hot paths instead of calling os.Getenv repeatedly. Centralizing it here
+// keeps the "json" comparison in one place so suppression stays consistent.
+var jsonLogging bool
+
+// initLogFormat resolves the LOG_FORMAT env var once. Call early in main()
+// before the router and handlers start serving traffic.
+func initLogFormat() {
+	jsonLogging = os.Getenv("LOG_FORMAT") == "json"
+}
+
 // CorrelationIDMiddleware checks for an existing X-Correlation-ID header
 // or generates a new one, ensuring requests can be traced across services.
 func CorrelationIDMiddleware() gin.HandlerFunc {
@@ -51,7 +64,7 @@ func CorrelationIDMiddleware() gin.HandlerFunc {
 		c.Request = c.Request.WithContext(ctx)
 
 		c.Header("X-Correlation-ID", id)
-		if os.Getenv("LOG_FORMAT") != "json" {
+		if !jsonLogging {
 			log.Printf("[CorrelationID: %s] %s %s", id, c.Request.Method, c.Request.URL.Path)
 		}
 		c.Next()
@@ -374,4 +387,46 @@ func JSONLoggerMiddleware() gin.HandlerFunc {
 			fmt.Println(string(data))
 		}
 	}
+}
+
+// x402SensitiveHeaders are payment headers that must never reach the panic
+// recovery dump in plaintext. A leaked signature can stay replayable until its
+// nonce is consumed by the verifier.
+var x402SensitiveHeaders = []string{
+	"x-402-signature",
+	"x-402-nonce",
+	"x-402-timestamp",
+}
+
+// redactingWriter wraps an io.Writer and strips the values of x402 payment
+// headers out of anything written through it. gin's recovery dump only scrubs
+// Authorization, so we filter the rest here.
+type redactingWriter struct {
+	w io.Writer
+}
+
+func (rw redactingWriter) Write(p []byte) (int, error) {
+	lines := strings.Split(string(p), "\n")
+	for i, line := range lines {
+		lower := strings.ToLower(strings.TrimLeft(line, " \t"))
+		for _, h := range x402SensitiveHeaders {
+			if strings.HasPrefix(lower, h+":") {
+				if idx := strings.Index(line, ":"); idx >= 0 {
+					lines[i] = line[:idx+1] + " [redacted]"
+				}
+				break
+			}
+		}
+	}
+	if _, err := io.WriteString(rw.w, strings.Join(lines, "\n")); err != nil {
+		return 0, err
+	}
+	// Report the original length so gin sees a complete write.
+	return len(p), nil
+}
+
+// redactedRecoveryWriter returns the writer gin.RecoveryWithWriter uses for its
+// panic dump, with x402 payment headers redacted.
+func redactedRecoveryWriter() io.Writer {
+	return redactingWriter{w: os.Stderr}
 }

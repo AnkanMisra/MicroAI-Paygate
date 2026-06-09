@@ -269,12 +269,20 @@ func main() {
 		fmt.Println("[WARN] CHAIN_ID not set, using default: 84532(Base Sepolia)")
 	}
 
+	initLogFormat()
+
 	var r *gin.Engine
-	if os.Getenv("LOG_FORMAT") == "json" {
+	if jsonLogging {
 		gin.SetMode(gin.ReleaseMode)
 		r = gin.New()
-		r.Use(gin.Recovery())
+		// Register the JSON logger BEFORE recovery so a downstream panic still
+		// unwinds back through the logger's post-c.Next() block and produces a
+		// structured entry for the recovered 500. Recovery uses a custom writer
+		// that redacts x402 payment headers (signature/nonce/timestamp), which
+		// the default recovery dump would otherwise leak in plaintext — a nonce
+		// may stay replayable until it is consumed.
 		r.Use(JSONLoggerMiddleware())
+		r.Use(gin.RecoveryWithWriter(redactedRecoveryWriter()))
 	} else {
 		r = gin.Default()
 	}
@@ -446,6 +454,9 @@ func handleSummarize(c *gin.Context) {
 
 	// Basic check
 	if signature == "" || nonce == "" {
+		// Distinct status so dashboards can separate the normal unsigned x402
+		// challenge (the most frequent payment event) from unrelated 402s.
+		c.Set("payment_status", "required")
 		c.JSON(402, gin.H{
 			"error":          "Payment Required",
 			"message":        "Please sign the payment context",
@@ -544,7 +555,10 @@ func handleSummarize(c *gin.Context) {
 
 	// 4. Generate & Send Receipt
 	if err := generateAndSendReceipt(c, *paymentCtx, verifyResp.RecoveredAddress, requestBody, summary); err != nil {
-		if os.Getenv("LOG_FORMAT") != "json" {
+		// generateAndSendReceipt already routes its failures through respondError
+		// (which records a sanitized internal_error), so this is just a
+		// human-readable echo for text-mode logs.
+		if !jsonLogging {
 			log.Printf("Failed to generate receipt: %v", err)
 		}
 		// generateAndSendReceipt sends error response if it fails?
@@ -954,7 +968,12 @@ func handleGetReceipt(c *gin.Context) {
 
 	receipt, exists, err := getReceiptWithContext(c.Request.Context(), id)
 	if err != nil {
-		if os.Getenv("LOG_FORMAT") != "json" {
+		if jsonLogging {
+			// The plaintext log is suppressed in JSON mode; record a sanitized
+			// internal_error on the context so the structured entry still
+			// explains the 500 (Redis / receipt-store outages stay diagnosable).
+			c.Set("internal_error", sanitizeErrorString(err.Error()))
+		} else {
 			log.Printf("Failed to retrieve receipt %s: %v", id, err)
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{
