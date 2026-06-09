@@ -31,12 +31,14 @@ type State =
   | { kind: "connected"; address: string; chainId: number };
 
 /**
- * Render the wallet connection widget and keep analytics identity in sync with the live wallet.
+ * Render the wallet connection widget and keep analytics identity in sync with live account changes.
  *
  * Displays the current wallet state (loading, missing provider, disconnected, or connected with a
  * chain-switch CTA when on the wrong chain) and reacts to account/chain changes from the injected
- * provider. Resets browser analytics identity whenever the connected wallet disconnects or changes
- * — including during the initial reconciliation on load — so a stale wallet is never re-identified.
+ * provider. When the connected account changes or disconnects during a live session, it reconciles
+ * the analytics identity so a stale wallet is never re-identified. Initial (on-load) reconciliation
+ * is owned by `initBrowserAnalytics`, which resets a stale persisted identity before the first
+ * pageview, so it is not duplicated here.
  *
  * @returns The React element for the wallet widget.
  */
@@ -98,10 +100,9 @@ export function WalletWidget() {
 
         const [addr, chain] = await Promise.all([getCurrentAccount(), getCurrentChainId()]);
         if (!mounted) return;
-        // Initial reconciliation: a wallet identified in a previous page session
-        // is persisted by the analytics layer; if it no longer matches the live
-        // wallet (disconnected or switched while away), reset before doing anything.
-        browserAnalytics.reconcileIdentity(addr ?? null);
+        // Initial identity reconciliation is owned by initBrowserAnalytics
+        // (before the first pageview), so it isn't repeated here. This effect
+        // only reacts to live account changes via subscribeAccountsChanged above.
         if (addr && chain != null) {
           setState({ kind: "connected", address: addr, chainId: chain });
         } else {

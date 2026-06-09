@@ -127,11 +127,57 @@ describe("initBrowserAnalytics", () => {
       api_host: "https://us.i.posthog.com",
       defaults: "2025-05-24",
       autocapture: false,
-      capture_pageview: "history_change",
+      capture_pageview: false,
       capture_pageleave: "if_capture_pageview",
       person_profiles: "identified_only",
       disable_session_recording: true,
     });
+  });
+
+  it("gates the first pageview until after identity reconciliation", async () => {
+    const calls: string[] = [];
+    const init = mock(() => {
+      calls.push("init");
+    });
+    const capture = mock((event: string) => {
+      calls.push(`capture:${event}`);
+    });
+    const setConfig = mock(() => {
+      calls.push("set_config");
+    });
+    const loadPostHog = mock(async () => ({
+      default: {
+        init,
+        capture,
+        set_config: setConfig,
+        identify: mock(() => undefined),
+        reset: mock(() => undefined),
+      },
+    })) as unknown as Parameters<typeof initBrowserAnalytics>[0];
+
+    const resolveLiveWallet = mock(async () => {
+      calls.push("resolve");
+      return null;
+    });
+    const schedule = (() => undefined) as Parameters<typeof initBrowserAnalytics>[1];
+
+    initBrowserAnalytics(loadPostHog, schedule, resolveLiveWallet);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // init must request capture_pageview: false so PostHog does not auto-fire a
+    // pageview before reconciliation.
+    expect(init).toHaveBeenCalledWith(
+      "phc_test",
+      expect.objectContaining({ capture_pageview: false }),
+    );
+    // The live wallet must be resolved BEFORE the manual pageview is captured,
+    // and capture_pageview is only enabled afterwards.
+    expect(resolveLiveWallet).toHaveBeenCalledTimes(1);
+    expect(calls.indexOf("resolve")).toBeLessThan(calls.indexOf("capture:$pageview"));
+    expect(calls.indexOf("capture:$pageview")).toBeLessThan(calls.indexOf("set_config"));
+    expect(setConfig).toHaveBeenCalledWith({ capture_pageview: "history_change" });
   });
 
   it("skips loading when PostHog is disabled", () => {

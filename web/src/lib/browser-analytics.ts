@@ -8,6 +8,10 @@ import {
 type PostHogClient = (typeof import("posthog-js"))["default"];
 type PostHogLoader = () => Promise<{ default: PostHogClient }>;
 type RetryScheduler = (retry: () => void, attempt: number) => void;
+// Resolves the wallet currently connected in the live provider (or null when no
+// provider / no account). Injected so the analytics layer stays decoupled from
+// the wallet implementation and remains testable.
+type LiveWalletResolver = () => Promise<string | null>;
 type BrowserAnalyticsEnv = {
   enabledFlag: string;
   token: string;
@@ -21,11 +25,16 @@ type BrowserAnalyticsEnv = {
 const IDENTITY_STORAGE_KEY = "microai.analytics.identity";
 // Bounded so a permanently broken network/SDK can't retry forever.
 const MAX_INIT_ATTEMPTS = 3;
+// Bounds the buffer of events queued while the SDK loads / retries, so a long
+// outage can't grow it without limit. Oldest events are dropped first.
+const MAX_PENDING_OPS = 100;
 
 let initialized = false;
 let initPromise: Promise<void> | null = null;
 let posthogClient: PostHogClient | null = null;
 let initAttempts = 0;
+// True once we've exhausted retries: stop queuing so we don't buffer forever.
+let gaveUp = false;
 const pendingOps: Array<(client: PostHogClient) => void> = [];
 
 const identityStore: IdentityStore = {
@@ -60,46 +69,87 @@ export const browserAnalytics: AnalyticsClient = createAnalytics(sink, {
   identityStore,
 });
 
+const defaultResolveLiveWallet: LiveWalletResolver = async () => {
+  try {
+    const { getCurrentAccount } = await import("@/lib/wallet");
+    return await getCurrentAccount();
+  } catch {
+    return null;
+  }
+};
+
 /**
- * Initializes the PostHog browser SDK with the configured project token and host using the module's preferred settings.
+ * Initializes the PostHog browser SDK and reconciles analytics identity before any pageview is captured.
  *
- * This is a no-op if analytics are disabled or the SDK has already been initialized. When run, it configures PostHog to disable autocapture and session recording, sets pageview/capture behavior, and marks the module as initialized. If the dynamic import or `posthog.init` fails transiently, a bounded auto-retry is scheduled (up to `MAX_INIT_ATTEMPTS`) so a one-shot caller still recovers without a full page reload.
+ * No-op if analytics are disabled or already initialized. On the first successful load it:
+ * 1. initializes PostHog with autocapture, session recording, AND automatic pageview capture disabled;
+ * 2. resolves the live wallet and reconciles identity, so a stale persisted wallet is reset BEFORE any event;
+ * 3. flushes events queued while loading, then captures the initial `$pageview` and enables `history_change`
+ *    pageview capture for subsequent SPA navigations.
+ *
+ * This ordering closes the reload race where the initial pageview could otherwise be attributed to a stale
+ * wallet identity. If the dynamic import or `posthog.init` fails transiently, a bounded auto-retry is
+ * scheduled (up to `MAX_INIT_ATTEMPTS`); queued events are preserved across retries and only dropped once
+ * retries are exhausted.
  *
  * @param loadPostHog - Loader for the PostHog module; injectable for tests.
  * @param schedule - Scheduler used to defer a retry after a failed init; injectable for tests. Defaults to a backoff-based `setTimeout`.
+ * @param resolveLiveWallet - Resolves the currently connected wallet (or null); injectable for tests.
  */
 export function initBrowserAnalytics(
   loadPostHog: PostHogLoader = () => import("posthog-js"),
   schedule: RetryScheduler = defaultRetryScheduler,
+  resolveLiveWallet: LiveWalletResolver = defaultResolveLiveWallet,
 ): void {
   const env = readBrowserAnalyticsEnv();
-  if (initialized || initPromise || !shouldEnablePostHog(env)) return;
+  if (initialized || initPromise || gaveUp || !shouldEnablePostHog(env)) return;
 
   initPromise = loadPostHog()
-    .then(({ default: posthog }) => {
+    .then(async ({ default: posthog }) => {
       posthogClient = posthog;
       posthog.init(env.token, {
         api_host: env.host,
         defaults: "2025-05-24",
         autocapture: false,
-        capture_pageview: "history_change",
+        // Disabled here; we fire the first pageview manually AFTER identity
+        // reconciliation, then enable history_change capture below.
+        capture_pageview: false,
         capture_pageleave: "if_capture_pageview",
         person_profiles: "identified_only",
         disable_session_recording: true,
       });
       initialized = true;
       initAttempts = 0;
+
+      // Reset a stale persisted identity BEFORE the first pageview so no event
+      // is ever attributed to a wallet that is no longer connected.
+      const live = await resolveLiveWallet();
+      browserAnalytics.reconcileIdentity(live);
+
       flushPendingOps();
+
+      // Now safe to capture the initial pageview and enable automatic capture
+      // for subsequent client-side navigations.
+      try {
+        posthog.capture("$pageview");
+        posthog.set_config({ capture_pageview: "history_change" });
+      } catch (err) {
+        console.warn("analytics: failed to enable pageview capture", err);
+      }
     })
     .catch((err) => {
       console.warn("analytics: failed to initialize PostHog", err);
       initialized = false;
       initPromise = null;
       posthogClient = null;
-      pendingOps.length = 0;
+      // Keep pendingOps: events queued during this attempt (and the retry
+      // delay) must survive so a later successful init can flush them.
       initAttempts += 1;
       if (initAttempts < MAX_INIT_ATTEMPTS) {
-        schedule(() => initBrowserAnalytics(loadPostHog, schedule), initAttempts);
+        schedule(() => initBrowserAnalytics(loadPostHog, schedule, resolveLiveWallet), initAttempts);
+      } else {
+        gaveUp = true;
+        pendingOps.length = 0;
       }
     });
 }
@@ -132,8 +182,15 @@ function withPostHog(fn: (client: PostHogClient) => void): void {
     return;
   }
 
-  if (initPromise) {
-    pendingOps.push(fn);
+  // Not loaded yet — during the initial load OR between retries (when
+  // initPromise is briefly null). Queue so events emitted in that window
+  // survive until a successful init flushes them, unless we've permanently
+  // given up. Bound the buffer so a long outage can't grow it without limit;
+  // drop oldest first.
+  if (gaveUp) return;
+  pendingOps.push(fn);
+  if (pendingOps.length > MAX_PENDING_OPS) {
+    pendingOps.shift();
   }
 }
 
@@ -165,4 +222,5 @@ export function __resetBrowserAnalyticsForTests(): void {
   posthogClient = null;
   pendingOps.length = 0;
   initAttempts = 0;
+  gaveUp = false;
 }

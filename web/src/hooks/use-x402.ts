@@ -3,8 +3,8 @@
 import { useCallback, useRef, useState } from "react";
 import { ethers } from "ethers";
 import { browserAnalytics } from "@/lib/browser-analytics";
-import { AnalyticsEvent } from "@/lib/analytics-events";
-import { createFlowContext } from "@/lib/analytics";
+import { AnalyticsEvent, type AnalyticsEventName } from "@/lib/analytics-events";
+import { createFlowContext, type AnalyticsProperties } from "@/lib/analytics";
 import {
   buildSignedHeaders,
   postSummarize,
@@ -76,6 +76,21 @@ export function useX402() {
       setState((prev) => ({ ...prev, ...patch }));
     };
 
+    // Guard analytics the same way as state: if a newer submit() has superseded
+    // this run (e.g. a rapid double-click), a stale run must stop emitting funnel
+    // events — otherwise it corrupts conversion metrics or re-identifies a wallet
+    // for a run the user already abandoned.
+    const isCurrent = () => runId.current === myRun;
+    const analytics = browserAnalytics;
+    const track = (event: AnalyticsEventName, props?: AnalyticsProperties) => {
+      if (!isCurrent()) return;
+      analytics.capture(event, props);
+    };
+    const identify = (walletAddress: string, props?: AnalyticsProperties) => {
+      if (!isCurrent()) return;
+      analytics.identifyWallet(walletAddress, props);
+    };
+
     const flowProps = {
       flow_run_id: flow.flowRunId,
       correlation_id: flow.correlationId,
@@ -84,7 +99,7 @@ export function useX402() {
     };
 
     update({ step: "request", summary: null, receipt: null, error: null, isRunning: true });
-    browserAnalytics.capture(AnalyticsEvent.SummaryRequested, {
+    track(AnalyticsEvent.SummaryRequested, {
       ...flowProps,
       wallet_available: hasWallet(),
     });
@@ -98,7 +113,7 @@ export function useX402() {
         update({ step: "receipt" });
         const { summary, receipt } = await readSummarizeSuccess(first);
         if (receipt) saveReceipt(receipt, text);
-        browserAnalytics.capture(AnalyticsEvent.SummaryCompleted, {
+        track(AnalyticsEvent.SummaryCompleted, {
           ...flowProps,
           status_code: first.status,
           has_receipt: !!receipt,
@@ -112,7 +127,7 @@ export function useX402() {
       if (first.status !== 402) {
         const bodyText = await safeText(first);
         const classified = classifyError(null, { status: first.status, bodyText });
-        browserAnalytics.capture(AnalyticsEvent.SummaryFailed, {
+        track(AnalyticsEvent.SummaryFailed, {
           ...flowProps,
           stage,
           status_code: first.status,
@@ -127,7 +142,7 @@ export function useX402() {
 
       update({ step: "challenge" });
       const context = await readPaymentChallenge(first);
-      browserAnalytics.capture(AnalyticsEvent.PaymentChallengeReceived, {
+      track(AnalyticsEvent.PaymentChallengeReceived, {
         ...flowProps,
         status_code: first.status,
         chain_id: context.chainId,
@@ -136,7 +151,7 @@ export function useX402() {
       });
 
       if (!hasWallet() || !getProvider()) {
-        browserAnalytics.capture(AnalyticsEvent.WalletConnectFailed, {
+        track(AnalyticsEvent.WalletConnectFailed, {
           ...flowProps,
           stage: "wallet-connect",
           error_kind: "no-wallet",
@@ -150,9 +165,9 @@ export function useX402() {
       stage = "wallet-connect";
       let account = await getCurrentAccount();
       if (!account) {
-        browserAnalytics.capture(AnalyticsEvent.WalletConnectRequested, flowProps);
+        track(AnalyticsEvent.WalletConnectRequested, flowProps);
         account = await connectWallet();
-        browserAnalytics.capture(AnalyticsEvent.WalletConnectSucceeded, {
+        track(AnalyticsEvent.WalletConnectSucceeded, {
           ...flowProps,
           wallet_connected: true,
         });
@@ -165,7 +180,7 @@ export function useX402() {
       const currentChain = await getCurrentChainId();
       if (currentChain !== context.chainId) {
         stage = "chain-switch";
-        browserAnalytics.capture(AnalyticsEvent.ChainSwitchRequested, {
+        track(AnalyticsEvent.ChainSwitchRequested, {
           ...flowProps,
           chain_id: context.chainId,
           current_chain_id: currentChain,
@@ -180,7 +195,7 @@ export function useX402() {
             `Wallet did not switch to chain ${context.chainId} (still on ${postSwitch}). Switch manually and retry.`,
           );
         }
-        browserAnalytics.capture(AnalyticsEvent.ChainSwitchSucceeded, {
+        track(AnalyticsEvent.ChainSwitchSucceeded, {
           ...flowProps,
           chain_id: context.chainId,
         });
@@ -192,16 +207,16 @@ export function useX402() {
 
       update({ step: "sign" });
       stage = "sign";
-      browserAnalytics.capture(AnalyticsEvent.PaymentSignatureStarted, {
+      track(AnalyticsEvent.PaymentSignatureStarted, {
         ...flowProps,
         chain_id: context.chainId,
       });
       const signature = await signPaymentContext(signer, context);
-      browserAnalytics.identifyWallet(account, {
+      identify(account, {
         wallet_connected: true,
         chain_id: context.chainId,
       });
-      browserAnalytics.capture(AnalyticsEvent.PaymentSignatureSucceeded, {
+      track(AnalyticsEvent.PaymentSignatureSucceeded, {
         ...flowProps,
         chain_id: context.chainId,
       });
@@ -218,7 +233,7 @@ export function useX402() {
       const aiStepTimer = setTimeout(() => update({ step: "ai" }), 700);
       let retry: Response;
       try {
-        browserAnalytics.capture(AnalyticsEvent.SignedRetrySent, {
+        track(AnalyticsEvent.SignedRetrySent, {
           ...flowProps,
           chain_id: context.chainId,
         });
@@ -233,7 +248,7 @@ export function useX402() {
       if (!retry.ok) {
         const bodyText = await safeText(retry);
         const classified = classifyError(null, { status: retry.status, bodyText });
-        browserAnalytics.capture(AnalyticsEvent.SummaryFailed, {
+        track(AnalyticsEvent.SummaryFailed, {
           ...flowProps,
           stage,
           status_code: retry.status,
@@ -259,7 +274,7 @@ export function useX402() {
       update({ step: "receipt" });
       const { summary, receipt } = await readSummarizeSuccess(retry);
       if (receipt) saveReceipt(receipt, text);
-      browserAnalytics.capture(AnalyticsEvent.SummaryCompleted, {
+      track(AnalyticsEvent.SummaryCompleted, {
         ...flowProps,
         status_code: retry.status,
         has_receipt: !!receipt,
@@ -271,37 +286,37 @@ export function useX402() {
       if (runId.current !== myRun) return;
       const classified = classifyError(err);
       if (stage === "wallet-connect") {
-        browserAnalytics.capture(AnalyticsEvent.WalletConnectFailed, {
+        track(AnalyticsEvent.WalletConnectFailed, {
           ...flowProps,
           stage,
           error_kind: classified.kind,
         });
       } else if (stage === "chain-switch") {
-        browserAnalytics.capture(AnalyticsEvent.ChainSwitchFailed, {
+        track(AnalyticsEvent.ChainSwitchFailed, {
           ...flowProps,
           stage,
           error_kind: classified.kind,
         });
       } else if (stage === "sign") {
-        browserAnalytics.capture(AnalyticsEvent.PaymentSignatureFailed, {
+        track(AnalyticsEvent.PaymentSignatureFailed, {
           ...flowProps,
           stage,
           error_kind: classified.kind,
         });
       } else if (stage === "signer") {
-        browserAnalytics.capture(AnalyticsEvent.PaymentSignatureFailed, {
+        track(AnalyticsEvent.PaymentSignatureFailed, {
           ...flowProps,
           stage,
           error_kind: classified.kind,
         });
       } else if (stage === "verify") {
-        browserAnalytics.capture(AnalyticsEvent.SummaryFailed, {
+        track(AnalyticsEvent.SummaryFailed, {
           ...flowProps,
           stage,
           error_kind: classified.kind,
         });
       } else {
-        browserAnalytics.capture(AnalyticsEvent.SummaryFailed, {
+        track(AnalyticsEvent.SummaryFailed, {
           ...flowProps,
           stage,
           error_kind: classified.kind,
