@@ -113,11 +113,15 @@ describe("initBrowserAnalytics", () => {
         capture: mock(() => undefined),
         identify: mock(() => undefined),
         reset: mock(() => undefined),
+        get_distinct_id: mock(() => "anon-uuid"),
       },
     })) as unknown as Parameters<typeof initBrowserAnalytics>[0];
+    const schedule = (() => undefined) as Parameters<typeof initBrowserAnalytics>[1];
+    const resolveLiveWallet = (async () => null) as Parameters<typeof initBrowserAnalytics>[2];
 
-    initBrowserAnalytics(loadPostHog);
-    initBrowserAnalytics(loadPostHog);
+    initBrowserAnalytics(loadPostHog, schedule, resolveLiveWallet);
+    initBrowserAnalytics(loadPostHog, schedule, resolveLiveWallet);
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -134,7 +138,7 @@ describe("initBrowserAnalytics", () => {
     });
   });
 
-  it("gates the first pageview until after identity reconciliation", async () => {
+  it("resolves the wallet and reconciles identity before exposing the client or capturing a pageview", async () => {
     const calls: string[] = [];
     const init = mock(() => {
       calls.push("init");
@@ -142,16 +146,16 @@ describe("initBrowserAnalytics", () => {
     const capture = mock((event: string) => {
       calls.push(`capture:${event}`);
     });
-    const setConfig = mock(() => {
-      calls.push("set_config");
+    const reset = mock(() => {
+      calls.push("reset");
     });
     const loadPostHog = mock(async () => ({
       default: {
         init,
         capture,
-        set_config: setConfig,
+        reset,
         identify: mock(() => undefined),
-        reset: mock(() => undefined),
+        get_distinct_id: mock(() => "anon-uuid-1234"),
       },
     })) as unknown as Parameters<typeof initBrowserAnalytics>[0];
 
@@ -166,18 +170,68 @@ describe("initBrowserAnalytics", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // init must request capture_pageview: false so PostHog does not auto-fire a
-    // pageview before reconciliation.
+    // init must request capture_pageview: false so PostHog never auto-fires a
+    // pageview; we fire it manually after reconciliation.
     expect(init).toHaveBeenCalledWith(
       "phc_test",
       expect.objectContaining({ capture_pageview: false }),
     );
-    // The live wallet must be resolved BEFORE the manual pageview is captured,
-    // and capture_pageview is only enabled afterwards.
+    // The live wallet is resolved BEFORE init, and the manual pageview fires
+    // only after both resolution and init.
     expect(resolveLiveWallet).toHaveBeenCalledTimes(1);
-    expect(calls.indexOf("resolve")).toBeLessThan(calls.indexOf("capture:$pageview"));
-    expect(calls.indexOf("capture:$pageview")).toBeLessThan(calls.indexOf("set_config"));
-    expect(setConfig).toHaveBeenCalledWith({ capture_pageview: "history_change" });
+    expect(calls.indexOf("resolve")).toBeLessThan(calls.indexOf("init"));
+    expect(calls.indexOf("init")).toBeLessThan(calls.indexOf("capture:$pageview"));
+    // Anonymous distinct_id → no stale-identity reset.
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  it("resets when PostHog restored a wallet-shaped distinct_id that no longer matches the live wallet", async () => {
+    const staleWallet = "0x1111111111111111111111111111111111111111";
+    const reset = mock(() => undefined);
+    const loadPostHog = mock(async () => ({
+      default: {
+        init: mock(() => undefined),
+        capture: mock(() => undefined),
+        reset,
+        identify: mock(() => undefined),
+        get_distinct_id: mock(() => staleWallet),
+      },
+    })) as unknown as Parameters<typeof initBrowserAnalytics>[0];
+
+    const schedule = (() => undefined) as Parameters<typeof initBrowserAnalytics>[1];
+    // Different wallet now connected.
+    const resolveLiveWallet = mock(async () => "0x2222222222222222222222222222222222222222");
+
+    initBrowserAnalytics(loadPostHog, schedule, resolveLiveWallet);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(reset).toHaveBeenCalled();
+  });
+
+  it("does not reset when PostHog's restored wallet matches the live wallet", async () => {
+    const wallet = "0xAbCabcAbCabcAbCabcAbCabcAbCabcAbCabcAbCa";
+    const reset = mock(() => undefined);
+    const loadPostHog = mock(async () => ({
+      default: {
+        init: mock(() => undefined),
+        capture: mock(() => undefined),
+        reset,
+        identify: mock(() => undefined),
+        get_distinct_id: mock(() => wallet),
+      },
+    })) as unknown as Parameters<typeof initBrowserAnalytics>[0];
+
+    const schedule = (() => undefined) as Parameters<typeof initBrowserAnalytics>[1];
+    const resolveLiveWallet = mock(async () => wallet.toLowerCase());
+
+    initBrowserAnalytics(loadPostHog, schedule, resolveLiveWallet);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(reset).not.toHaveBeenCalled();
   });
 
   it("skips loading when PostHog is disabled", () => {
@@ -200,10 +254,14 @@ describe("initBrowserAnalytics", () => {
         capture: mock(() => undefined),
         identify: mock(() => undefined),
         reset: mock(() => undefined),
+        get_distinct_id: mock(() => "anon-uuid"),
       },
     })) as unknown as Parameters<typeof initBrowserAnalytics>[0];
+    const schedule = (() => undefined) as Parameters<typeof initBrowserAnalytics>[1];
+    const resolveLiveWallet = (async () => null) as Parameters<typeof initBrowserAnalytics>[2];
 
-    initBrowserAnalytics(loadPostHog);
+    initBrowserAnalytics(loadPostHog, schedule, resolveLiveWallet);
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -223,6 +281,7 @@ describe("initBrowserAnalytics", () => {
           capture: mock(() => undefined),
           identify: mock(() => undefined),
           reset: mock(() => undefined),
+          get_distinct_id: mock(() => "anon-uuid"),
         },
       };
     }) as unknown as Parameters<typeof initBrowserAnalytics>[0];
@@ -231,8 +290,9 @@ describe("initBrowserAnalytics", () => {
     const schedule = (retry: () => void) => {
       scheduled.push(retry);
     };
+    const resolveLiveWallet = (async () => null) as Parameters<typeof initBrowserAnalytics>[2];
 
-    initBrowserAnalytics(load, schedule);
+    initBrowserAnalytics(load, schedule, resolveLiveWallet);
     await Promise.resolve();
     await Promise.resolve();
 
@@ -244,6 +304,7 @@ describe("initBrowserAnalytics", () => {
     expect(scheduled).toHaveLength(1);
 
     scheduled[0]();
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 

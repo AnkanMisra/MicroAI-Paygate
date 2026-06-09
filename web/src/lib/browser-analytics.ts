@@ -78,19 +78,27 @@ const defaultResolveLiveWallet: LiveWalletResolver = async () => {
   }
 };
 
+// A PostHog distinct_id that looks like an EVM wallet address means a previous
+// session identified a wallet. Anonymous ids are UUIDs, so this never matches
+// them. Used to reconcile against PostHog's own persisted identity, not just
+// our localStorage marker.
+const WALLET_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+
 /**
- * Initializes the PostHog browser SDK and reconciles analytics identity before any pageview is captured.
+ * Initializes the PostHog browser SDK, resolving and reconciling wallet identity BEFORE any event is forwarded.
  *
  * No-op if analytics are disabled or already initialized. On the first successful load it:
- * 1. initializes PostHog with autocapture, session recording, AND automatic pageview capture disabled;
- * 2. resolves the live wallet and reconciles identity, so a stale persisted wallet is reset BEFORE any event;
- * 3. flushes events queued while loading, then captures the initial `$pageview` and enables `history_change`
- *    pageview capture for subsequent SPA navigations.
+ * 1. resolves the live wallet first, so there is no async window where events could forward under a stale id;
+ * 2. initializes PostHog with autocapture, session recording, and automatic pageview capture all disabled;
+ * 3. reconciles identity — resetting if our persisted marker OR PostHog's own persisted `distinct_id`
+ *    (when it is wallet-shaped) no longer matches the live wallet — before exposing the client;
+ * 4. exposes the client, flushes events queued while loading, and captures the initial `$pageview` manually.
  *
- * This ordering closes the reload race where the initial pageview could otherwise be attributed to a stale
- * wallet identity. If the dynamic import or `posthog.init` fails transiently, a bounded auto-retry is
- * scheduled (up to `MAX_INIT_ATTEMPTS`); queued events are preserved across retries and only dropped once
- * retries are exhausted.
+ * Pageview capture is kept manual (init `capture_pageview: false` + an explicit `$pageview`) rather than
+ * toggled on via `set_config`, because in the pinned posthog-js the history-change monitor only starts during
+ * `init`, so a later `set_config` would not begin SPA pageview capture. If the dynamic import or `posthog.init`
+ * fails transiently, a bounded auto-retry is scheduled (up to `MAX_INIT_ATTEMPTS`); queued events are preserved
+ * across retries and only dropped once retries are exhausted.
  *
  * @param loadPostHog - Loader for the PostHog module; injectable for tests.
  * @param schedule - Scheduler used to defer a retry after a failed init; injectable for tests. Defaults to a backoff-based `setTimeout`.
@@ -106,35 +114,56 @@ export function initBrowserAnalytics(
 
   initPromise = loadPostHog()
     .then(async ({ default: posthog }) => {
-      posthogClient = posthog;
+      // Resolve the live wallet BEFORE exposing the client, so no capture/
+      // identify can be forwarded during reconciliation under a stale identity.
+      const live = await resolveLiveWallet();
+
       posthog.init(env.token, {
         api_host: env.host,
         defaults: "2025-05-24",
         autocapture: false,
-        // Disabled here; we fire the first pageview manually AFTER identity
-        // reconciliation, then enable history_change capture below.
+        // Manual pageview only — see the doc comment for why set_config can't
+        // re-enable history capture in the pinned SDK.
         capture_pageview: false,
         capture_pageleave: "if_capture_pageview",
         person_profiles: "identified_only",
         disable_session_recording: true,
       });
+
+      // Reconcile against PostHog's OWN persisted identity (not just our marker):
+      // if it restored a wallet-shaped distinct_id that no longer matches the
+      // live wallet, reset before any event is captured.
+      const persistedDistinctId = safeGetDistinctId(posthog);
+      const liveLower = live ? live.toLowerCase() : null;
+      if (
+        persistedDistinctId &&
+        WALLET_ADDRESS_RE.test(persistedDistinctId) &&
+        persistedDistinctId.toLowerCase() !== liveLower
+      ) {
+        try {
+          posthog.reset();
+        } catch (err) {
+          console.warn("analytics: failed to reset stale PostHog identity", err);
+        }
+        identityStore.clear();
+      }
+
+      // Also reconcile our own marker (covers the case where PostHog's id is
+      // anonymous but our marker is stale).
+      browserAnalytics.reconcileIdentity(live);
+
+      // Expose the client only now — after identity is reconciled.
+      posthogClient = posthog;
       initialized = true;
       initAttempts = 0;
 
-      // Reset a stale persisted identity BEFORE the first pageview so no event
-      // is ever attributed to a wallet that is no longer connected.
-      const live = await resolveLiveWallet();
-      browserAnalytics.reconcileIdentity(live);
-
       flushPendingOps();
 
-      // Now safe to capture the initial pageview and enable automatic capture
-      // for subsequent client-side navigations.
+      // Fire the initial pageview manually, now that identity is correct.
       try {
         posthog.capture("$pageview");
-        posthog.set_config({ capture_pageview: "history_change" });
       } catch (err) {
-        console.warn("analytics: failed to enable pageview capture", err);
+        console.warn("analytics: failed to capture initial pageview", err);
       }
     })
     .catch((err) => {
@@ -152,6 +181,14 @@ export function initBrowserAnalytics(
         pendingOps.length = 0;
       }
     });
+}
+
+function safeGetDistinctId(posthog: PostHogClient): string | null {
+  try {
+    return posthog.get_distinct_id();
+  } catch {
+    return null;
+  }
 }
 
 /**
