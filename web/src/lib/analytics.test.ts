@@ -4,7 +4,6 @@ import {
   createFlowContext,
   sanitizeAnalyticsProperties,
   type AnalyticsSink,
-  type IdentityStore,
 } from "./analytics";
 
 describe("sanitizeAnalyticsProperties", () => {
@@ -135,94 +134,5 @@ describe("createAnalytics", () => {
     expect(() => analytics.capture("summary requested", { flow_run_id: "flow-1" })).not.toThrow();
     expect(() => analytics.identifyWallet("0xAbC123")).not.toThrow();
     expect(() => analytics.reset()).not.toThrow();
-  });
-});
-
-describe("identity reconciliation", () => {
-  let sink: AnalyticsSink;
-  let store: IdentityStore;
-  let backing: { value: string | null };
-
-  beforeEach(() => {
-    backing = { value: null };
-    sink = {
-      capture: mock(() => undefined),
-      identify: mock(() => undefined),
-      reset: mock(() => undefined),
-    };
-    store = {
-      get: mock(() => backing.value),
-      set: mock((addr: string) => {
-        backing.value = addr;
-      }),
-      clear: mock(() => {
-        backing.value = null;
-      }),
-    };
-  });
-
-  it("persists the identified wallet and clears it on reset", () => {
-    const analytics = createAnalytics(sink, { enabled: true, identityStore: store });
-
-    analytics.identifyWallet("0xAbC123");
-    expect(store.set).toHaveBeenCalledWith("0xAbC123");
-    expect(backing.value).toBe("0xAbC123");
-
-    analytics.reset();
-    expect(store.clear).toHaveBeenCalled();
-    expect(backing.value).toBeNull();
-  });
-
-  it("resets when the persisted wallet differs from the live wallet (e.g. after reload)", () => {
-    backing.value = "0xOldWallet";
-    const analytics = createAnalytics(sink, { enabled: true, identityStore: store });
-
-    analytics.reconcileIdentity("0xNewWallet");
-
-    expect(sink.reset).toHaveBeenCalledTimes(1);
-    expect(backing.value).toBeNull();
-  });
-
-  it("resets when a wallet was persisted but none is now connected", () => {
-    backing.value = "0xOldWallet";
-    const analytics = createAnalytics(sink, { enabled: true, identityStore: store });
-
-    analytics.reconcileIdentity(null);
-
-    expect(sink.reset).toHaveBeenCalledTimes(1);
-    expect(backing.value).toBeNull();
-  });
-
-  it("does not reset when the persisted wallet matches the live wallet (case-insensitive)", () => {
-    backing.value = "0xabc123";
-    const analytics = createAnalytics(sink, { enabled: true, identityStore: store });
-
-    analytics.reconcileIdentity("0xABC123");
-
-    expect(sink.reset).not.toHaveBeenCalled();
-    expect(backing.value).toBe("0xabc123");
-  });
-
-  it("does nothing when no wallet was ever persisted", () => {
-    const analytics = createAnalytics(sink, { enabled: true, identityStore: store });
-
-    analytics.reconcileIdentity("0xAbC123");
-    analytics.reconcileIdentity(null);
-
-    expect(sink.reset).not.toHaveBeenCalled();
-  });
-
-  it("does not touch storage or sink when disabled", () => {
-    backing.value = "0xOldWallet";
-    const analytics = createAnalytics(sink, { enabled: false, identityStore: store });
-
-    analytics.identifyWallet("0xNew");
-    analytics.reconcileIdentity("0xDifferent");
-    analytics.reset();
-
-    expect(store.set).not.toHaveBeenCalled();
-    expect(store.clear).not.toHaveBeenCalled();
-    expect(sink.reset).not.toHaveBeenCalled();
-    expect(backing.value).toBe("0xOldWallet");
   });
 });

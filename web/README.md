@@ -51,7 +51,7 @@ Privacy guardrails are enforced in code:
 - no nonce
 - no full receipt payload
 
-Anonymous browsing remains anonymous. The app only calls `identify(walletAddress)` after a successful signature, so pre-wallet pageviews and interactions do not create person profiles.
+No person profile is created while browsing anonymously (`person_profiles: "identified_only"`). The app only calls `identify(walletAddress)` after a successful signature. Per PostHog's standard behavior, `identify` then associates the current session's earlier anonymous events with the wallet's profile, so same-session events from before signing become attributable to that wallet. Cross-session / cross-reload identity governance is out of scope for Phase 1.
 
 ## Payment Signing Shape
 

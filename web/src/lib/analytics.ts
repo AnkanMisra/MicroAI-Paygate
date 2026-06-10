@@ -13,30 +13,6 @@ export type AnalyticsClient = {
   capture: (event: string, properties?: AnalyticsProperties) => void;
   identifyWallet: (walletAddress: string, properties?: AnalyticsProperties) => void;
   reset: () => void;
-  /**
-   * Reconcile the persisted analytics identity against the live wallet. Resets
-   * identity when the previously identified wallet is gone or has changed —
-   * including across page reloads, where in-memory state is lost but the
-   * persisted identity survives.
-   */
-  reconcileIdentity: (liveWalletAddress: string | null) => void;
-};
-
-/**
- * Durable record of which wallet the analytics layer last identified. Backed by
- * `localStorage` in the browser so identity survives reloads; a no-op by default
- * so the pure layer stays testable and disabled mode touches no storage.
- */
-export type IdentityStore = {
-  get: () => string | null;
-  set: (walletAddress: string) => void;
-  clear: () => void;
-};
-
-const noopIdentityStore: IdentityStore = {
-  get: () => null,
-  set: () => undefined,
-  clear: () => undefined,
 };
 
 export type FlowContext = {
@@ -48,7 +24,6 @@ export type FlowContext = {
 
 type AnalyticsConfig = {
   enabled: boolean;
-  identityStore?: IdentityStore;
 };
 
 const BLOCKED_PROPERTY_KEYS = new Set([
@@ -116,22 +91,17 @@ export function createFlowContext(
 /**
  * Create an AnalyticsClient that forwards events and identity calls to the provided sink when enabled.
  *
- * The client’s `capture`, `identifyWallet`, `reset`, and `reconcileIdentity` methods become no-ops if
- * `config.enabled` is false or `sink` is null. When enabled, `identifyWallet` persists the identified
- * wallet to `config.identityStore` and `reset` clears it, so `reconcileIdentity` can detect a stale
- * identity (e.g. after a reload with a disconnected or switched wallet) that in-memory state alone misses.
+ * The client's `capture`, `identifyWallet`, and `reset` methods become no-ops if `config.enabled` is false or `sink` is null. Sink failures are swallowed so analytics never breaks product code.
  *
  * @param sink - The analytics sink to forward calls to, or `null` to disable forwarding.
- * @param config - Configuration; forwarding occurs only when `config.enabled` is true. `identityStore`
- *   defaults to a no-op store.
- * @returns An AnalyticsClient whose methods forward sanitized properties to `sink` when enabled.
+ * @param config - Configuration object; forwarding occurs only when `config.enabled` is true.
+ * @returns An AnalyticsClient whose methods forward sanitized properties to `sink` when enabled, otherwise perform no action.
  */
 export function createAnalytics(
   sink: AnalyticsSink | null,
   config: AnalyticsConfig,
 ): AnalyticsClient {
   const enabled = config.enabled && !!sink;
-  const identityStore = config.identityStore ?? noopIdentityStore;
 
   return {
     capture(event, properties) {
@@ -140,33 +110,13 @@ export function createAnalytics(
     },
     identifyWallet(walletAddress, properties) {
       if (!enabled) return;
-      invokeSafely(() => identityStore.set(walletAddress));
       invokeSafely(() => sink.identify(walletAddress, sanitizeAnalyticsProperties(properties)));
     },
     reset() {
       if (!enabled) return;
-      invokeSafely(() => identityStore.clear());
-      invokeSafely(() => sink.reset?.());
-    },
-    reconcileIdentity(liveWalletAddress) {
-      if (!enabled) return;
-      const persisted = invokeWithFallback(() => identityStore.get(), null);
-      if (!persisted) return;
-      const live = liveWalletAddress ? liveWalletAddress.toLowerCase() : null;
-      if (live === persisted.toLowerCase()) return;
-      invokeSafely(() => identityStore.clear());
       invokeSafely(() => sink.reset?.());
     },
   };
-}
-
-function invokeWithFallback<T>(fn: () => T, fallback: T): T {
-  try {
-    return fn();
-  } catch (err) {
-    console.warn("analytics: non-fatal sink failure", err);
-    return fallback;
-  }
 }
 
 function invokeSafely(fn: () => void): void {
