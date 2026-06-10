@@ -70,7 +70,7 @@ The verifier route `POST /verify` is not a gateway route. It belongs to the inte
 | `ratelimit.go` | Token bucket implementation. |
 | `metrics.go` | Prometheus metric definitions and metrics endpoint config helpers. |
 | `middleware.go` | Request timeout, correlation ID, and request metrics middleware. |
-| `internal/ai/` | OpenRouter and Ollama provider implementations. |
+| `internal/ai/` | OpenRouter, Ollama, and Mock provider implementations. |
 | `openapi.yaml` | Public gateway API contract. |
 
 ## Configuration
@@ -88,7 +88,7 @@ Common optional variables:
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `PORT` | `3000` | Gateway listen port. |
-| `AI_PROVIDER` | `openrouter` | Supported values: `openrouter`, `ollama`. |
+| `AI_PROVIDER` | `openrouter` | Supported values: `openrouter`, `ollama`, `mock` (local/demo only). |
 | `OPENROUTER_MODEL` | `z-ai/glm-4.5-air:free` in code/docs unless overridden | OpenRouter model. |
 | `OPENROUTER_URL` | `https://openrouter.ai/api/v1/chat/completions` provider default | Used by tests and custom OpenRouter-compatible endpoints. |
 | `OLLAMA_URL` | `http://localhost:11434` | Used when `AI_PROVIDER=ollama`. |
@@ -129,7 +129,7 @@ cd gateway
 RECEIPT_STORE=memory CACHE_ENABLED=false go run .
 ```
 
-The verifier must be reachable at `VERIFIER_URL` for signed requests. OpenRouter startup requires `OPENROUTER_API_KEY` unless `AI_PROVIDER=ollama`.
+The verifier must be reachable at `VERIFIER_URL` for signed requests. OpenRouter startup requires `OPENROUTER_API_KEY` unless `AI_PROVIDER` is set to `ollama` or `mock`.
 
 ## Testing
 

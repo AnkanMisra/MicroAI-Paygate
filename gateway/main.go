@@ -74,6 +74,10 @@ func validateConfig() error {
 	providerType := os.Getenv("AI_PROVIDER")
 	if providerType == "" || providerType == "openrouter" {
 		required = append(required, "OPENROUTER_API_KEY")
+	} else if providerType == "mock" {
+		if err := ai.IsMockAllowed(os.Getenv("NODE_ENV"), os.Getenv("APP_ENV"), os.Getenv("ALLOW_MOCK_PROVIDER")); err != nil {
+			return err
+		}
 	}
 
 	if err := validateReceiptStoreMode(); err != nil {
@@ -1040,6 +1044,9 @@ func handleReadyz(c *gin.Context) {
 	case "ollama":
 		aiStatus = checkOllamaHealth()
 		checks["ollama"] = aiStatus
+	case "mock":
+		aiStatus = "ok"
+		checks["mock"] = aiStatus
 	}
 	checks["ai_provider"] = gin.H{
 		"provider": providerType,
@@ -1126,6 +1133,12 @@ var checkOllamaHealth = func() string {
 	ollamaURL := os.Getenv("OLLAMA_URL")
 	if ollamaURL == "" {
 		ollamaURL = "http://localhost:11434"
+	}
+	if os.Getenv("RUNNING_IN_DOCKER") == "true" {
+		if ollamaURL == "http://localhost:11434" || ollamaURL == "http://localhost:11434/" ||
+			ollamaURL == "http://127.0.0.1:11434" || ollamaURL == "http://127.0.0.1:11434/" {
+			ollamaURL = "http://host.docker.internal:11434"
+		}
 	}
 	healthURL := strings.TrimSuffix(ollamaURL, "/") + "/api/tags"
 

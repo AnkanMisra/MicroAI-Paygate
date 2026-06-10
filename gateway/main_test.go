@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"gateway/internal/ai"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -616,3 +618,205 @@ func TestHandleReadyz_RedisUnreachable(t *testing.T) {
 	checks := response["checks"].(map[string]interface{})
 	require.Equal(t, "unreachable", checks["redis"])
 }
+
+func TestHandleReadyz_MockProvider(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("AI_PROVIDER", "mock")
+	t.Setenv("NODE_ENV", "test")
+	t.Setenv("RECEIPT_STORE", "memory")
+	t.Setenv("CACHE_ENABLED", "false")
+
+	origVerifier := checkVerifierHealth
+	defer func() {
+		checkVerifierHealth = origVerifier
+	}()
+
+	checkVerifierHealth = func() string { return "ok" }
+
+	r := gin.Default()
+	r.GET("/readyz", handleReadyz)
+
+	req, _ := http.NewRequest(http.MethodGet, "/readyz", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	require.Equal(t, true, response["ready"])
+
+	checks := response["checks"].(map[string]interface{})
+	require.Equal(t, "ok", checks["verifier"])
+	require.Equal(t, "ok", checks["mock"])
+
+	aiProviderCheck := checks["ai_provider"].(map[string]interface{})
+	require.Equal(t, "mock", aiProviderCheck["provider"])
+	require.Equal(t, "ok", aiProviderCheck["status"])
+}
+
+func TestHandleSummarize_MockProvider(t *testing.T) {
+	// Expected test values
+	expectedRecipient := "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219"
+	expectedAmount := "0.001"
+	expectedToken := "USDC"
+	expectedChainID := 84532
+	expectedSignature := "test-signature"
+
+	var expectedNonce string
+	var expectedTimestamp uint64
+
+	// Set up a verifier that asserts the parsed context parameters match exactly
+	verifier := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req VerifyRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"is_valid":false,"error":"failed to decode verify request"}`))
+			return
+		}
+
+		if req.Signature != expectedSignature {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"is_valid":false,"error":"signature mismatch"}`))
+			return
+		}
+		if req.Context.Nonce != expectedNonce {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"is_valid":false,"error":"nonce mismatch"}`))
+			return
+		}
+		if req.Context.Timestamp != expectedTimestamp {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"is_valid":false,"error":"timestamp mismatch"}`))
+			return
+		}
+		if req.Context.Recipient != expectedRecipient {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"is_valid":false,"error":"recipient mismatch"}`))
+			return
+		}
+		if req.Context.Amount != expectedAmount {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"is_valid":false,"error":"amount mismatch"}`))
+			return
+		}
+		if req.Context.Token != expectedToken {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"is_valid":false,"error":"token mismatch"}`))
+			return
+		}
+		if req.Context.ChainID != expectedChainID {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"is_valid":false,"error":"chain_id mismatch"}`))
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"is_valid":true, "recovered_address":"0xabc","error":""}`))
+	}))
+	defer verifier.Close()
+
+	// Environment
+	t.Setenv("AI_PROVIDER", "mock")
+	t.Setenv("NODE_ENV", "test")
+	t.Setenv("VERIFIER_URL", verifier.URL)
+	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	t.Setenv("RECEIPT_STORE", "memory")
+	t.Setenv("CACHE_ENABLED", "false")
+
+	serverPrivateKeyTestMu.Lock()
+	receiptGlobalsTestMu.Lock()
+
+	// Save package-level globals
+	origAIProvider := aiProvider
+	origReceiptStore := getActiveReceiptStore()
+	origKey := serverPrivateKey
+	origKeyErr := serverPrivateKeyErr
+
+	defer func() {
+		aiProvider = origAIProvider
+		setActiveReceiptStore(origReceiptStore)
+		serverPrivateKey = origKey
+		serverPrivateKeyErr = origKeyErr
+		serverPrivateKeyOnce = sync.Once{}
+
+		receiptGlobalsTestMu.Unlock()
+		serverPrivateKeyTestMu.Unlock()
+	}()
+
+	// Reset private key once/error states for this test
+	serverPrivateKey = nil
+	serverPrivateKeyErr = nil
+	serverPrivateKeyOnce = sync.Once{}
+
+	// Initialize AI provider for this test
+	var err error
+	aiProvider, err = ai.NewProvider()
+	require.NoError(t, err)
+
+	// Initialize receipt store for this test
+	err = initReceiptStore()
+	require.NoError(t, err)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/api/ai/summarize", handleSummarize)
+
+	// Step 1: Send unsigned request to trigger 402 challenge
+	reqBody1 := strings.NewReader(`{"text":"hello world text to summarize"}`)
+	req1, _ := http.NewRequest("POST", "/api/ai/summarize", reqBody1)
+	req1.Header.Set("Content-Type", "application/json")
+	w1 := httptest.NewRecorder()
+	r.ServeHTTP(w1, req1)
+
+	require.Equal(t, http.StatusPaymentRequired, w1.Code)
+
+	var challengeResp map[string]interface{}
+	err = json.Unmarshal(w1.Body.Bytes(), &challengeResp)
+	require.NoError(t, err)
+
+	paymentCtx, ok := challengeResp["paymentContext"].(map[string]interface{})
+	require.True(t, ok)
+
+	expectedNonce, ok = paymentCtx["nonce"].(string)
+	require.True(t, ok)
+
+	timestampFloat, ok := paymentCtx["timestamp"].(float64)
+	require.True(t, ok)
+	expectedTimestamp = uint64(timestampFloat)
+
+	// Verify returned payment context fields match expectations
+	require.Equal(t, expectedRecipient, paymentCtx["recipient"])
+	require.Equal(t, expectedAmount, paymentCtx["amount"])
+	require.Equal(t, expectedToken, paymentCtx["token"])
+	require.Equal(t, float64(expectedChainID), paymentCtx["chainId"])
+
+	// Step 2: Send signed retry using context values
+	reqBody2 := strings.NewReader(`{"text":"hello world text to summarize"}`)
+	req2, _ := http.NewRequest("POST", "/api/ai/summarize", reqBody2)
+	req2.Header.Set("X-402-Signature", expectedSignature)
+	req2.Header.Set("X-402-Nonce", expectedNonce)
+	req2.Header.Set("X-402-Timestamp", strconv.FormatUint(expectedTimestamp, 10))
+	req2.Header.Set("Content-Type", "application/json")
+
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, req2)
+
+	require.Equal(t, http.StatusOK, w2.Code)
+
+	var response2 map[string]interface{}
+	err = json.Unmarshal(w2.Body.Bytes(), &response2)
+	require.NoError(t, err)
+
+	// Verify deterministic response
+	expected := "This is a deterministic mock summary of the input text for local/demo testing."
+	require.Equal(t, expected, response2["result"])
+
+	// Check that X-402-Receipt header is set
+	receiptHeader := w2.Header().Get("X-402-Receipt")
+	require.NotEmpty(t, receiptHeader)
+}
+

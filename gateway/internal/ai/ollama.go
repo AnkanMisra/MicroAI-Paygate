@@ -24,6 +24,13 @@ func NewOllamaProvider() *OllamaProvider {
 		url = "http://localhost:11434"
 	}
 
+	if os.Getenv("RUNNING_IN_DOCKER") == "true" {
+		if url == "http://localhost:11434" || url == "http://localhost:11434/" ||
+			url == "http://127.0.0.1:11434" || url == "http://127.0.0.1:11434/" {
+			url = "http://host.docker.internal:11434"
+		}
+	}
+
 	model := os.Getenv("OLLAMA_MODEL")
 	if model == "" {
 		model = "llama2"
