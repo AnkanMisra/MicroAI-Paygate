@@ -212,10 +212,18 @@ export function useX402() {
         chain_id: context.chainId,
       });
       const signature = await signPaymentContext(signer, context);
-      identify(account, {
-        wallet_connected: true,
-        chain_id: context.chainId,
-      });
+      // The signature prompt is modal and can take arbitrarily long. If the
+      // user switched or disconnected accounts while it was open, the wallet's
+      // accountsChanged handler has already reset analytics identity — so only
+      // identify when the live account still matches the one we signed with,
+      // otherwise we'd re-identify a stale wallet.
+      const liveAccount = await getCurrentAccount();
+      if (liveAccount && liveAccount.toLowerCase() === account.toLowerCase()) {
+        identify(account, {
+          wallet_connected: true,
+          chain_id: context.chainId,
+        });
+      }
       track(AnalyticsEvent.PaymentSignatureSucceeded, {
         ...flowProps,
         chain_id: context.chainId,
