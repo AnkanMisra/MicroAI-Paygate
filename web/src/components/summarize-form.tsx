@@ -8,6 +8,7 @@ import { Button } from "./ui/button";
 import { StatusStrip } from "./status-strip";
 import { OutputCard } from "./output-card";
 import { ErrorBanner } from "./error-banner";
+import type { SignedReceipt } from "@/lib/verify-receipt";
 
 const SAMPLE_PROMPT =
   "Bitcoin: A Peer-to-Peer Electronic Cash System. A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution. Digital signatures provide part of the solution, but the main benefits are lost if a trusted third party is still required to prevent double-spending. We propose a solution to the double-spending problem using a peer-to-peer network. The network timestamps transactions by hashing them into an ongoing chain of hash-based proof-of-work, forming a record that cannot be changed without redoing the proof-of-work.";
@@ -112,6 +113,8 @@ export function SummarizeForm() {
         <h3 id="result-heading" className="sr-only">
           Payment flow and result
         </h3>
+        <div role="status" aria-live="polite" className="sr-only">
+          {getReceiptAnnouncement(summary, receipt)}</div>
         <StatusStrip step={step} hasError={!!error} />
         {error && <ErrorBanner error={error} onRetry={handleSubmit} onDismiss={handleReset} />}
         {summary && <OutputCard summary={summary} receipt={receipt} />}
@@ -120,7 +123,18 @@ export function SummarizeForm() {
     </div>
   );
 }
+function getReceiptAnnouncement(
+  summary: string | null,
+  receipt: SignedReceipt | null,
+): string {
+  if (!summary) return "";
 
+  if (!receipt) {
+    return "Receipt not returned.";
+  }
+
+  return "Verifying receipt…";
+}
 function PlaceholderCard() {
   return (
     <div className="border border-dashed border-ink-faint bg-paper p-10">

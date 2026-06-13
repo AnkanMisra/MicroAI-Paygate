@@ -129,11 +129,7 @@ function ReceiptStatusBadge({ state }: { state: ReceiptVerifyState }) {
     content = <Badge tone="muted">Verifying receipt…</Badge>;
   }
 
-  return (
-    <div role="status" aria-live="polite">
-      {content}
-    </div>
-  );
+  return content;
 }
 
 function describeReceiptState(state: ReceiptVerifyState): string {
