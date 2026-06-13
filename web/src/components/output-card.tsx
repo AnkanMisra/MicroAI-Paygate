@@ -119,10 +119,14 @@ function useReceiptVerification(receipt: SignedReceipt | null): ReceiptVerifySta
 }
 
 function ReceiptStatusBadge({ state }: { state: ReceiptVerifyState }) {
-  if (state === "valid") return <Badge tone="ok">✓ Receipt verified</Badge>;
-  if (state === "invalid") return <Badge tone="alert">✗ Receipt not verified</Badge>;
-  if (state === "verifying") return <Badge tone="muted">Verifying receipt…</Badge>;
-  return <Badge tone="muted">Receipt not returned</Badge>;
+  return (
+    <div role="status" aria-live="polite">
+      {state === "valid" && <Badge tone="ok">✓ Receipt verified</Badge>}
+      {state === "invalid" && <Badge tone="alert">✗ Receipt not verified</Badge>}
+      {state === "verifying" && <Badge tone="muted">Verifying receipt…</Badge>}
+      {state === "missing" && <Badge tone="muted">Receipt not returned</Badge>}
+    </div>
+  );
 }
 
 function describeReceiptState(state: ReceiptVerifyState): string {
