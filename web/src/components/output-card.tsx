@@ -86,35 +86,46 @@ export function OutputCard({ summary, receipt, verifyState }: Props) {
 }
 
 export function useReceiptVerification(receipt: SignedReceipt | null): ReceiptVerifyState {
+  const receiptKey = getReceiptVerificationKey(receipt);
   const [result, setResult] = useState<{
-    id: string | null;
+    key: string | null;
     state: Exclude<ReceiptVerifyState, "missing" | "verifying">;
-  }>({ id: null, state: "invalid" });
+  }>({ key: null, state: "invalid" });
 
   useEffect(() => {
     let cancelled = false;
-    if (!receipt) return undefined;
+    if (!receipt || !receiptKey) return undefined;
 
     void verifyReceipt(receipt)
       .then((ok) => {
         if (!cancelled) {
-          setResult({ id: receipt.receipt.id, state: ok ? "valid" : "invalid" });
+          setResult({ key: receiptKey, state: ok ? "valid" : "invalid" });
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setResult({ id: receipt.receipt.id, state: "invalid" });
+          setResult({ key: receiptKey, state: "invalid" });
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [receipt]);
+  }, [receipt, receiptKey]);
 
   if (!receipt) return "missing";
-  if (result.id !== receipt.receipt.id) return "verifying";
+  if (result.key !== receiptKey) return "verifying";
   return result.state;
+}
+
+export function getReceiptVerificationKey(receipt: SignedReceipt | null): string | null {
+  if (!receipt) return null;
+
+  return JSON.stringify({
+    receipt: receipt.receipt,
+    signature: receipt.signature,
+    server_public_key: receipt.server_public_key,
+  });
 }
 
 function ReceiptStatusBadge({ state }: { state: ReceiptVerifyState }) {
