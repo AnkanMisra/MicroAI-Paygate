@@ -85,33 +85,22 @@ export function ReceiptCard({ signed, savedAt, promptPreview }: Props) {
     </li>
   );
 }
-function VerifyControl({ state, onClick }: { state: VerifyState; onClick: () => void }) {
-  return (
-    <>
-      {state === "idle" && (
-        <button
-          type="button"
-          onClick={onClick}
-          className="border border-ink bg-paper px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink transition-colors duration-150 hover:bg-ink hover:text-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        >
-          Verify signature
-        </button>
-      )}
 
-      <div role="status" aria-live="polite">
-        {state === "verifying" && (
-          <Badge tone="muted">Verifying signature…</Badge>
-        )}
-        {state === "valid" && (
-          <Badge tone="ok">✓ Signature valid</Badge>
-        )}
-        {state === "invalid" && (
-          <Badge tone="alert">✗ Signature invalid</Badge>
-        )}
-      </div>
-    </>
+function VerifyControl({ state, onClick }: { state: VerifyState; onClick: () => void }) {
+  if (state === "verifying") return <Badge tone="muted">Verifying…</Badge>;
+  if (state === "valid") return <Badge tone="ok">✓ Signature valid</Badge>;
+  if (state === "invalid") return <Badge tone="alert">✗ Invalid</Badge>;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="border border-ink bg-paper px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink transition-colors duration-150 hover:bg-ink hover:text-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+    >
+      Verify signature
+    </button>
   );
 }
+
 function formatRelative(ms: number): string {
   const diff = Date.now() - ms;
   if (diff < 60_000) return "just now";

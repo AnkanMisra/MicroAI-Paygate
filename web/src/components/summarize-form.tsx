@@ -6,7 +6,7 @@ import { AnalyticsEvent } from "@/lib/analytics-events";
 import { useX402 } from "@/hooks/use-x402";
 import { Button } from "./ui/button";
 import { StatusStrip } from "./status-strip";
-import { OutputCard, useReceiptVerification, type ReceiptVerifyState } from "./output-card";
+import { OutputCard } from "./output-card";
 import { ErrorBanner } from "./error-banner";
 
 const SAMPLE_PROMPT =
@@ -30,7 +30,6 @@ const DISPLAY_CHAIN_NAME = process.env.NEXT_PUBLIC_EXPECTED_CHAIN_NAME ?? "Base 
 export function SummarizeForm() {
   const [input, setInput] = useState("");
   const { submit, reset, step, summary, receipt, error, isRunning } = useX402();
-  const verifyState = useReceiptVerification(receipt);
 
   const wordCount = input.trim() ? input.trim().split(/\s+/).length : 0;
   const charCount = input.length;
@@ -113,27 +112,13 @@ export function SummarizeForm() {
         <h3 id="result-heading" className="sr-only">
           Payment flow and result
         </h3>
-        <div role="status" aria-live="polite" className="sr-only">
-          {getReceiptAnnouncement(summary, verifyState)}
-        </div>
         <StatusStrip step={step} hasError={!!error} />
         {error && <ErrorBanner error={error} onRetry={handleSubmit} onDismiss={handleReset} />}
-        {summary && <OutputCard summary={summary} receipt={receipt} verifyState={verifyState} />}
+        {summary && <OutputCard summary={summary} receipt={receipt} />}
         {!summary && !error && step === "idle" && <PlaceholderCard />}
       </section>
     </div>
   );
-}
-export function getReceiptAnnouncement(
-  summary: string | null,
-  state: ReceiptVerifyState,
-): string {
-  if (!summary) return "";
-
-  if (state === "valid") return "Receipt verified.";
-  if (state === "invalid") return "Receipt not verified.";
-  if (state === "verifying") return "Verifying receipt…";
-  return "Receipt not returned.";
 }
 
 function PlaceholderCard() {
