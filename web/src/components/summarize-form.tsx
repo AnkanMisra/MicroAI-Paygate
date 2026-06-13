@@ -6,9 +6,8 @@ import { AnalyticsEvent } from "@/lib/analytics-events";
 import { useX402 } from "@/hooks/use-x402";
 import { Button } from "./ui/button";
 import { StatusStrip } from "./status-strip";
-import { OutputCard } from "./output-card";
+import { OutputCard, useReceiptVerification, type ReceiptVerifyState } from "./output-card";
 import { ErrorBanner } from "./error-banner";
-import type { SignedReceipt } from "@/lib/verify-receipt";
 
 const SAMPLE_PROMPT =
   "Bitcoin: A Peer-to-Peer Electronic Cash System. A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution. Digital signatures provide part of the solution, but the main benefits are lost if a trusted third party is still required to prevent double-spending. We propose a solution to the double-spending problem using a peer-to-peer network. The network timestamps transactions by hashing them into an ongoing chain of hash-based proof-of-work, forming a record that cannot be changed without redoing the proof-of-work.";
@@ -31,6 +30,7 @@ const DISPLAY_CHAIN_NAME = process.env.NEXT_PUBLIC_EXPECTED_CHAIN_NAME ?? "Base 
 export function SummarizeForm() {
   const [input, setInput] = useState("");
   const { submit, reset, step, summary, receipt, error, isRunning } = useX402();
+  const verifyState = useReceiptVerification(receipt);
 
   const wordCount = input.trim() ? input.trim().split(/\s+/).length : 0;
   const charCount = input.length;
@@ -114,27 +114,28 @@ export function SummarizeForm() {
           Payment flow and result
         </h3>
         <div role="status" aria-live="polite" className="sr-only">
-          {getReceiptAnnouncement(summary, receipt)}</div>
+          {getReceiptAnnouncement(summary, verifyState)}
+        </div>
         <StatusStrip step={step} hasError={!!error} />
         {error && <ErrorBanner error={error} onRetry={handleSubmit} onDismiss={handleReset} />}
-        {summary && <OutputCard summary={summary} receipt={receipt} />}
+        {summary && <OutputCard summary={summary} receipt={receipt} verifyState={verifyState} />}
         {!summary && !error && step === "idle" && <PlaceholderCard />}
       </section>
     </div>
   );
 }
-function getReceiptAnnouncement(
+export function getReceiptAnnouncement(
   summary: string | null,
-  receipt: SignedReceipt | null,
+  state: ReceiptVerifyState,
 ): string {
   if (!summary) return "";
 
-  if (!receipt) {
-    return "Receipt not returned.";
-  }
-
-  return "Verifying receipt…";
+  if (state === "valid") return "Receipt verified.";
+  if (state === "invalid") return "Receipt not verified.";
+  if (state === "verifying") return "Verifying receipt…";
+  return "Receipt not returned.";
 }
+
 function PlaceholderCard() {
   return (
     <div className="border border-dashed border-ink-faint bg-paper p-10">
