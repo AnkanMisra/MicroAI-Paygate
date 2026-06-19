@@ -184,6 +184,8 @@ it("notifies subscribers after successful mutations", () => {
 
   unsubscribe();
 
+  saveReceipt(mockReceipt, "test");
+
   expect(calls).toBe(3);
 });
 
