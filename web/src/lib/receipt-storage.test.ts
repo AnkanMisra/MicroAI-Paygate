@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 
 import {
   clearReceipts,
@@ -37,19 +37,39 @@ const mockReceipt: SignedReceipt = {
 
 const storage = new Map<string, string>();
 
+type TestGlobals = {
+  localStorage?: {
+    getItem: (key: string) => string | null;
+    setItem: (key: string, value: string) => void;
+    removeItem: (key: string) => void;
+    clear: () => void;
+  };
+  window?: {
+    localStorage?: unknown;
+  };
+};
+
+const testGlobals = globalThis as unknown as TestGlobals;
+
 beforeEach(() => {
   storage.clear();
 
-  (globalThis as any).localStorage = {
-    getItem: (key: string) => storage.get(key) ?? null,
-    setItem: (key: string, value: string) => storage.set(key, value),
-    removeItem: (key: string) => storage.delete(key),
-    clear: () => storage.clear(),
-  };
+  testGlobals.localStorage = {
+  getItem: (key: string) => storage.get(key) ?? null,
+  setItem: (key: string, value: string) => {
+    storage.set(key, value);
+  },
+  removeItem: (key: string) => {
+    storage.delete(key);
+  },
+  clear: () => {
+    storage.clear();
+  },
+};
 
-  (globalThis as any).window = {
-    localStorage: (globalThis as any).localStorage,
-  };
+testGlobals.window = {
+  localStorage: testGlobals.localStorage,
+};
 });
 
 describe("receipt-storage", () => {
@@ -133,12 +153,12 @@ it("caps stored history at 20 entries with newest first", () => {
 });
 
 it("saveReceipt does not throw when localStorage fails", () => {
-  (globalThis as any).localStorage.setItem = () => {
+  testGlobals.localStorage!.setItem = () => {
     throw new Error("storage failed");
   };
 
-  (globalThis as any).window.localStorage =
-    (globalThis as any).localStorage;
+  testGlobals.window!.localStorage =
+    testGlobals.localStorage;
 
   expect(() => {
     saveReceipt(mockReceipt, "test");
@@ -146,12 +166,12 @@ it("saveReceipt does not throw when localStorage fails", () => {
 });
 
 it("removeReceipt does not throw when localStorage fails", () => {
-  (globalThis as any).localStorage.setItem = () => {
+  testGlobals.localStorage!.setItem = () => {
     throw new Error("storage failed");
   };
 
-  (globalThis as any).window.localStorage =
-    (globalThis as any).localStorage;
+  testGlobals.window!.localStorage =
+    testGlobals.localStorage;
 
   expect(() => {
     removeReceipt("rcpt_123");
@@ -159,12 +179,12 @@ it("removeReceipt does not throw when localStorage fails", () => {
 });
 
 it("clearReceipts does not throw when localStorage fails", () => {
-  (globalThis as any).localStorage.removeItem = () => {
+  testGlobals.localStorage!.removeItem = () => {
     throw new Error("storage failed");
   };
 
-  (globalThis as any).window.localStorage =
-    (globalThis as any).localStorage;
+  testGlobals.window!.localStorage =
+    testGlobals.localStorage;
 
   expect(() => {
     clearReceipts();
