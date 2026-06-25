@@ -2,10 +2,15 @@
 
 import { useEffect, useState } from "react";
 
-const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL;
-const VERIFIER_URL = process.env.NEXT_PUBLIC_VERIFIER_URL;
+function getGatewayUrl() {
+  return process.env.NEXT_PUBLIC_GATEWAY_URL;
+}
 
-export function createWarmupProbes(
+function getVerifierUrl() {
+  return process.env.NEXT_PUBLIC_VERIFIER_URL;
+}
+
+function createWarmupProbes(
   gatewayUrl: string,
   verifierUrl?: string,
   signal?: AbortSignal,
@@ -30,14 +35,17 @@ export function createWarmupProbes(
 }
 
 export function ColdStartWarmup() {
-  const [warm, setWarm] = useState(!GATEWAY_URL);
+  const gatewayUrl = getGatewayUrl();
+  const verifierUrl = getVerifierUrl();
+
+  const [warm, setWarm] = useState(!gatewayUrl);
 
   useEffect(() => {
-    if (!GATEWAY_URL) return;
+    if (!gatewayUrl) return;
     const controller = new AbortController();
     const probes = createWarmupProbes(
-      GATEWAY_URL,
-      VERIFIER_URL,
+      gatewayUrl,
+      verifierUrl,
       controller.signal,
     );
     Promise.allSettled(probes).then(() => setWarm(true));

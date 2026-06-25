@@ -1,43 +1,116 @@
-import { describe, expect, mock, test } from "bun:test";
-import { createWarmupProbes } from "./cold-start-warmup";
+import "../test/setup-dom";
 
-describe("createWarmupProbes", () => {
+import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { cleanup, render } from "@testing-library/react";
+import React from "react";
 
-    test("adds verifier probe when verifier url is configured", () => {
-      const originalFetch = globalThis.fetch;
+const originalFetch = globalThis.fetch;
+const originalGateway = process.env.NEXT_PUBLIC_GATEWAY_URL;
+const originalVerifier = process.env.NEXT_PUBLIC_VERIFIER_URL;
 
-      const fetchMock = mock(() =>
-        Promise.resolve(new Response(null, { status: 200 })),
-      );
+beforeEach(() => {
+  process.env.NEXT_PUBLIC_GATEWAY_URL = "https://gateway.example";
+  delete process.env.NEXT_PUBLIC_VERIFIER_URL;
+});
 
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
+afterEach(() => {
+  cleanup();
+  globalThis.fetch = originalFetch;
 
-      createWarmupProbes(
-        "https://gateway.example",
-        "https://verifier.example",
-      );
+  if (originalGateway === undefined) {
+    delete process.env.NEXT_PUBLIC_GATEWAY_URL;
+  } else {
+    process.env.NEXT_PUBLIC_GATEWAY_URL = originalGateway;
+  }
 
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+  if (originalVerifier === undefined) {
+    delete process.env.NEXT_PUBLIC_VERIFIER_URL;
+  } else {
+    process.env.NEXT_PUBLIC_VERIFIER_URL = originalVerifier;
+  }
+});
 
-      globalThis.fetch = originalFetch;
-    });
-  test("creates only gateway probe when verifier url is not configured", () => {
-    const originalFetch = globalThis.fetch;
+test("renders nothing when NEXT_PUBLIC_GATEWAY_URL is unset", async () => {
+  delete process.env.NEXT_PUBLIC_GATEWAY_URL;
 
-    const fetchMock = mock(() =>
-      Promise.resolve(new Response(null, { status: 200 })),
-    );
+  const { ColdStartWarmup } = await import("./cold-start-warmup");
 
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+  const { container } = render(<ColdStartWarmup />);
 
-    createWarmupProbes("https://gateway.example");
+  expect(container.firstChild).toBeNull();
+});
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://gateway.example/healthz",
-      expect.any(Object),
-    );
+test("banner shows while fetch is pending", async () => {
+  const pendingFetch = mock(() => new Promise<Response>(() => {}));
 
-    globalThis.fetch = originalFetch;
+  globalThis.fetch = pendingFetch as unknown as typeof fetch;
+
+  const { ColdStartWarmup } = await import("./cold-start-warmup");
+
+  const { getByText, queryByText } = render(<ColdStartWarmup />);
+  
+  expect(getByText(/Free tier wake-up/i)).toBeTruthy();
+});
+
+test("banner disappears after fetch settles", async () => {
+  let resolveFetch: (value: Response) => void;
+  const pendingFetch = mock(
+    () =>
+      new Promise<Response>((resolve) => {
+        resolveFetch = resolve;
+      })
+  );
+
+  globalThis.fetch = pendingFetch as unknown as typeof fetch;
+
+  const { ColdStartWarmup } = await import("./cold-start-warmup");
+
+  const { getByText, queryByText } = render(<ColdStartWarmup />);
+  expect(getByText(/Free tier wake-up/i)).toBeTruthy();
+
+  resolveFetch!(
+    new Response("OK", { status: 200, statusText: "OK" })
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(queryByText(/Free tier wake-up/i)).toBeNull();
+});
+
+test("verifier probe is added when NEXT_PUBLIC_VERIFIER_URL is configured", async () => {
+  process.env.NEXT_PUBLIC_VERIFIER_URL = "https://verifier.example";
+  const fetchCalls: string[] = [];
+  const trackedFetch = mock((url: string) => {
+    fetchCalls.push(url);
+    return Promise.resolve(new Response("OK", { status: 200 }));
   });
+
+  globalThis.fetch = trackedFetch as unknown as typeof fetch;
+
+  const { ColdStartWarmup } = await import("./cold-start-warmup");
+
+  render(<ColdStartWarmup />);
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(fetchCalls).toContain("https://gateway.example/healthz");
+  expect(fetchCalls).toContain("https://verifier.example/health");
+});
+
+test("fetch failures still warm the component", async () => {
+  const failingFetch = mock(() =>
+    Promise.reject(new Error("Network error"))
+  );
+
+  globalThis.fetch = failingFetch as unknown as typeof fetch;
+
+  const { ColdStartWarmup } = await import("./cold-start-warmup");
+
+  const { getByText, queryByText } = render(<ColdStartWarmup />);
+
+  expect(getByText(/Free tier wake-up/i)).toBeTruthy();
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(queryByText(/Free tier wake-up/i)).toBeNull();
 });
