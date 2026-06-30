@@ -2,7 +2,6 @@ import "../test/setup-dom";
 
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
-import React from "react";
 
 const originalFetch = globalThis.fetch;
 const originalGateway = process.env.NEXT_PUBLIC_GATEWAY_URL;
