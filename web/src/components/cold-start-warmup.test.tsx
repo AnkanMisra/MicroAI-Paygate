@@ -1,7 +1,7 @@
 import "../test/setup-dom";
 
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 
 const originalFetch = globalThis.fetch;
 const originalGateway = process.env.NEXT_PUBLIC_GATEWAY_URL;
@@ -47,12 +47,15 @@ test("banner shows while fetch is pending", async () => {
   const { ColdStartWarmup } = await import("./cold-start-warmup");
 
   const { getByText } = render(<ColdStartWarmup />);
-  
-  expect(getByText(/Free tier wake-up/i)).toBeTruthy();
+
+  await waitFor(() => {
+    expect(getByText(/Free tier wake-up/i)).toBeTruthy();
+  });
 });
 
 test("banner disappears after fetch settles", async () => {
   let resolveFetch: (value: Response) => void;
+
   const pendingFetch = mock(
     () =>
       new Promise<Response>((resolve) => {
@@ -65,20 +68,23 @@ test("banner disappears after fetch settles", async () => {
   const { ColdStartWarmup } = await import("./cold-start-warmup");
 
   const { getByText, queryByText } = render(<ColdStartWarmup />);
+
   expect(getByText(/Free tier wake-up/i)).toBeTruthy();
 
   resolveFetch!(
     new Response("OK", { status: 200, statusText: "OK" })
   );
 
-  await new Promise((resolve) => setTimeout(resolve, 0));
-
-  expect(queryByText(/Free tier wake-up/i)).toBeNull();
+  await waitFor(() => {
+    expect(queryByText(/Free tier wake-up/i)).toBeNull();
+  });
 });
 
 test("verifier probe is added when NEXT_PUBLIC_VERIFIER_URL is configured", async () => {
   process.env.NEXT_PUBLIC_VERIFIER_URL = "https://verifier.example";
+
   const fetchCalls: string[] = [];
+
   const trackedFetch = mock((url: string) => {
     fetchCalls.push(url);
     return Promise.resolve(new Response("OK", { status: 200 }));
@@ -90,10 +96,10 @@ test("verifier probe is added when NEXT_PUBLIC_VERIFIER_URL is configured", asyn
 
   render(<ColdStartWarmup />);
 
-  await new Promise((resolve) => setTimeout(resolve, 0));
-
-  expect(fetchCalls).toContain("https://gateway.example/healthz");
-  expect(fetchCalls).toContain("https://verifier.example/health");
+  await waitFor(() => {
+    expect(fetchCalls).toContain("https://gateway.example/healthz");
+    expect(fetchCalls).toContain("https://verifier.example/health");
+  });
 });
 
 test("fetch failures still warm the component", async () => {
@@ -107,9 +113,11 @@ test("fetch failures still warm the component", async () => {
 
   const { getByText, queryByText } = render(<ColdStartWarmup />);
 
-  expect(getByText(/Free tier wake-up/i)).toBeTruthy();
+  await waitFor(() => {
+    expect(getByText(/Free tier wake-up/i)).toBeTruthy();
+  });
 
-  await new Promise((resolve) => setTimeout(resolve, 0));
-
-  expect(queryByText(/Free tier wake-up/i)).toBeNull();
+  await waitFor(() => {
+    expect(queryByText(/Free tier wake-up/i)).toBeNull();
+  });
 });

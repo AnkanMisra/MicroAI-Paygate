@@ -35,20 +35,24 @@ function createWarmupProbes(
 }
 
 export function ColdStartWarmup() {
-  const gatewayUrl = getGatewayUrl();
-  const verifierUrl = getVerifierUrl();
-
-  const [warm, setWarm] = useState(!gatewayUrl);
+  const [warm, setWarm] = useState(!getGatewayUrl());
 
   useEffect(() => {
+    const gatewayUrl = getGatewayUrl();
+    const verifierUrl = getVerifierUrl();
+
     if (!gatewayUrl) return;
+
     const controller = new AbortController();
+
     const probes = createWarmupProbes(
       gatewayUrl,
       verifierUrl,
       controller.signal,
     );
+
     Promise.allSettled(probes).then(() => setWarm(true));
+
     return () => controller.abort();
   }, []);
 
