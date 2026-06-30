@@ -46,7 +46,7 @@ test("banner shows while fetch is pending", async () => {
 
   const { ColdStartWarmup } = await import("./cold-start-warmup");
 
-  const { getByText, queryByText } = render(<ColdStartWarmup />);
+  const { getByText } = render(<ColdStartWarmup />);
   
   expect(getByText(/Free tier wake-up/i)).toBeTruthy();
 });
