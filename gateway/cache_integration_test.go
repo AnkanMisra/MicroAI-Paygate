@@ -198,18 +198,33 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 	}
 
 	// Verify Body
-	var resp1, resp2 map[string]interface{}
-	if err := json.Unmarshal(w1.Body.Bytes(), &resp1); err != nil {
-		t.Fatalf("Failed to unmarshal response 1: %v", err)
-	}
-	if err := json.Unmarshal(w2.Body.Bytes(), &resp2); err != nil {
-		t.Fatalf("Failed to unmarshal response 2: %v", err)
+	parseSSEResultForTest := func(body []byte) string {
+		lines := strings.Split(string(body), "\n")
+		var result string
+		for _, line := range lines {
+			if strings.HasPrefix(line, "data: ") {
+				data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+				if data == "[DONE]" || data == "" {
+					continue
+				}
+				var chunk map[string]interface{}
+				if err := json.Unmarshal([]byte(data), &chunk); err == nil {
+					if text, ok := chunk["text"].(string); ok {
+						result += text
+					}
+				}
+			}
+		}
+		return result
 	}
 
-	if val, ok := resp1["result"].(string); !ok || val != "AI Summary Result" {
-		t.Errorf("Unexpected result 1: %v", resp1["result"])
+	result1 := parseSSEResultForTest(w1.Body.Bytes())
+	result2 := parseSSEResultForTest(w2.Body.Bytes())
+
+	if result1 != "AI Summary Result" {
+		t.Errorf("Unexpected result 1: %v", result1)
 	}
-	if val, ok := resp2["result"].(string); !ok || val != "AI Summary Result" {
-		t.Errorf("Unexpected result 2: %v", resp2["result"])
+	if result2 != "AI Summary Result" {
+		t.Errorf("Unexpected result 2: %v", result2)
 	}
 }

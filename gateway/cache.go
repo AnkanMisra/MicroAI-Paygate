@@ -174,9 +174,9 @@ func CacheMiddleware() gin.HandlerFunc {
 			// Generate receipt for cache hit using current request and cached result.
 			// Note: request_hash matches current request, response is from cache,
 			// but both are cryptographically valid since cache key ensures identical text.
-			if err := generateAndSendReceipt(c, *paymentCtx, verifyResp.RecoveredAddress, requestBody, cached.Result); err != nil {
+			if err := streamResultAndReceipt(c, *paymentCtx, verifyResp.RecoveredAddress, requestBody, cached.Result); err != nil {
 				log.Printf("Failed to send cached response receipt: %v", err)
-				// generateAndSendReceipt already sent an error response (500)
+				// streamResultAndReceipt already sent an error response
 			}
 			c.Abort()
 			return
@@ -208,10 +208,10 @@ func CacheMiddleware() gin.HandlerFunc {
 		writer.mu.RUnlock()
 
 		if statusCode == 200 {
-			// Response format: {"result": "...", "receipt": ...}
-			var resp map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &resp); err == nil {
-				if result, ok := resp["result"].(string); ok {
+			// Instead of parsing the SSE stream from bodyBytes, we retrieve the full summary
+			// which handleSummarize saves in the gin context.
+			if fullSummaryVal, exists := c.Get("full_summary"); exists {
+				if result, ok := fullSummaryVal.(string); ok {
 					// Store asynchronously with a deadline to prevent indefinite goroutines
 					go func(k, v string) {
 						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

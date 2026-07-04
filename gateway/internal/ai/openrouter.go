@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -99,4 +100,89 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, text string) (string,
 	}
 
 	return content, nil
+}
+
+type openRouterStream struct {
+	resp   *http.Response
+	reader *bufio.Reader
+}
+
+func (s *openRouterStream) Recv() (string, error) {
+	for {
+		line, err := s.reader.ReadBytes('\n')
+		if err != nil {
+			return "", err
+		}
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		if bytes.HasPrefix(line, []byte("data: ")) {
+			data := bytes.TrimPrefix(line, []byte("data: "))
+			if string(data) == "[DONE]" {
+				return "", io.EOF
+			}
+			var chunk map[string]interface{}
+			if err := json.Unmarshal(data, &chunk); err != nil {
+				continue // skip invalid json
+			}
+			choices, ok := chunk["choices"].([]interface{})
+			if !ok || len(choices) == 0 {
+				continue
+			}
+			choice, ok := choices[0].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			delta, ok := choice["delta"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if content, ok := delta["content"].(string); ok {
+				return content, nil
+			}
+		}
+	}
+}
+
+func (s *openRouterStream) Close() error {
+	return s.resp.Body.Close()
+}
+
+func (p *OpenRouterProvider) GenerateStream(ctx context.Context, text string) (Stream, error) {
+	prompt := fmt.Sprintf("Summarize this text in 2 sentences: %s", text)
+
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"model": p.model,
+		"messages": []map[string]string{
+			{"role": "user", "content": prompt},
+		},
+		"stream": true,
+	})
+
+	req, err := http.NewRequestWithContext(ctx, "POST", p.url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenRouter request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
+			return nil, context.DeadlineExceeded
+		}
+		return nil, err
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("openrouter returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return &openRouterStream{
+		resp:   resp,
+		reader: bufio.NewReader(resp.Body),
+	}, nil
 }

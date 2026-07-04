@@ -86,8 +86,9 @@ describe("MicroAI Paygate E2E Flow", () => {
     }
 
     expect(res.status).toBe(200);
-    const data = await res.json() as any;
-    expect(data.result).toBeDefined();
+    const textStr = await res.text();
+    expect(textStr).toContain("data: {");
+    expect(textStr).toContain("[DONE]");
   }, 30000);
 
   it("should reject replayed signed payment context", async () => {

@@ -111,7 +111,9 @@ export function useX402() {
 
       if (first.status === 200) {
         update({ step: "receipt" });
-        const { summary, receipt } = await readSummarizeSuccess(first);
+        const { summary, receipt } = await readSummarizeSuccess(first, (text) => {
+          update({ summary: text });
+        });
         if (receipt) saveReceipt(receipt, text);
         track(AnalyticsEvent.SummaryCompleted, {
           ...flowProps,
@@ -280,7 +282,9 @@ export function useX402() {
       }
 
       update({ step: "receipt" });
-      const { summary, receipt } = await readSummarizeSuccess(retry);
+      const { summary, receipt } = await readSummarizeSuccess(retry, (text) => {
+        update({ summary: text });
+      });
       if (receipt) saveReceipt(receipt, text);
       track(AnalyticsEvent.SummaryCompleted, {
         ...flowProps,

@@ -521,7 +521,7 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	// 3. Call AI Service
-	summary, err := aiProvider.Generate(c.Request.Context(), req.Text)
+	stream, err := aiProvider.GenerateStream(c.Request.Context(), req.Text)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(c.Request.Context().Err(), context.DeadlineExceeded) {
 			respondError(c, 504, "upstream_timeout", err)
@@ -530,15 +530,65 @@ func handleSummarize(c *gin.Context) {
 		}
 		return
 	}
+	defer stream.Close()
 
-	// 4. Generate & Send Receipt
-	if err := generateAndSendReceipt(c, *paymentCtx, verifyResp.RecoveredAddress, requestBody, summary); err != nil {
-		log.Printf("Failed to generate receipt: %v", err)
-		// generateAndSendReceipt sends error response if it fails?
-		// No, it returns error, we might have already written status if we aren't careful.
-		// Let's implement generateAndSendReceipt to handle sending response.
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		respondError(c, 500, "streaming_unsupported", fmt.Errorf("streaming unsupported"))
 		return
 	}
+
+	var fullSummary string
+	for {
+		text, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			fmt.Fprintf(c.Writer, "data: {\"error\": %q}\n\n", err.Error())
+			flusher.Flush()
+			return
+		}
+		
+		fullSummary += text
+		chunkBytes, _ := json.Marshal(map[string]string{"text": text})
+		fmt.Fprintf(c.Writer, "data: %s\n\n", chunkBytes)
+		flusher.Flush()
+	}
+
+	// 4. Generate Receipt
+	responseMap := map[string]interface{}{
+		"result": fullSummary,
+	}
+	responseBody, _ := json.Marshal(responseMap)
+
+	receipt, err := GenerateReceipt(*paymentCtx, verifyResp.RecoveredAddress, c.Request.URL.Path, requestBody, responseBody)
+	if err != nil {
+		fmt.Fprintf(c.Writer, "data: {\"error\": \"receipt_generation_failed\"}\n\n")
+		flusher.Flush()
+		return
+	}
+
+	if err := storeReceiptWithContext(c.Request.Context(), receipt, getReceiptTTL()); err != nil {
+		fmt.Fprintf(c.Writer, "data: {\"error\": \"receipt_store_failed\"}\n\n")
+		flusher.Flush()
+		return
+	}
+
+	receiptJSON, _ := json.Marshal(receipt)
+	receiptBase64 := base64.StdEncoding.EncodeToString(receiptJSON)
+
+	// Send receipt as final event
+	fmt.Fprintf(c.Writer, "data: {\"receipt\": %q}\n\n", receiptBase64)
+	fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+	flusher.Flush()
+
+	// Store for cache middleware
+	c.Set("full_summary", fullSummary)
 }
 
 // verifyPayment calls the verification service.
@@ -609,42 +659,48 @@ func verifyPayment(ctx context.Context, signature, nonce string, timestamp uint6
 	return &verifyResp, &paymentCtx, nil
 }
 
-// generateAndSendReceipt handles receipt generation, storage, and sending the final JSON response.
-// The receipt is sent ONLY in the X-402-Receipt header, not in the response body,
-// to ensure the ResponseHash in the receipt matches the actual JSON body clients receive.
-func generateAndSendReceipt(c *gin.Context, paymentCtx PaymentContext, recoveredAddr string, requestBody []byte, aiResult string) error {
-	// Construct the response body that will be sent to client (without receipt)
+// streamResultAndReceipt is used by CacheMiddleware for cache hits to stream the response identically to a live request.
+func streamResultAndReceipt(c *gin.Context, paymentCtx PaymentContext, recoveredAddr string, requestBody []byte, aiResult string) error {
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		respondError(c, 500, "streaming_unsupported", fmt.Errorf("streaming unsupported"))
+		return fmt.Errorf("streaming unsupported")
+	}
+
+	chunkBytes, _ := json.Marshal(map[string]string{"text": aiResult})
+	fmt.Fprintf(c.Writer, "data: %s\n\n", chunkBytes)
+	flusher.Flush()
+
+	// Generate Receipt
 	responseMap := map[string]interface{}{
 		"result": aiResult,
 	}
-	responseBody, err := json.Marshal(responseMap)
-	if err != nil {
-		respondError(c, 500, "response_encoding_failed", err)
-		return err
-	}
+	responseBody, _ := json.Marshal(responseMap)
 
-	// Generate receipt with the actual response body hash
 	receipt, err := GenerateReceipt(paymentCtx, recoveredAddr, c.Request.URL.Path, requestBody, responseBody)
 	if err != nil {
-		respondError(c, 500, "receipt_generation_failed", err)
+		fmt.Fprintf(c.Writer, "data: {\"error\": \"receipt_generation_failed\"}\n\n")
+		flusher.Flush()
 		return err
 	}
 
 	if err := storeReceiptWithContext(c.Request.Context(), receipt, getReceiptTTL()); err != nil {
-		respondError(c, 500, "receipt_store_failed", err)
+		fmt.Fprintf(c.Writer, "data: {\"error\": \"receipt_store_failed\"}\n\n")
+		flusher.Flush()
 		return err
 	}
 
-	receiptJSON, err := json.Marshal(receipt)
-	if err != nil {
-		respondError(c, 500, "receipt_encoding_failed", err)
-		return err
-	}
+	receiptJSON, _ := json.Marshal(receipt)
 	receiptBase64 := base64.StdEncoding.EncodeToString(receiptJSON)
 
-	// Send receipt in header only (not in body) so ResponseHash matches body
-	c.Header("X-402-Receipt", receiptBase64)
-	c.JSON(200, responseMap)
+	// Send receipt as final event
+	fmt.Fprintf(c.Writer, "data: {\"receipt\": %q}\n\n", receiptBase64)
+	fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+	flusher.Flush()
 	return nil
 }
 

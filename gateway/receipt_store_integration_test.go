@@ -83,11 +83,24 @@ func TestRedisReceiptStore_PersistsAcrossGatewayRestart(t *testing.T) {
 		t.Fatalf("create receipt status=%d body=%s", createResp.Code, createResp.Body.String())
 	}
 
-	receiptHeader := createResp.Header().Get("X-402-Receipt")
-	if receiptHeader == "" {
-		t.Fatal("missing X-402-Receipt header")
+	var receiptBase64 string
+	lines := strings.Split(createResp.Body.String(), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "data: ") {
+			dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+			var chunk map[string]interface{}
+			if err := json.Unmarshal([]byte(dataStr), &chunk); err == nil {
+				if r, ok := chunk["receipt"].(string); ok {
+					receiptBase64 = r
+				}
+			}
+		}
 	}
-	receiptJSON, err := base64.StdEncoding.DecodeString(receiptHeader)
+
+	if receiptBase64 == "" {
+		t.Fatal("missing receipt event in SSE stream")
+	}
+	receiptJSON, err := base64.StdEncoding.DecodeString(receiptBase64)
 	if err != nil {
 		t.Fatalf("decode receipt header: %v", err)
 	}

@@ -68,12 +68,42 @@ export type SummarizeSuccess = {
   receipt: SignedReceipt | null;
 };
 
-export async function readSummarizeSuccess(res: Response): Promise<SummarizeSuccess> {
-  const data = (await res.json()) as { result?: string };
-  const summary = data.result ?? "";
+export async function readSummarizeSuccess(
+  res: Response,
+  onChunk?: (text: string) => void
+): Promise<SummarizeSuccess> {
+  if (!res.body) throw new Error("No response body");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let summary = "";
+  let receipt: SignedReceipt | null = null;
+  let buffer = "";
 
-  const headerVal = res.headers.get("x-402-receipt") ?? res.headers.get("X-402-Receipt");
-  const receipt = headerVal ? safeDecodeReceiptHeader(headerVal) : null;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const dataStr = line.slice("data: ".length).trim();
+        if (dataStr === "[DONE]") continue;
+        try {
+          const parsed = JSON.parse(dataStr);
+          if (parsed.text) {
+            summary += parsed.text;
+            if (onChunk) onChunk(summary);
+          } else if (parsed.receipt) {
+            receipt = safeDecodeReceiptHeader(parsed.receipt);
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+  }
   return { summary, receipt };
 }
 

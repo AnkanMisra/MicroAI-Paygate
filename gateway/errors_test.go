@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"gateway/internal/ai"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -22,6 +23,10 @@ type failingProvider struct {
 
 func (p failingProvider) Generate(context.Context, string) (string, error) {
 	return "", p.err
+}
+
+func (p failingProvider) GenerateStream(context.Context, string) (ai.Stream, error) {
+	return nil, p.err
 }
 
 func newSummarizeTestRouter() *gin.Engine {

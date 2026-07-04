@@ -63,7 +63,7 @@ func TestCallOpenRouter_RespectsContextTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	_, err = provider.Generate(ctx, "hello")
+	_, err = provider.GenerateStream(ctx, "hello")
 	if err == nil {
 		t.Fatalf("Expected timeout error from provider, got nil")
 	}

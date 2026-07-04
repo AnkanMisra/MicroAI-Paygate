@@ -77,3 +77,58 @@ func (p *OllamaProvider) Generate(ctx context.Context, text string) (string, err
 
 	return response, nil
 }
+
+type ollamaStream struct {
+	resp    *http.Response
+	decoder *json.Decoder
+}
+
+func (s *ollamaStream) Recv() (string, error) {
+	var chunk map[string]interface{}
+	if err := s.decoder.Decode(&chunk); err != nil {
+		return "", err // will return io.EOF when stream ends
+	}
+	if response, ok := chunk["response"].(string); ok {
+		return response, nil
+	}
+	return "", fmt.Errorf("invalid response from Ollama: missing response field")
+}
+
+func (s *ollamaStream) Close() error {
+	return s.resp.Body.Close()
+}
+
+func (p *OllamaProvider) GenerateStream(ctx context.Context, text string) (Stream, error) {
+	prompt := fmt.Sprintf("Summarize this text in 2 sentences: %s", text)
+
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"model":  p.model,
+		"prompt": prompt,
+		"stream": true,
+	})
+
+	req, err := http.NewRequestWithContext(ctx, "POST", p.url+"/api/generate", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Ollama request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
+			return nil, context.DeadlineExceeded
+		}
+		return nil, fmt.Errorf("failed to connect to Ollama: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("ollama returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return &ollamaStream{
+		resp:    resp,
+		decoder: json.NewDecoder(resp.Body),
+	}, nil
+}
