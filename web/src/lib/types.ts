@@ -6,6 +6,7 @@ export type PaymentContext = {
   amount: string;
   nonce: string;
   chainId: number;
+  supportedChains?: number[];
   timestamp: number;
 };
 

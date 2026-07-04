@@ -19,6 +19,7 @@ import {
   getProvider,
   hasWallet,
   switchOrAddChain,
+  getChainMeta,
 } from "@/lib/wallet";
 import { saveReceipt } from "@/lib/receipt-storage";
 import { classifyError, type ClassifiedError } from "@/lib/errors";
@@ -180,7 +181,14 @@ export function useX402() {
       // awaiting it to avoid corrupting the connect-conversion metric.
       stage = "chain-lookup";
       const currentChain = await getCurrentChainId();
-      if (currentChain !== context.chainId) {
+      const supported = context.supportedChains?.length 
+        ? context.supportedChains 
+        : [context.chainId];
+      const isSupported = currentChain != null && supported.includes(currentChain);
+      
+      let finalChain = currentChain;
+
+      if (!isSupported) {
         stage = "chain-switch";
         track(AnalyticsEvent.ChainSwitchRequested, {
           ...flowProps,
@@ -192,16 +200,23 @@ export function useX402() {
         // (e.g. Brave) won't auto-switch after adding. Re-check before signing
         // so we never embed the wrong chainId in EIP-712 typed data.
         const postSwitch = await getCurrentChainId();
-        if (postSwitch !== context.chainId) {
+        if (postSwitch == null || !supported.includes(postSwitch)) {
+          const chainNames = supported.map(id => {
+            try { return getChainMeta(id).name; }
+            catch { return `Chain ${id}`; }
+          }).join(", ");
           throw new Error(
-            `Wallet did not switch to chain ${context.chainId} (still on ${postSwitch}). Switch manually and retry.`,
+            `Wallet did not switch to a supported chain. Switch manually to one of: ${chainNames}.`,
           );
         }
+        finalChain = postSwitch;
         track(AnalyticsEvent.ChainSwitchSucceeded, {
           ...flowProps,
           chain_id: context.chainId,
         });
       }
+
+      const signContext = { ...context, chainId: finalChain ?? context.chainId };
 
       stage = "signer";
       const refreshedProvider = new ethers.BrowserProvider(window.ethereum!);
@@ -211,9 +226,9 @@ export function useX402() {
       stage = "sign";
       track(AnalyticsEvent.PaymentSignatureStarted, {
         ...flowProps,
-        chain_id: context.chainId,
+        chain_id: signContext.chainId,
       });
-      const signature = await signPaymentContext(signer, context);
+      const signature = await signPaymentContext(signer, signContext);
       // The signature prompt is modal and can take arbitrarily long. If the
       // user switched or disconnected accounts while it was open, the wallet's
       // accountsChanged handler has already reset analytics identity — so only
@@ -223,12 +238,12 @@ export function useX402() {
       if (liveAccount && liveAccount.toLowerCase() === account.toLowerCase()) {
         identify(account, {
           wallet_connected: true,
-          chain_id: context.chainId,
+          chain_id: signContext.chainId,
         });
       }
       track(AnalyticsEvent.PaymentSignatureSucceeded, {
         ...flowProps,
-        chain_id: context.chainId,
+        chain_id: signContext.chainId,
       });
 
       update({ step: "verify" });
@@ -245,10 +260,10 @@ export function useX402() {
       try {
         track(AnalyticsEvent.SignedRetrySent, {
           ...flowProps,
-          chain_id: context.chainId,
+          chain_id: signContext.chainId,
         });
         retry = await postSummarize(text, {
-          ...buildSignedHeaders(context, signature),
+          ...buildSignedHeaders(signContext, signature),
           "X-Correlation-ID": flow.correlationId,
         });
       } finally {

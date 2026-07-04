@@ -7,7 +7,8 @@ The web app is a Next.js/Bun frontend on port `3001`. It lets users submit text 
 - Send unsigned summarize requests to the gateway.
 - Detect `402` responses and read `paymentContext`.
 - Detect an injected EVM provider such as MetaMask, Rabby, or Coinbase Wallet.
-- Switch or add the requested chain when the wallet is on the wrong network.
+- Check if the wallet is on a chain listed in `supportedChains` (falling back to `chainId` if not advertised).
+- Switch or add the requested default chain when the wallet is on an unsupported network.
 - Sign the gateway-provided EIP-712 payment context.
 - Retry with `X-402-Signature`, `X-402-Nonce`, and `X-402-Timestamp`.
 - Display summary results or user-facing errors.
