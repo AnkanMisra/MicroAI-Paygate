@@ -194,3 +194,109 @@ func replaceReceiptGlobalsForTest(t *testing.T) func() {
 		receiptGlobalsTestMu.Unlock()
 	}
 }
+
+func TestHandleSummarize_ConcurrentReplayAttack(t *testing.T) {
+	ctx := t.Context()
+	redisServer := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	defer rdb.Close()
+
+	verifier := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Mock verifier that always approves
+		_ = json.NewEncoder(w).Encode(VerifyResponse{
+			IsValid:          true,
+			RecoveredAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f8fE21",
+		})
+	}))
+	defer verifier.Close()
+
+	aiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"AI response"}}]}`))
+	}))
+	defer aiServer.Close()
+
+	t.Setenv("CACHE_ENABLED", "false")
+	t.Setenv("RECEIPT_STORE", "redis")
+	t.Setenv("REDIS_URL", redisServer.Addr())
+	t.Setenv("AI_PROVIDER", "openrouter")
+	t.Setenv("OPENROUTER_URL", aiServer.URL)
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	t.Setenv("VERIFIER_URL", verifier.URL)
+	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	t.Setenv("RECIPIENT_ADDRESS", "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219")
+	t.Setenv("RECEIPT_TTL", "86400")
+
+	resetServerPrivateKeyForTest(t)
+	restoreReceiptGlobals := replaceReceiptGlobalsForTest(t)
+	defer restoreReceiptGlobals()
+
+	if err := initRedis(); err != nil {
+		t.Fatalf("init redis: %v", err)
+	}
+	if err := initReceiptStore(); err != nil {
+		t.Fatalf("init redis receipt store: %v", err)
+	}
+
+	var err error
+	aiProvider, err = ai.NewProvider()
+	if err != nil {
+		t.Fatalf("new AI provider: %v", err)
+	}
+
+	gateway := newReceiptPersistenceTestRouter()
+	
+	const numConcurrentRequests = 20
+	var wg sync.WaitGroup
+	wg.Add(numConcurrentRequests)
+
+	successCount := 0
+	conflictCount := 0
+	var mu sync.Mutex
+
+	// Create requests beforehand so they start at the exact same time
+	var requests []*http.Request
+	for i := 0; i < numConcurrentRequests; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/ai/summarize", bytes.NewBufferString(`{"text":"summarize me"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-402-Signature", "0xSameSignatureReplayTest") // Same signature for all requests
+		req.Header.Set("X-402-Nonce", "replay-test-nonce")
+		req.Header.Set("X-402-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
+		requests = append(requests, req)
+	}
+
+	start := make(chan struct{})
+
+	for i := 0; i < numConcurrentRequests; i++ {
+		go func(req *http.Request) {
+			defer wg.Done()
+			<-start // wait for signal to start simultaneously
+			
+			resp := httptest.NewRecorder()
+			gateway.ServeHTTP(resp, req)
+			
+			mu.Lock()
+			if resp.Code == http.StatusOK {
+				successCount++
+			} else if resp.Code == http.StatusPaymentRequired {
+				var body map[string]interface{}
+				_ = json.Unmarshal(resp.Body.Bytes(), &body)
+				if body["message"] == "Transaction already used" {
+					conflictCount++
+				}
+			}
+			mu.Unlock()
+		}(requests[i])
+	}
+	
+	close(start) // Signal all goroutines to start
+	wg.Wait()
+	
+	if successCount != 1 {
+		t.Errorf("Expected exactly 1 successful request, got %d", successCount)
+	}
+	if conflictCount != numConcurrentRequests - 1 {
+		t.Errorf("Expected exactly %d blocked replays, got %d", numConcurrentRequests - 1, conflictCount)
+	}
+}
+

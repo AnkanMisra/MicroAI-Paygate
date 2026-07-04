@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -75,4 +76,30 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+var (
+	memoryUsedTx   = make(map[string]bool)
+	memoryUsedTxMu sync.Mutex
+)
+
+// markTransactionUsed checks and records a transaction signature as used atomically.
+// It returns true if the transaction was already used, or false if it was successfully marked.
+func markTransactionUsed(ctx context.Context, txHash string) (bool, error) {
+	if redisClient == nil {
+		memoryUsedTxMu.Lock()
+		defer memoryUsedTxMu.Unlock()
+		if memoryUsedTx[txHash] {
+			return true, nil
+		}
+		memoryUsedTx[txHash] = true
+		return false, nil
+	}
+	key := "used_tx:" + txHash
+	// SetNX returns true if the key was set, meaning it wasn't used before.
+	added, err := redisClient.SetNX(ctx, key, "1", 30*24*time.Hour).Result()
+	if err != nil {
+		return false, err
+	}
+	return !added, nil
 }

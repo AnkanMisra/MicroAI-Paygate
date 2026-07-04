@@ -164,6 +164,25 @@ func CacheMiddleware() gin.HandlerFunc {
 				c.Abort()
 				return
 			}
+
+			// === Fix for #241: Prevent replay attacks on cache hits ===
+			used, err := markTransactionUsed(c.Request.Context(), signature)
+			if err != nil {
+				respondError(c, 500, "internal_error", fmt.Errorf("failed to check transaction replay: %w", err))
+				c.Abort()
+				return
+			}
+			if used {
+				c.JSON(http.StatusPaymentRequired, gin.H{
+					"error":          "Payment Required",
+					"message":        "Transaction already used",
+					"paymentContext": createPaymentContext(),
+				})
+				c.Abort()
+				return
+			}
+			// ==========================================================
+
 			verificationTotal.WithLabelValues("success").Inc()
 			// Payment Verified. Store verification for downstream if needed (though we abort)
 			c.Set("payment_verification", verifyResp)

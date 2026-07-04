@@ -505,6 +505,22 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
+	// === Fix for #241: Prevent replay attacks ===
+	used, err := markTransactionUsed(c.Request.Context(), signature)
+	if err != nil {
+		respondError(c, 500, "internal_error", fmt.Errorf("failed to check transaction replay: %w", err))
+		return
+	}
+	if used {
+		c.JSON(http.StatusPaymentRequired, gin.H{
+			"error":          "Payment Required",
+			"message":        "Transaction already used",
+			"paymentContext": createPaymentContext(),
+		})
+		return
+	}
+	// ============================================
+
 	verificationTotal.WithLabelValues("success").Inc()
 
 	// 2. Parse Request
