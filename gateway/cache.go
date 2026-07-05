@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -166,17 +167,17 @@ func CacheMiddleware() gin.HandlerFunc {
 			}
 
 			// === Fix for #241: Prevent replay attacks on cache hits ===
-			used, err := markTransactionUsed(c.Request.Context(), signature)
+			// Normalize to lowercase to prevent hex-casing bypass attacks.
+			used, err := markTransactionUsed(c.Request.Context(), strings.ToLower(signature))
 			if err != nil {
 				respondError(c, 500, "internal_error", fmt.Errorf("failed to check transaction replay: %w", err))
 				c.Abort()
 				return
 			}
 			if used {
-				c.JSON(http.StatusPaymentRequired, gin.H{
-					"error":          "Payment Required",
-					"message":        "Transaction already used",
-					"paymentContext": createPaymentContext(),
+				c.JSON(http.StatusConflict, gin.H{
+					"error":   "nonce_already_used",
+					"message": "Transaction already used",
 				})
 				c.Abort()
 				return

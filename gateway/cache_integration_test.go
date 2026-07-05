@@ -37,7 +37,9 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 			return
 		}
 
-		isValid := req.Signature == "0xValidSig"
+		// Accept two distinct valid signatures so the cache-hit request
+		// uses a fresh signature that isn't blocked by the replay guard.
+		isValid := req.Signature == "0xValidSig" || req.Signature == "0xValidSig2"
 		resp := VerifyResponse{
 			IsValid:          isValid,
 			RecoveredAddress: "0xTestUser",
@@ -158,9 +160,10 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 	}
 	assertCachePopulated()
 
-	// Request 2: Cache Hit (Valid Sig)
+	// Request 2: Cache Hit — must use a DIFFERENT valid signature so the
+	// gateway-side replay guard (markTransactionUsed) doesn't block it.
 	start = time.Now()
-	w2 := makeRequest("0xValidSig")
+	w2 := makeRequest("0xValidSig2")
 	duration2 := time.Since(start)
 
 	if w2.Code != 200 {

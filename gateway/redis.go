@@ -78,26 +78,43 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
+const memoryUsedTxTTL = 30 * 24 * time.Hour
+
 var (
-	memoryUsedTx   = make(map[string]bool)
+	memoryUsedTx   = make(map[string]time.Time) // signature -> expiry time
 	memoryUsedTxMu sync.Mutex
 )
 
 // markTransactionUsed checks and records a transaction signature as used atomically.
 // It returns true if the transaction was already used, or false if it was successfully marked.
+// Signatures are normalized to lowercase before keying to prevent hex-casing bypass attacks.
 func markTransactionUsed(ctx context.Context, txHash string) (bool, error) {
+	// Normalize to lowercase so the same 65-byte signature in different
+	// hex casing maps to the same replay key, preventing casing bypass.
+	key := strings.ToLower(txHash)
+
 	if redisClient == nil {
+		now := time.Now()
 		memoryUsedTxMu.Lock()
 		defer memoryUsedTxMu.Unlock()
-		if memoryUsedTx[txHash] {
+
+		// Prune expired entries to prevent unbounded map growth.
+		for k, exp := range memoryUsedTx {
+			if now.After(exp) {
+				delete(memoryUsedTx, k)
+			}
+		}
+
+		if exp, exists := memoryUsedTx[key]; exists && now.Before(exp) {
 			return true, nil
 		}
-		memoryUsedTx[txHash] = true
+		memoryUsedTx[key] = now.Add(memoryUsedTxTTL)
 		return false, nil
 	}
-	key := "used_tx:" + txHash
+
+	redisKey := "used_tx:" + key
 	// SetNX returns true if the key was set, meaning it wasn't used before.
-	added, err := redisClient.SetNX(ctx, key, "1", 30*24*time.Hour).Result()
+	added, err := redisClient.SetNX(ctx, redisKey, "1", memoryUsedTxTTL).Result()
 	if err != nil {
 		return false, err
 	}

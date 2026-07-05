@@ -102,15 +102,27 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, text string) (string,
 	return content, nil
 }
 
+// ErrIncompleteStream is returned by Recv when the upstream TCP connection
+// closes before the [DONE] sentinel is received. This distinguishes a clean
+// completion from a dropped or truncated stream.
+var ErrIncompleteStream = errors.New("upstream stream ended without [DONE]")
+
 type openRouterStream struct {
-	resp   *http.Response
-	reader *bufio.Reader
+	resp    *http.Response
+	reader  *bufio.Reader
+	sawDone bool
 }
 
 func (s *openRouterStream) Recv() (string, error) {
 	for {
 		line, err := s.reader.ReadBytes('\n')
 		if err != nil {
+			if errors.Is(err, io.EOF) {
+				if s.sawDone {
+					return "", io.EOF
+				}
+				return "", ErrIncompleteStream
+			}
 			return "", err
 		}
 		line = bytes.TrimSpace(line)
@@ -120,6 +132,7 @@ func (s *openRouterStream) Recv() (string, error) {
 		if bytes.HasPrefix(line, []byte("data: ")) {
 			data := bytes.TrimPrefix(line, []byte("data: "))
 			if string(data) == "[DONE]" {
+				s.sawDone = true
 				return "", io.EOF
 			}
 			var chunk map[string]interface{}

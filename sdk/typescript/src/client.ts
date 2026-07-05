@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import { PaygateSdkError } from "./errors";
-import { MicroAIPaygateProtocol } from "./protocol/microai";
+import { MicroAIPaygateProtocol, readSseSuccessBody } from "./protocol/microai";
 import type {
   FetchLike,
   PaygateProtocolAdapter,
@@ -153,12 +153,14 @@ export class PaygateClient {
   private receiptMatchesPayload(
     receipt: SignedReceipt,
     context: { endpoint: string; requestBodyText?: string },
-    responseBodyText: string,
+    canonicalResponseBodyText: string,
   ): boolean {
     return (
       receipt.receipt.service.endpoint === context.endpoint &&
       receipt.receipt.service.request_hash === this.hashBody(context.requestBodyText) &&
-      receipt.receipt.service.response_hash === this.hashBody(responseBodyText)
+      // The gateway hashes JSON.stringify({"result": fullSummary}) — we must
+      // hash the same canonical form, not the raw SSE event-stream bytes.
+      receipt.receipt.service.response_hash === this.hashBody(canonicalResponseBodyText)
     );
   }
 
@@ -166,18 +168,15 @@ export class PaygateClient {
     response: Response,
     context: { endpoint: string; requestBodyText?: string },
   ): Promise<PaygateResponse<TData>> {
-    const bodyText = await response.text();
-    let data: TData;
-    try {
-      data = JSON.parse(bodyText) as TData;
-    } catch (error) {
-      throw new PaygateSdkError("network_error", "Gateway returned invalid JSON", {
-        status: response.status,
-        bodyText,
-        cause: error,
-      });
-    }
-    const receipt = this.protocol.readReceipt(response);
+    // The gateway streams the response as SSE events. Consume the stream,
+    // accumulate text chunks, extract the embedded receipt event, and derive
+    // the canonical response body string for receipt hash verification.
+    const { fullText, receipt, canonicalResponseBody } = await readSseSuccessBody(response);
+
+    // Expose the result in the same shape the summarize() caller expects:
+    // { result: string }
+    const data = { result: fullText } as unknown as TData;
+
     if (receipt === null) {
       return {
         data,
@@ -187,7 +186,7 @@ export class PaygateClient {
       };
     }
 
-    if (!this.receiptMatchesPayload(receipt, context, bodyText)) {
+    if (!this.receiptMatchesPayload(receipt, context, canonicalResponseBody)) {
       throw new PaygateSdkError(
         "receipt_verification_failed",
         "Gateway receipt does not match the request and response payload",

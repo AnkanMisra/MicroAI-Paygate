@@ -278,10 +278,10 @@ func TestHandleSummarize_ConcurrentReplayAttack(t *testing.T) {
 			mu.Lock()
 			if resp.Code == http.StatusOK {
 				successCount++
-			} else if resp.Code == http.StatusPaymentRequired {
+			} else if resp.Code == http.StatusConflict {
 				var body map[string]interface{}
 				_ = json.Unmarshal(resp.Body.Bytes(), &body)
-				if body["message"] == "Transaction already used" {
+				if body["error"] == "nonce_already_used" {
 					conflictCount++
 				}
 			}

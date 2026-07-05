@@ -506,16 +506,20 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	// === Fix for #241: Prevent replay attacks ===
-	used, err := markTransactionUsed(c.Request.Context(), signature)
+	// Normalize signature to lowercase before keying so the same 65-byte
+	// value with different hex casing maps to the same replay entry.
+	used, err := markTransactionUsed(c.Request.Context(), strings.ToLower(signature))
 	if err != nil {
 		respondError(c, 500, "internal_error", fmt.Errorf("failed to check transaction replay: %w", err))
 		return
 	}
 	if used {
-		c.JSON(http.StatusPaymentRequired, gin.H{
-			"error":          "Payment Required",
-			"message":        "Transaction already used",
-			"paymentContext": createPaymentContext(),
+		// Return the established replay-rejection contract (409 Conflict /
+		// nonce_already_used) that the web client and verifier both use,
+		// rather than a fresh 402 payment challenge.
+		c.JSON(http.StatusConflict, gin.H{
+			"error":      "nonce_already_used",
+			"message":    "Transaction already used",
 		})
 		return
 	}
@@ -565,15 +569,26 @@ func handleSummarize(c *gin.Context) {
 			break
 		}
 		if err != nil {
+			// ErrIncompleteStream means the upstream TCP connection dropped
+			// before [DONE] arrived — treat as an upstream error so a partial
+			// or empty summary never gets a signed receipt.
 			fmt.Fprintf(c.Writer, "data: {\"error\": %q}\n\n", err.Error())
 			flusher.Flush()
 			return
 		}
-		
+
 		fullSummary += text
 		chunkBytes, _ := json.Marshal(map[string]string{"text": text})
 		fmt.Fprintf(c.Writer, "data: %s\n\n", chunkBytes)
 		flusher.Flush()
+	}
+
+	// Guard: if the stream was empty (upstream returned nothing), do not
+	// issue a receipt for a zero-content response.
+	if fullSummary == "" {
+		fmt.Fprintf(c.Writer, "data: {\"error\": \"upstream_empty_response\"}\n\n")
+		flusher.Flush()
+		return
 	}
 
 	// 4. Generate Receipt
