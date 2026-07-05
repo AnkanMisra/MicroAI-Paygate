@@ -3,6 +3,7 @@ GlobalRegistrator.register();
 
 import { describe, it, expect, beforeEach, mock, afterEach, spyOn } from "bun:test";
 import { renderHook, act } from "@testing-library/react";
+import { ethers } from "ethers";
 import { useX402 } from "./use-x402";
 import * as wallet from "@/lib/wallet";
 import * as x402Client from "@/lib/x402-client";
@@ -75,9 +76,9 @@ describe("useX402 chain switching logic", () => {
     });
 
     expect(switchSpy).not.toHaveBeenCalled();
-    // Should have signed with the chain we were actually on
+    // Should have signed with the challenge's chainId, not the wallet's current chain
     const signArgs = signSpy.mock.calls[0][1];
-    expect(signArgs.chainId).toBe(8453);
+    expect(signArgs.chainId).toBe(84532);
   });
 
   it("triggers switch to default chain if on unsupported chain", async () => {

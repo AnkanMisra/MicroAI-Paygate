@@ -216,7 +216,7 @@ export function useX402() {
         });
       }
 
-      const signContext = { ...context, chainId: finalChain ?? context.chainId };
+      const signContext = { ...context };
 
       stage = "signer";
       const refreshedProvider = new ethers.BrowserProvider(window.ethereum!);

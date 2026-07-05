@@ -173,10 +173,9 @@ func CacheMiddleware() gin.HandlerFunc {
 				return
 			}
 			if used {
-				c.JSON(http.StatusPaymentRequired, gin.H{
-					"error":          "Payment Required",
-					"message":        "Transaction already used",
-					"paymentContext": createPaymentContext(),
+				respondVerificationFailure(c, &VerifyResponse{
+					ErrorCode: "nonce_already_used",
+					Error:     "Transaction already used",
 				})
 				c.Abort()
 				return

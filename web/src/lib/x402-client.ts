@@ -90,16 +90,20 @@ export async function readSummarizeSuccess(
       if (line.startsWith("data: ")) {
         const dataStr = line.slice("data: ".length).trim();
         if (dataStr === "[DONE]") continue;
+        let parsed: { error?: string; text?: string; receipt?: string };
         try {
-          const parsed = JSON.parse(dataStr);
-          if (parsed.text) {
-            summary += parsed.text;
-            if (onChunk) onChunk(summary);
-          } else if (parsed.receipt) {
-            receipt = safeDecodeReceiptHeader(parsed.receipt);
-          }
+          parsed = JSON.parse(dataStr);
         } catch {
-          // ignore
+          continue;
+        }
+        if (parsed.error) {
+          throw new Error(parsed.error);
+        }
+        if (parsed.text) {
+          summary += parsed.text;
+          if (onChunk) onChunk(summary);
+        } else if (parsed.receipt) {
+          receipt = safeDecodeReceiptHeader(parsed.receipt);
         }
       }
     }
