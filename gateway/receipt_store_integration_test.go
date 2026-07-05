@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"gateway/internal/ai"
 	"net/http"
 	"net/http/httptest"
@@ -196,7 +197,6 @@ func replaceReceiptGlobalsForTest(t *testing.T) func() {
 }
 
 func TestHandleSummarize_ConcurrentReplayAttack(t *testing.T) {
-	ctx := t.Context()
 	redisServer := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
 	defer rdb.Close()

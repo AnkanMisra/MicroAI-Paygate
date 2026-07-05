@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 	"gateway/internal/ai"
 	"net/http"
 	"net/http/httptest"
