@@ -103,14 +103,18 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, text string) (string,
 }
 
 type openRouterStream struct {
-	resp   *http.Response
-	reader *bufio.Reader
+	resp    *http.Response
+	reader  *bufio.Reader
+	sawDone bool
 }
 
 func (s *openRouterStream) Recv() (string, error) {
 	for {
 		line, err := s.reader.ReadBytes('\n')
 		if err != nil {
+			if errors.Is(err, io.EOF) && !s.sawDone {
+				return "", fmt.Errorf("stream ended without [DONE] sentinel")
+			}
 			return "", err
 		}
 		line = bytes.TrimSpace(line)
@@ -120,6 +124,7 @@ func (s *openRouterStream) Recv() (string, error) {
 		if bytes.HasPrefix(line, []byte("data: ")) {
 			data := bytes.TrimPrefix(line, []byte("data: "))
 			if string(data) == "[DONE]" {
+				s.sawDone = true
 				return "", io.EOF
 			}
 			var chunk map[string]interface{}

@@ -15,7 +15,7 @@ export async function postSummarize(
 ): Promise<Response> {
   return fetch(`${getGatewayUrl()}/api/ai/summarize`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...headers },
+    headers: { "Content-Type": "application/json", "Accept": "text/event-stream", ...headers },
     body: JSON.stringify({ text }),
   });
 }
@@ -78,6 +78,7 @@ export async function readSummarizeSuccess(
   let summary = "";
   let receipt: SignedReceipt | null = null;
   let buffer = "";
+  let sawDone = false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -89,9 +90,15 @@ export async function readSummarizeSuccess(
     for (const line of lines) {
       if (line.startsWith("data: ")) {
         const dataStr = line.slice("data: ".length).trim();
-        if (dataStr === "[DONE]") continue;
+        if (dataStr === "[DONE]") {
+          sawDone = true;
+          continue;
+        }
         try {
           const parsed = JSON.parse(dataStr);
+          if (parsed.error) {
+            throw new Error(`SSE error: ${parsed.error}`);
+          }
           if (parsed.text) {
             summary += parsed.text;
             if (onChunk) onChunk(summary);
@@ -99,11 +106,13 @@ export async function readSummarizeSuccess(
             receipt = safeDecodeReceiptHeader(parsed.receipt);
           }
         } catch (e) {
+          if (e instanceof Error && e.message.startsWith("SSE error:")) throw e;
           // ignore
         }
       }
     }
   }
+  if (!sawDone) throw new Error("Stream ended before [DONE]");
   return { summary, receipt };
 }
 

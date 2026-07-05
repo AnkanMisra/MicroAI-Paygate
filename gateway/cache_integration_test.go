@@ -59,8 +59,10 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 	aiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		aiCalls.Add(1)
 		time.Sleep(100 * time.Millisecond)
+		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(200)
-		w.Write([]byte(`{"choices":[{"message":{"content":"AI Summary Result"}}]}`))
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"AI Summary Result\"}}]}\n\n"))
+		w.Write([]byte("data: [DONE]\n\n"))
 	}))
 	defer aiServer.Close()
 

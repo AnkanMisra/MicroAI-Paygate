@@ -68,6 +68,7 @@ describe("MicroAI Paygate E2E Flow", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Accept": "text/event-stream",
         "X-402-Signature": signature,
         "X-402-Nonce": paymentContext.nonce,
         "X-402-Timestamp": paymentContext.timestamp.toString(),
@@ -89,6 +90,26 @@ describe("MicroAI Paygate E2E Flow", () => {
     const textStr = await res.text();
     expect(textStr).toContain("data: {");
     expect(textStr).toContain("[DONE]");
+
+    const lines = textStr.split("\n");
+    let hasText = false;
+    let hasReceipt = false;
+    let hasDone = false;
+    for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.replace("data: ", "").trim();
+        if (data === "[DONE]") hasDone = true;
+        else {
+            try {
+                const parsed = JSON.parse(data);
+                if (parsed.text) hasText = true;
+                if (parsed.receipt) hasReceipt = true;
+            } catch (e) {}
+        }
+    }
+    expect(hasText).toBe(true);
+    expect(hasReceipt).toBe(true);
+    expect(hasDone).toBe(true);
   }, 30000);
 
   it("should reject replayed signed payment context", async () => {

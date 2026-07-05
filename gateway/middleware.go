@@ -58,12 +58,13 @@ func CorrelationIDMiddleware() gin.HandlerFunc {
 // decide whether to send the real response or a timeout response without
 // racing with handler writes.
 type bufferedWriter struct {
-	buf    *bytes.Buffer
-	head   http.Header
-	status int
-	wrote  bool
-	closed bool
-	mu     sync.RWMutex
+	buf     *bytes.Buffer
+	head    http.Header
+	status  int
+	wrote   bool
+	closed  bool
+	flushed bool
+	mu      sync.RWMutex
 }
 
 // newBufferedWriter returns an initialized bufferedWriter used to capture
@@ -137,15 +138,21 @@ func (b *bufferedWriter) Status() int {
 
 // flushTo writes buffered headers and body to the real writer.
 func (b *bufferedWriter) flushTo(w http.ResponseWriter) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	for k, vv := range b.head {
-		for _, v := range vv {
-			w.Header().Add(k, v)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.flushed {
+		for k, vv := range b.head {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
 		}
+		w.WriteHeader(b.Status())
+		b.flushed = true
 	}
-	w.WriteHeader(b.Status())
-	_, _ = w.Write(b.buf.Bytes())
+	if b.buf.Len() > 0 {
+		_, _ = w.Write(b.buf.Bytes())
+		b.buf.Reset()
+	}
 }
 
 // RequestTimeoutMiddleware applies a context timeout to the request and
@@ -245,9 +252,8 @@ func (rws *responseWriterShim) Written() bool                     { return rws.b
 func (rws *responseWriterShim) Size() int                         { return rws.bw.buf.Len() }
 func (rws *responseWriterShim) WriteHeaderNowWithoutLock()        {}
 
-// Flush flushes the response to the client if the underlying writer
-// supports http.Flusher. This is a no-op otherwise.
 func (rws *responseWriterShim) Flush() {
+	rws.bw.flushTo(rws.orig)
 	if fl, ok := rws.orig.(http.Flusher); ok {
 		fl.Flush()
 	}
