@@ -98,7 +98,7 @@ export async function readSummarizeSuccess(
           } else if (parsed.receipt) {
             receipt = safeDecodeReceiptHeader(parsed.receipt);
           }
-        } catch (e) {
+        } catch {
           // ignore
         }
       }

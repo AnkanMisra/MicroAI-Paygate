@@ -223,7 +223,6 @@ func CacheMiddleware() gin.HandlerFunc {
 		// Handler finished. Check status and extract result with proper locking
 		writer.mu.RLock()
 		statusCode := writer.ResponseWriter.Status()
-		bodyBytes := writer.body.Bytes()
 		writer.mu.RUnlock()
 
 		if statusCode == 200 {

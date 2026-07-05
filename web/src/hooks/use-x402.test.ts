@@ -21,7 +21,7 @@ mock.module("ethers", () => {
 });
 
 // Polyfill window.ethereum for the provider check
-(globalThis as any).window = { ethereum: {} };
+Object.defineProperty(globalThis, "window", { value: { ethereum: {} }, writable: true });
 
 describe("useX402 chain switching logic", () => {
   beforeEach(() => {
@@ -29,7 +29,7 @@ describe("useX402 chain switching logic", () => {
     mock.restore();
 
     spyOn(wallet, "hasWallet").mockReturnValue(true);
-    spyOn(wallet, "getProvider").mockReturnValue(true as any);
+    spyOn(wallet, "getProvider").mockReturnValue(true as unknown as ethers.BrowserProvider);
     spyOn(wallet, "getCurrentAccount").mockResolvedValue("0xmock-account");
     
     // Default fetch mocks for summarize

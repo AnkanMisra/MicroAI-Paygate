@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -196,7 +197,6 @@ func replaceReceiptGlobalsForTest(t *testing.T) func() {
 }
 
 func TestHandleSummarize_ConcurrentReplayAttack(t *testing.T) {
-	ctx := t.Context()
 	redisServer := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
 	defer rdb.Close()
