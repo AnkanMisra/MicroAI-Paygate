@@ -242,6 +242,8 @@ Edit `.env` before starting the gateway. At minimum:
 - `SERVER_WALLET_PRIVATE_KEY`: required for signing receipts. Use an unfunded development key locally.
 - `RECIPIENT_ADDRESS`: recipient address embedded in payment contexts.
 - `CHAIN_ID` and `EXPECTED_CHAIN_ID`: must match. The default is `84532` for Base Sepolia.
+- `NEXT_PUBLIC_VERIFIER_URL`: frontend verifier warm-up endpoint used by the banner to pre-warm the verifier (improves UX; optional).
+- `MAX_REQUEST_BODY_BYTES`: verifier request body limit in bytes. Default `1048576` (1MB).
 
 The root `bun run stack` command starts the gateway with `RECEIPT_STORE=memory` and `CACHE_ENABLED=false` unless you exported different values in the shell. That means the normal quick start does not require Redis even though production-style receipt storage defaults to Redis.
 
@@ -332,6 +334,8 @@ Core local variables live in [.env.example](.env.example). Production placeholde
 | `RECEIPT_STORE` | Gateway | `redis` by default, `memory` for tests/local experiments. |
 | `REDIS_URL` | Gateway/Verifier | Required when `RECEIPT_STORE=redis`, `CACHE_ENABLED=true`, or `VERIFIER_NONCE_STORE=redis`. |
 | `VERIFIER_URL` | Gateway | **Required.** Where the gateway calls `/verify` (e.g. `http://127.0.0.1:3002` for `bun run stack`, `https://<app>.onrender.com` for Render). The gateway refuses to start if unset — no silent loopback fallback. |
+| `NEXT_PUBLIC_VERIFIER_URL` | Web | Frontend verifier warm-up endpoint used by banner for pre-warming the verifier. |
+| `MAX_REQUEST_BODY_BYTES` | Verifier | Maximum request body size in bytes for verifier. Default `1048576` (1MB). |
 | `CACHE_ENABLED` | Gateway | Optional response cache. Payment verification still runs on cache hits. |
 | `METRICS_ENABLED` | Gateway | Enables the Prometheus metrics endpoint by default. Set to `false` to disable. |
 | `METRICS_PATH` | Gateway | Gateway metrics path. Default `/metrics`; values without a leading slash are normalized. |
