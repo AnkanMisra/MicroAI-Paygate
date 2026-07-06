@@ -22,9 +22,12 @@ export function ThemeToggle() {
       aria-label={
         theme === "light" ? "Switch to dark mode" : "Switch to light mode"
       }
-      className="border border-ink bg-paper px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-ink transition-all duration-300 hover:bg-ink hover:text-paper"
+      className="inline-flex items-center gap-1 border border-ink bg-paper px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-ink transition-all duration-300 hover:bg-ink hover:text-paper sm:px-3"
     >
-      {theme === "light" ? "🌙 Dark" : "☀ Light"}
+      <span aria-hidden="true">{theme === "light" ? "🌙" : "☀"}</span>
+      <span className="sr-only sm:not-sr-only">
+        {theme === "light" ? "Dark" : "Light"}
+      </span>
     </button>
   );
 }
