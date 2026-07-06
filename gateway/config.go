@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -92,4 +93,42 @@ func getAITimeout() time.Duration       { return getPositiveTimeout("AI_REQUEST_
 func getVerifierTimeout() time.Duration { return getPositiveTimeout("VERIFIER_TIMEOUT_SECONDS", 2) }
 func getHealthCheckTimeout() time.Duration {
 	return getPositiveTimeout("HEALTH_CHECK_TIMEOUT_SECONDS", 2)
+}
+
+// defaultMaxRequestBodyBytes is 10 MiB, the default limit applied when
+// MAX_REQUEST_BODY_BYTES is unset or invalid. It matches the previous
+// hardcoded constant in handleSummarize and CacheMiddleware.
+const defaultMaxRequestBodyBytes int64 = 10 * 1024 * 1024
+
+// getMaxRequestBodySize returns the configured maximum request body size in
+// bytes from the MAX_REQUEST_BODY_BYTES environment variable. Returns the
+// default (10 MiB) when unset, non-numeric, zero, or negative.
+func getMaxRequestBodySize() int64 {
+	valStr := os.Getenv("MAX_REQUEST_BODY_BYTES")
+	if valStr == "" {
+		return defaultMaxRequestBodyBytes
+	}
+	val, err := strconv.ParseInt(valStr, 10, 64)
+	if err != nil || val <= 0 {
+		log.Printf("Warning: Invalid MAX_REQUEST_BODY_BYTES %q, using default %d", valStr, defaultMaxRequestBodyBytes)
+		return defaultMaxRequestBodyBytes
+	}
+	return val
+}
+
+// formatBytes returns a human-readable byte size string (e.g. "10MB", "512KB")
+// used in 413 Payload Too Large error messages so the limit is always accurate.
+func formatBytes(b int64) string {
+	const (
+		mb = 1024 * 1024
+		kb = 1024
+	)
+	switch {
+	case b >= mb && b%mb == 0:
+		return fmt.Sprintf("%dMB", b/mb)
+	case b >= kb && b%kb == 0:
+		return fmt.Sprintf("%dKB", b/kb)
+	default:
+		return fmt.Sprintf("%d bytes", b)
+	}
 }

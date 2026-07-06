@@ -474,3 +474,85 @@ func TestGetReceiptTTL(t *testing.T) {
 func stringPtr(value string) *string {
 	return &value
 }
+
+func TestGetMaxRequestBodySize(t *testing.T) {
+	t.Run("default when unset", func(t *testing.T) {
+		t.Setenv("MAX_REQUEST_BODY_BYTES", "")
+		got := getMaxRequestBodySize()
+		want := int64(10 * 1024 * 1024)
+		if got != want {
+			t.Fatalf("expected default %d, got %d", want, got)
+		}
+	})
+
+	t.Run("custom value", func(t *testing.T) {
+		t.Setenv("MAX_REQUEST_BODY_BYTES", "5242880")
+		got := getMaxRequestBodySize()
+		want := int64(5 * 1024 * 1024)
+		if got != want {
+			t.Fatalf("expected %d, got %d", want, got)
+		}
+	})
+
+	t.Run("zero falls back to default", func(t *testing.T) {
+		t.Setenv("MAX_REQUEST_BODY_BYTES", "0")
+		got := getMaxRequestBodySize()
+		want := int64(10 * 1024 * 1024)
+		if got != want {
+			t.Fatalf("expected default %d for zero, got %d", want, got)
+		}
+	})
+
+	t.Run("negative falls back to default", func(t *testing.T) {
+		t.Setenv("MAX_REQUEST_BODY_BYTES", "-100")
+		got := getMaxRequestBodySize()
+		want := int64(10 * 1024 * 1024)
+		if got != want {
+			t.Fatalf("expected default %d for negative, got %d", want, got)
+		}
+	})
+
+	t.Run("invalid string falls back to default", func(t *testing.T) {
+		t.Setenv("MAX_REQUEST_BODY_BYTES", "not-a-number")
+		got := getMaxRequestBodySize()
+		want := int64(10 * 1024 * 1024)
+		if got != want {
+			t.Fatalf("expected default %d for invalid string, got %d", want, got)
+		}
+	})
+
+	t.Run("small value 1024", func(t *testing.T) {
+		t.Setenv("MAX_REQUEST_BODY_BYTES", "1024")
+		got := getMaxRequestBodySize()
+		want := int64(1024)
+		if got != want {
+			t.Fatalf("expected %d, got %d", want, got)
+		}
+	})
+}
+
+func TestFormatBytes(t *testing.T) {
+	tests := []struct {
+		name  string
+		input int64
+		want  string
+	}{
+		{"10MB", 10 * 1024 * 1024, "10MB"},
+		{"1MB", 1 * 1024 * 1024, "1MB"},
+		{"5MB", 5 * 1024 * 1024, "5MB"},
+		{"512KB", 512 * 1024, "512KB"},
+		{"1KB", 1024, "1KB"},
+		{"odd bytes", 1500, "1500 bytes"},
+		{"zero bytes", 0, "0 bytes"},
+		{"100MB", 100 * 1024 * 1024, "100MB"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatBytes(tt.input)
+			if got != tt.want {
+				t.Fatalf("formatBytes(%d) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+

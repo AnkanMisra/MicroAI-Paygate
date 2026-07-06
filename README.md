@@ -337,6 +337,7 @@ Core local variables live in [.env.example](.env.example). Production placeholde
 | `METRICS_PATH` | Gateway | Gateway metrics path. Default `/metrics`; values without a leading slash are normalized. |
 | `ALLOWED_ORIGINS` | Gateway | Comma-separated CORS origins, no paths or query strings. |
 | `TRUSTED_PROXIES` | Gateway | Comma-separated trusted proxy CIDRs for production IP handling. |
+| `MAX_REQUEST_BODY_BYTES` | Gateway | Maximum request body size in bytes for `POST /api/ai/summarize`. Default `10485760` (10 MB). |
 | `NEXT_PUBLIC_GATEWAY_URL` | Web | Gateway base URL. Browser fetches `/api/ai/summarize` and `/api/receipts/:id` here. |
 | `NEXT_PUBLIC_EXPECTED_CHAIN_ID` | Web | Chain ID the wallet widget targets. Must match the gateway's `CHAIN_ID`. Default `84532`. |
 | `NEXT_PUBLIC_EXPECTED_CHAIN_NAME` | Web | Display name paired with the chain ID — used by the wallet widget's "Switch to <name>" button, hero headline, stat bar, and page title. Must be set when `CHAIN_ID` is overridden (e.g. `Base` for `8453`). |
