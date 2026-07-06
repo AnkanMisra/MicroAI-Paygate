@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ThemeToggle } from "./theme-toggle";
 import { WalletWidget } from "./wallet-widget";
 
 const CHAIN_NAME_LOWER = (
@@ -23,6 +24,7 @@ export function Nav() {
             Docs
           </Link>
           <WalletWidget />
+          
           <a
             href="https://github.com/AnkanMisra/MicroAI-Paygate"
             target="_blank"
@@ -31,6 +33,8 @@ export function Nav() {
           >
             View source ↗
           </a>
+
+           <ThemeToggle />
         </div>
       </div>
     </header>

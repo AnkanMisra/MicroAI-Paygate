@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import "./globals.css";
 import { SmoothScroll } from "@/components/smooth-scroll";
 import { ColdStartWarmup } from "@/components/cold-start-warmup";
+import { ThemeProvider } from "@/components/theme-provider";
 
 // Satoshi Variable (Fontshare, ITF) — humanist grotesk for body / UI.
 const satoshi = localFont({
@@ -44,9 +45,11 @@ export default function RootLayout({
       <body
         className={`${satoshi.variable} ${clashDisplay.variable} overflow-x-hidden bg-paper text-ink antialiased`}
       >
-        <SmoothScroll />
-        <ColdStartWarmup />
-        {children}
+        <ThemeProvider>
+          <SmoothScroll />
+          <ColdStartWarmup />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );
