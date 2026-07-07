@@ -523,7 +523,9 @@ func handleSummarize(c *gin.Context) {
 	// 3. Call AI Service
 	summary, err := aiProvider.Generate(c.Request.Context(), req.Text)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(c.Request.Context().Err(), context.DeadlineExceeded) {
+		ctxErr := c.Request.Context().Err()
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
+			ctxErr == context.DeadlineExceeded || ctxErr == context.Canceled {
 			respondError(c, 504, "upstream_timeout", err)
 		} else {
 			respondError(c, 502, "upstream_unavailable", err)

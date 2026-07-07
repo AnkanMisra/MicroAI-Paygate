@@ -12,6 +12,12 @@ import (
 	"os"
 )
 
+// maxErrorResponseBytes caps the amount of upstream error response body we are
+// willing to read. Without this limit, a misbehaving or malicious upstream
+// could stream an unbounded response on an error status, exhausting gateway
+// memory.
+const maxErrorResponseBytes int64 = 4096
+
 // OpenRouterProvider implements the Provider interface for OpenRouter API
 type OpenRouterProvider struct {
 	apiKey string
@@ -59,8 +65,9 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, text string) (string,
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
-			return "", context.DeadlineExceeded
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
+			ctx.Err() == context.DeadlineExceeded || ctx.Err() == context.Canceled {
+			return "", ctx.Err()
 		}
 		return "", err
 	}
@@ -68,7 +75,7 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, text string) (string,
 
 	// Check status code before decoding
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseBytes))
 		return "", fmt.Errorf("openrouter returned status %d: %s", resp.StatusCode, string(body))
 	}
 
