@@ -242,9 +242,6 @@ Edit `.env` before starting the gateway. At minimum:
 - `SERVER_WALLET_PRIVATE_KEY`: required for signing receipts. Use an unfunded development key locally.
 - `RECIPIENT_ADDRESS`: recipient address embedded in payment contexts.
 - `CHAIN_ID` and `EXPECTED_CHAIN_ID`: must match. The default is `84532` for Base Sepolia.
-- `NEXT_PUBLIC_VERIFIER_URL`: frontend verifier warm-up endpoint used by the banner to pre-warm the verifier (improves UX; optional).
-- `MAX_REQUEST_BODY_BYTES`: verifier request body limit in bytes. Must be a positive integer; values less than or equal to 0 or invalid values fall back to the default `1048576` (1MB).
-
 The root `bun run stack` command starts the gateway with `RECEIPT_STORE=memory` and `CACHE_ENABLED=false` unless you exported different values in the shell. That means the normal quick start does not require Redis even though production-style receipt storage defaults to Redis.
 
 ### Run The Stack

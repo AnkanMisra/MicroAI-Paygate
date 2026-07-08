@@ -20,7 +20,10 @@ The frontend reads these `NEXT_PUBLIC_*` environment variables at build time:
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `NEXT_PUBLIC_GATEWAY_URL` | `http://localhost:3000` | Gateway base URL the browser fetches `/api/ai/summarize` and `/api/receipts/:id` from. |
-| `NEXT_PUBLIC_EXPECTED_CHAIN_ID` | `84532` | Chain id the wallet widget expects. Must match the gateway's `CHAIN_ID`. Deployments on Base mainnet should set `8453` so the widget doesn't fight every payment context. |
+| 
+| `NEXT_PUBLIC_VERIFIER_URL` | unset | Optional verifier endpoint used by the frontend warm-up banner to pre-warm the verifier and improve first-request UX. 
+|
+`NEXT_PUBLIC_EXPECTED_CHAIN_ID` | `84532` | Chain id the wallet widget expects. Must match the gateway's `CHAIN_ID`. Deployments on Base mainnet should set `8453` so the widget doesn't fight every payment context. |
 | `NEXT_PUBLIC_EXPECTED_CHAIN_NAME` | `Base Sepolia` | Display name used by the wallet widget's `Switch to <name>` button and the summarize form's placeholder copy. |
 | `NEXT_PUBLIC_PAYMENT_AMOUNT` | `0.001` | Pre-challenge fee label shown under the summarize form. **Informational only** — the actual signed amount is whatever the gateway embeds in the 402 payment context. |
 | `NEXT_PUBLIC_PAYMENT_TOKEN` | `USDC` | Token symbol shown next to `NEXT_PUBLIC_PAYMENT_AMOUNT`. Same caveat — display-only. |
