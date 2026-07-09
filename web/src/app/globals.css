@@ -16,6 +16,27 @@
   --alert-soft: #fbe4e4;
 }
 
+.dark {
+  --paper: #0f1115;
+  --paper-deep: #1a1d23;
+
+  --ink: #f5f5f5;
+  --ink-soft: #d0d0d0;
+  --ink-faint: #8d8d8d;
+
+  --rule: #f5f5f5;
+
+  --accent: #5b7fff;
+  --accent-press: #3d63ff;
+  --accent-soft: #1c2648;
+
+  --ok: #37c871;
+  --ok-soft: #163222;
+
+  --alert: #ff6b6b;
+  --alert-soft: #3a1717;
+}
+
 @theme inline {
   --color-paper: var(--paper);
   --color-paper-deep: var(--paper-deep);
