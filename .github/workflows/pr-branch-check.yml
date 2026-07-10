@@ -20,7 +20,7 @@ jobs:
       
       - name: Fetch base branch
         run: |
-          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git fetch origin "${{ github.event.pull_request.base.ref }}"
       
       - name: Check if PR is behind base
         id: check
@@ -30,12 +30,12 @@ jobs:
           HEAD="${{ github.event.pull_request.head.sha }}"
           
           # Count commits behind and ahead
-          COUNTS=$(git rev-list --left-right --count origin/$BASE...$HEAD)
-          BEHIND=$(echo $COUNTS | cut -d' ' -f1)
-          AHEAD=$(echo $COUNTS | cut -d' ' -f2)
+          COUNTS=$(git rev-list --left-right --count "origin/$BASE...$HEAD")
+          BEHIND=$(echo "$COUNTS" | cut -d' ' -f1)
+          AHEAD=$(echo "$COUNTS" | cut -d' ' -f2)
           
-          echo "behind=$BEHIND" >> $GITHUB_OUTPUT
-          echo "ahead=$AHEAD" >> $GITHUB_OUTPUT
+          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
+          echo "ahead=$AHEAD" >> "$GITHUB_OUTPUT"
           
           # Log the status
           echo "Branch Status:"
