@@ -20,6 +20,9 @@ concurrency:
 jobs:
   web-lint-build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -43,7 +46,15 @@ jobs:
 
       - name: Unit tests (Bun)
         working-directory: web
-        run: bun run test:unit
+        run: bun run test:unit --coverage --coverage-reporter=lcov
+
+      - name: Upload web coverage
+        uses: codecov/codecov-action@04b047e8bb82a0c002c8312c1c880fbc6a999d45 # v5
+        with:
+          use_oidc: true
+          files: web/coverage/lcov.info
+          flags: web
+          fail_ci_if_error: false
 
       - name: Build (Next.js)
         working-directory: web

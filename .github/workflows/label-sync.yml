@@ -1,0 +1,47 @@
+name: Label Taxonomy Sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/labels.json'
+      - '.github/workflows/label-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout taxonomy
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Create or update managed labels
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const labels = require('./.github/labels.json');
+            const existing = await github.paginate(
+              github.rest.issues.listLabelsForRepo,
+              { ...context.repo, per_page: 100 },
+            );
+            const byName = new Map(existing.map((label) => [label.name, label]));
+
+            for (const label of labels) {
+              if (byName.has(label.name)) {
+                await github.rest.issues.updateLabel({
+                  ...context.repo,
+                  name: label.name,
+                  new_name: label.name,
+                  color: label.color,
+                  description: label.description,
+                });
+              } else {
+                await github.rest.issues.createLabel({ ...context.repo, ...label });
+              }
+            }

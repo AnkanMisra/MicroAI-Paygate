@@ -1,0 +1,16 @@
+[
+  { "name": "triage", "color": "d876e3", "description": "Needs maintainer triage." },
+  { "name": "bug", "color": "d73a4a", "description": "Something isn't working" },
+  { "name": "type:bug", "color": "d73a4a", "description": "A defect or regression in existing behavior." },
+  { "name": "enhancement", "color": "a2eeef", "description": "New feature or request" },
+  { "name": "type:feature", "color": "a2eeef", "description": "New user-facing or API-facing capability." },
+  { "name": "documentation", "color": "0075ca", "description": "Improvements or additions to documentation" },
+  { "name": "type:docs", "color": "0075ca", "description": "Documentation, API docs, examples, or contributor docs." },
+  { "name": "type:devops", "color": "1d76db", "description": "Deployment, observability, operations, CI, or infrastructure work." },
+  { "name": "go", "color": "16e2e2", "description": "Pull requests that update go code" },
+  { "name": "rust", "color": "000000", "description": "Pull requests that update rust code" },
+  { "name": "TypeScript", "color": "3178c6", "description": "TypeScript code" },
+  { "name": "github_actions", "color": "000000", "description": "Pull requests that update GitHub Actions code" },
+  { "name": "type:testing", "color": "5319e7", "description": "Tests, coverage, fixtures, or validation-only work." },
+  { "name": "type:security", "color": "b60205", "description": "Security, abuse resistance, secret safety, or payment integrity work." }
+]

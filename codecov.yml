@@ -1,0 +1,28 @@
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 2%
+    patch:
+      default:
+        target: 70%
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: true
+
+flags:
+  gateway:
+    paths:
+      - gateway/
+  web:
+    paths:
+      - web/
+  sdk:
+    paths:
+      - sdk/typescript/

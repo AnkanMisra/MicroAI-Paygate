@@ -5,27 +5,63 @@ updates:
     directory: "/gateway"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "go"]
+    groups:
+      go-minor-and-patch:
+        update-types: ["minor", "patch"]
 
   # Rust dependencies
   - package-ecosystem: "cargo"
     directory: "/verifier"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "rust"]
+    groups:
+      rust-minor-and-patch:
+        update-types: ["minor", "patch"]
 
   # npm/bun dependencies (web)
   - package-ecosystem: "npm"
     directory: "/web"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "TypeScript"]
+    groups:
+      web-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # npm/bun dependencies (TypeScript SDK)
+  - package-ecosystem: "npm"
+    directory: "/sdk/typescript"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "TypeScript"]
+    groups:
+      sdk-minor-and-patch:
+        update-types: ["minor", "patch"]
 
   # npm dependencies (root)
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "TypeScript"]
+    groups:
+      root-minor-and-patch:
+        update-types: ["minor", "patch"]
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "github_actions", "type:devops"]
+    groups:
+      github-actions:
+        patterns: ["*"]
