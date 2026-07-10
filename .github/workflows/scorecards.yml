@@ -15,8 +15,12 @@ jobs:
     name: Scorecard analysis
     runs-on: ubuntu-latest
     permissions:
+      checks: read
+      contents: read
       security-events: write
       id-token: write
+      issues: read
+      pull-requests: read
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2

@@ -22,8 +22,8 @@ updates:
       rust-minor-and-patch:
         update-types: ["minor", "patch"]
 
-  # npm/bun dependencies (web)
-  - package-ecosystem: "npm"
+  # Bun dependencies (web)
+  - package-ecosystem: "bun"
     directory: "/web"
     schedule:
       interval: "weekly"
@@ -33,8 +33,8 @@ updates:
       web-minor-and-patch:
         update-types: ["minor", "patch"]
 
-  # npm/bun dependencies (TypeScript SDK)
-  - package-ecosystem: "npm"
+  # Bun dependencies (TypeScript SDK)
+  - package-ecosystem: "bun"
     directory: "/sdk/typescript"
     schedule:
       interval: "weekly"
@@ -44,8 +44,8 @@ updates:
       sdk-minor-and-patch:
         update-types: ["minor", "patch"]
 
-  # npm dependencies (root)
-  - package-ecosystem: "npm"
+  # Bun dependencies (root)
+  - package-ecosystem: "bun"
     directory: "/"
     schedule:
       interval: "weekly"

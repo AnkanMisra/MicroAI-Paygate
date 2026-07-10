@@ -11,6 +11,7 @@
   { "name": "rust", "color": "000000", "description": "Pull requests that update rust code" },
   { "name": "TypeScript", "color": "3178c6", "description": "TypeScript code" },
   { "name": "github_actions", "color": "000000", "description": "Pull requests that update GitHub Actions code" },
+  { "name": "dependencies", "color": "0366d6", "description": "Pull requests that update a dependency file" },
   { "name": "type:testing", "color": "5319e7", "description": "Tests, coverage, fixtures, or validation-only work." },
   { "name": "type:security", "color": "b60205", "description": "Security, abuse resistance, secret safety, or payment integrity work." }
 ]

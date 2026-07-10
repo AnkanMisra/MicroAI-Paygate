@@ -1,6 +1,8 @@
 const labelDefinitions = require("../labels.json");
 
 const TERMINAL_OR_READY_STATES = new Set([
+  "good first issue",
+  "help wanted",
   "gssoc:approved",
   "invalid",
   "wontfix",

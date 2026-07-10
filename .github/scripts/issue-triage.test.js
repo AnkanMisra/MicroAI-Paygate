@@ -52,7 +52,13 @@ test("free-form keywords do not create labels", () => {
 
 test("triage is skipped for ready or terminal issues", () => {
   assert.equal(shouldAddTriage("opened", issue()), true);
-  for (const name of ["gssoc:approved", "invalid", "wontfix"]) {
+  for (const name of [
+    "good first issue",
+    "help wanted",
+    "gssoc:approved",
+    "invalid",
+    "wontfix",
+  ]) {
     assert.equal(
       shouldAddTriage("opened", issue({ labels: [{ name }] })),
       false,
