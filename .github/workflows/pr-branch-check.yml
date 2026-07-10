@@ -11,6 +11,8 @@ concurrency:
 jobs:
   check-branch-status:
     runs-on: ubuntu-latest
+    env:
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -20,13 +22,13 @@ jobs:
       
       - name: Fetch base branch
         run: |
-          git fetch origin "${{ github.event.pull_request.base.ref }}"
+          git fetch origin "$BASE_REF"
       
       - name: Check if PR is behind base
         id: check
         run: |
           # Get base and head refs
-          BASE="${{ github.event.pull_request.base.ref }}"
+          BASE="$BASE_REF"
           HEAD="${{ github.event.pull_request.head.sha }}"
           
           # Count commits behind and ahead

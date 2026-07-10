@@ -8,6 +8,7 @@ const {
   requestedUnclaim,
   sectionValue,
   shouldAddTriage,
+  staleInferredLabels,
 } = require("./issue-triage");
 
 function issue(overrides = {}) {
@@ -48,6 +49,15 @@ test("free-form keywords do not create labels", () => {
   }));
   assert.equal(result.isStructured, false);
   assert.deepEqual([...result.labels], []);
+});
+
+test("unstructured edits remove stale inferred labels only", () => {
+  const inferred = inferStructuredLabels(issue({ body: "Free-form issue text" }));
+  const stale = staleInferredLabels(
+    new Set(["go", "type:bug", "good first issue"]),
+    inferred.labels,
+  );
+  assert.deepEqual(stale.sort(), ["go", "type:bug"]);
 });
 
 test("triage is skipped for ready or terminal issues", () => {

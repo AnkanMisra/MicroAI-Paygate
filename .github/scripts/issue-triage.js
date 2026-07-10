@@ -80,6 +80,12 @@ function inferStructuredLabels(issue) {
   return { labels, isStructured: component !== null };
 }
 
+function staleInferredLabels(currentLabels, inferredLabels) {
+  return [...INFERRED_LABELS].filter(
+    (label) => currentLabels.has(label) && !inferredLabels.has(label),
+  );
+}
+
 function shouldAddTriage(action, issue) {
   if (action !== "opened" && action !== "reopened") return false;
   const current = labelNames(issue);
@@ -184,12 +190,9 @@ async function run({ github, context }) {
 
   if (context.eventName === "issues") {
     const inferred = inferStructuredLabels(issue);
-    if (inferred.isStructured && context.payload.action === "edited") {
+    if (context.payload.action === "edited") {
       const current = labelNames(await fetchIssue());
-      const stale = [...INFERRED_LABELS].filter(
-        (label) => current.has(label) && !inferred.labels.has(label),
-      );
-      await removeLabels(stale);
+      await removeLabels(staleInferredLabels(current, inferred.labels));
     }
 
     await addLabels(inferred.labels);
@@ -272,5 +275,6 @@ module.exports = {
   requestedUnclaim,
   sectionValue,
   shouldAddTriage,
+  staleInferredLabels,
   run,
 };
