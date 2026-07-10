@@ -20,7 +20,7 @@ Create a repository ruleset targeting `main` with:
 3. Require review from Code Owners.
 4. Require all review conversations to be resolved.
 5. Block force pushes and branch deletion.
-6. Require `Dependency Review`, `PR Branch Status Check`, and the three CodeQL `Analyze (...)` checks after each has completed successfully at least once.
+6. Require `dependency-review`, `check-branch-status`, `Analyze (go)`, `Analyze (javascript-typescript)`, and `Analyze (rust)` after each has completed successfully at least once.
 7. Dismiss stale approvals when new commits are pushed.
 
 Service-specific checks are path-filtered. Keep them visible on relevant PRs, but do not make a skipped path-filtered check globally required until CI exposes one always-on aggregate status.

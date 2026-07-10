@@ -21,7 +21,7 @@ These guidelines apply to automated tools and coding agents used by external con
 
 - Gateway: `cd gateway && go test -v ./... && go vet ./...`
 - Verifier: `cd verifier && cargo fmt -- --check && cargo clippy -- -D warnings && cargo test`
-- Web: `cd web && bun run lint && bun run test && bun run build`
+- Web: `cd web && bun run lint && bun run typecheck && bun run test:unit && bun run build`
 - SDK: `cd sdk/typescript && bun run test && bun run typecheck`
 - Use Bun for JavaScript and TypeScript commands in this repository.
 
