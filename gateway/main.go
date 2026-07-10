@@ -34,6 +34,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
+	"github.com/AnkanMisra/MicroAI-Paygate/gateway/internal/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -59,7 +60,7 @@ type VerifyResponse struct {
 }
 
 type SummarizeRequest struct {
-	Text string `json:"text"`
+	Text string `json:"text" binding: "required"`
 }
 
 var receiptIDPattern = regexp.MustCompile(`^rcpt_[a-f0-9]{12}$`)
@@ -514,7 +515,19 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 
-	// Validate text is not empty (also validated in cache middleware, but needed here for non-cached requests)
+	// Validate text length
+	maxLen := getMaxTextLength()
+	if len(req.Text) > maxLen {
+		c.JSON(413, gin.H{
+			"error":      "text_too_long",
+			"message":    fmt.Sprintf("Text must be %d characters or fewer.", maxLen),
+			"max_length": maxLen,
+			"received":   len(req.Text),
+		})
+		return
+	}
+
+	// Validate text is not empty
 	if req.Text == "" {
 		c.JSON(400, gin.H{"error": "Invalid request", "message": "text field cannot be empty"})
 		return
@@ -539,6 +552,21 @@ func handleSummarize(c *gin.Context) {
 		// Let's implement generateAndSendReceipt to handle sending response.
 		return
 	}
+}
+
+// getMaxTextLength reads MAX_SUMMARIZE_TEXT_LENGTH from the environment.
+// Defaults to 8000 characters if the variable is not set or is invalid.
+func getMaxTextLength() int {
+    const defaultMaxLen = 8000
+    valStr := os.Getenv("MAX_SUMMARIZE_TEXT_LENGTH")
+    if valStr == "" {
+        return defaultMaxLen
+    }
+    val, err := strconv.Atoi(valStr)
+    if err != nil || val <= 0 {
+        return defaultMaxLen
+    }
+    return val
 }
 
 // verifyPayment calls the verification service.

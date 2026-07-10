@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/AnkanMisra/MicroAI-Paygate/gateway/internal/middleware"
 )
 
 // swaggerUIPage is the HTML served at GET /docs.
@@ -47,9 +48,9 @@ func registerAPIRoutes(r *gin.Engine) {
 	aiGroup := r.Group("/api/ai")
 	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
 	if getCacheEnabled() {
-		aiGroup.POST("/summarize", CacheMiddleware(), handleSummarize)
+		aiGroup.POST("/summarize", CacheMiddleware(), middleware.BodySizeLimit(middleware.MaxSummarizeBodyBytes), handleSummarize)
 	} else {
-		aiGroup.POST("/summarize", handleSummarize)
+		aiGroup.POST("/summarize", middleware.BodySizeLimit(middleware.MaxSummarizeBodyBytes), handleSummarize)
 	}
 
 	r.GET("/api/receipts/:id", handleGetReceipt)
