@@ -18,6 +18,6 @@
   },
   "devDependencies": {
     "bun-types": "latest",
-    "concurrently": "^9.2.1"
+    "concurrently": "^10.0.3"
   }
 }
