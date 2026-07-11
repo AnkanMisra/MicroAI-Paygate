@@ -118,6 +118,7 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 			t.Fatalf("Failed to create request: %v", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "text/event-stream")
 		req.Header.Set("X-402-Signature", sig)
 		req.Header.Set("X-402-Nonce", "nonce-123")
 		req.Header.Set("X-402-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))

@@ -38,8 +38,10 @@ func TestRedisReceiptStore_PersistsAcrossGatewayRestart(t *testing.T) {
 	defer verifier.Close()
 
 	aiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"Redis receipt summary"}}]}`))
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"Redis receipt summary\"}}]}\n\n"))
+		w.Write([]byte("data: [DONE]\n\n"))
 	}))
 	defer aiServer.Close()
 
@@ -74,6 +76,7 @@ func TestRedisReceiptStore_PersistsAcrossGatewayRestart(t *testing.T) {
 	firstGateway := newReceiptPersistenceTestRouter()
 	createReq := httptest.NewRequest(http.MethodPost, "/api/ai/summarize", bytes.NewBufferString(`{"text":"persist this receipt"}`))
 	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Accept", "text/event-stream")
 	createReq.Header.Set("X-402-Signature", "0xValidSig")
 	createReq.Header.Set("X-402-Nonce", "restart-test-nonce")
 	createReq.Header.Set("X-402-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
