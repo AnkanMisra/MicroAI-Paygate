@@ -13,6 +13,7 @@ import (
 	"gateway/internal/ai"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
@@ -48,7 +49,7 @@ func newCachedSummarizeTestRouter() *gin.Engine {
 func signedSummarizeRequest(body string) *http.Request {
 	req := httptest.NewRequest(http.MethodPost, "/api/ai/summarize", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-402-Signature", "0xsigned")
+	req.Header.Set("X-402-Signature", "0xsigned-"+uuid.New().String())
 	req.Header.Set("X-402-Nonce", "nonce-1")
 	req.Header.Set("X-402-Timestamp", "1700000000")
 	req.Header.Set("X-Correlation-ID", "test-correlation-id")

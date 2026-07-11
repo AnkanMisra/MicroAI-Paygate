@@ -186,7 +186,7 @@ export function useX402() {
         : [context.chainId];
       const isSupported = currentChain != null && supported.includes(currentChain);
       
-      let finalChain = currentChain;
+
 
       if (!isSupported) {
         stage = "chain-switch";
@@ -209,7 +209,7 @@ export function useX402() {
             `Wallet did not switch to a supported chain. Switch manually to one of: ${chainNames}.`,
           );
         }
-        finalChain = postSwitch;
+
         track(AnalyticsEvent.ChainSwitchSucceeded, {
           ...flowProps,
           chain_id: context.chainId,

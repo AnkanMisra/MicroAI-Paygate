@@ -77,6 +77,7 @@ func TestRedisReceiptStore_PersistsAcrossGatewayRestart(t *testing.T) {
 	createReq.Header.Set("X-402-Signature", "0xValidSig")
 	createReq.Header.Set("X-402-Nonce", "restart-test-nonce")
 	createReq.Header.Set("X-402-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
+	createReq.Header.Set("Accept", "text/event-stream")
 	createResp := httptest.NewRecorder()
 	firstGateway.ServeHTTP(createResp, createReq)
 
@@ -278,10 +279,10 @@ func TestHandleSummarize_ConcurrentReplayAttack(t *testing.T) {
 			mu.Lock()
 			if resp.Code == http.StatusOK {
 				successCount++
-			} else if resp.Code == http.StatusPaymentRequired {
+			} else if resp.Code == http.StatusConflict {
 				var body map[string]interface{}
 				_ = json.Unmarshal(resp.Body.Bytes(), &body)
-				if body["message"] == "Transaction already used" {
+				if body["error"] == "nonce_already_used" {
 					conflictCount++
 				}
 			}

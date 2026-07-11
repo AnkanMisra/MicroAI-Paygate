@@ -37,7 +37,7 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 			return
 		}
 
-		isValid := req.Signature == "0xValidSig"
+		isValid := req.Signature == "0xValidSig" || req.Signature == "0xValidSig2"
 		resp := VerifyResponse{
 			IsValid:          isValid,
 			RecoveredAddress: "0xTestUser",
@@ -158,9 +158,9 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 	}
 	assertCachePopulated()
 
-	// Request 2: Cache Hit (Valid Sig)
+	// Request 2: Cache Hit (Valid Sig 2)
 	start = time.Now()
-	w2 := makeRequest("0xValidSig")
+	w2 := makeRequest("0xValidSig2")
 	duration2 := time.Since(start)
 
 	if w2.Code != 200 {

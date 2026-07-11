@@ -112,6 +112,6 @@ describe("useX402 chain switching logic", () => {
     });
 
     expect(switchSpy).toHaveBeenCalledWith(84532);
-    expect(result.current.error?.message).toContain("Switch manually to one of: Base Sepolia, Base");
+    expect(result.current.error?.detail).toContain("Switch manually to one of: Base Sepolia, Base");
   });
 });
