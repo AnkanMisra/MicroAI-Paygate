@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Apply path-based labels
-        uses: actions/labeler@1375c42512e0b855687040307d6dcaf403da9a4e # v5
+        uses: actions/labeler@b8dd2d9be0f68b860e7dae5dae7d772984eacd6d # v5
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           sync-labels: true
