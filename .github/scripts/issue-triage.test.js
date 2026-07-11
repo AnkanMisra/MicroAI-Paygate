@@ -52,12 +52,23 @@ test("free-form keywords do not create labels", () => {
 });
 
 test("unstructured edits remove stale inferred labels only", () => {
-  const inferred = inferStructuredLabels(issue({ body: "Free-form issue text" }));
+  const currentIssue = issue({ body: "Free-form issue text" });
   const stale = staleInferredLabels(
+    currentIssue,
+    { body: { from: "### Affected component\n\nGateway" } },
     new Set(["go", "type:bug", "good first issue"]),
-    inferred.labels,
   );
-  assert.deepEqual(stale.sort(), ["go", "type:bug"]);
+  assert.deepEqual(stale, ["go"]);
+});
+
+test("free-form edits preserve maintainer-applied inferred labels", () => {
+  const currentIssue = issue({ body: "Updated free-form issue text" });
+  const stale = staleInferredLabels(
+    currentIssue,
+    { body: { from: "Original free-form issue text" } },
+    new Set(["go", "documentation"]),
+  );
+  assert.deepEqual(stale, []);
 });
 
 test("triage is skipped for ready or terminal issues", () => {

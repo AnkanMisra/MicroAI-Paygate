@@ -14,20 +14,6 @@ const CLAIMABLE_LABELS = new Set([
   "gssoc:approved",
 ]);
 
-const INFERRED_LABELS = new Set([
-  "bug",
-  "type:bug",
-  "enhancement",
-  "type:feature",
-  "documentation",
-  "type:docs",
-  "type:devops",
-  "go",
-  "rust",
-  "TypeScript",
-  "type:testing",
-]);
-
 const COMPONENT_LABELS = new Map([
   ["gateway", ["go"]],
   ["verifier", ["rust"]],
@@ -80,9 +66,19 @@ function inferStructuredLabels(issue) {
   return { labels, isStructured: component !== null };
 }
 
-function staleInferredLabels(currentLabels, inferredLabels) {
-  return [...INFERRED_LABELS].filter(
-    (label) => currentLabels.has(label) && !inferredLabels.has(label),
+function staleInferredLabels(issue, changes, currentLabels) {
+  const previousIssue = {
+    ...issue,
+    title: changes?.title?.from ?? issue.title,
+    body: changes?.body?.from ?? issue.body,
+    labels: [],
+  };
+  const previous = inferStructuredLabels(previousIssue);
+  if (!previous.isStructured) return [];
+
+  const next = inferStructuredLabels({ ...issue, labels: [] });
+  return [...previous.labels].filter(
+    (label) => currentLabels.has(label) && !next.labels.has(label),
   );
 }
 
@@ -192,7 +188,9 @@ async function run({ github, context }) {
     const inferred = inferStructuredLabels(issue);
     if (context.payload.action === "edited") {
       const current = labelNames(await fetchIssue());
-      await removeLabels(staleInferredLabels(current, inferred.labels));
+      await removeLabels(
+        staleInferredLabels(issue, context.payload.changes, current),
+      );
     }
 
     await addLabels(inferred.labels);
