@@ -14,6 +14,13 @@ const CLAIMABLE_LABELS = new Set([
   "gssoc:approved",
 ]);
 
+const TYPE_LABELS = new Set([
+  "bug",
+  "type:bug",
+  "enhancement",
+  "type:feature",
+]);
+
 const COMPONENT_LABELS = new Map([
   ["gateway", ["go"]],
   ["verifier", ["rust"]],
@@ -73,12 +80,22 @@ function staleInferredLabels(issue, changes, currentLabels) {
     labels: [],
   };
   const previous = inferStructuredLabels(previousIssue);
-  if (!previous.isStructured) return [];
-
   const next = inferStructuredLabels({ ...issue, labels: [] });
-  return [...previous.labels].filter(
-    (label) => currentLabels.has(label) && !next.labels.has(label),
-  );
+  const stale = new Set();
+
+  if (previous.isStructured) {
+    for (const label of previous.labels) {
+      if (currentLabels.has(label) && !next.labels.has(label)) stale.add(label);
+    }
+  }
+
+  if (next.isStructured) {
+    for (const label of TYPE_LABELS) {
+      if (currentLabels.has(label) && !next.labels.has(label)) stale.add(label);
+    }
+  }
+
+  return [...stale];
 }
 
 function shouldAddTriage(action, issue) {

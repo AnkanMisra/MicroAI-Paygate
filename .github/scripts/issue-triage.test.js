@@ -87,6 +87,19 @@ test("structured type edits replace stale category labels", () => {
   assert.deepEqual(stale.sort(), ["bug", "type:bug"]);
 });
 
+test("structured titles replace conflicting type labels without edit history", () => {
+  const currentIssue = issue({
+    title: "[Feature]: Add a gateway option",
+    body: "### Affected component\n\nGateway",
+  });
+  const stale = staleInferredLabels(
+    currentIssue,
+    undefined,
+    new Set(["bug", "type:bug", "go"]),
+  );
+  assert.deepEqual(stale.sort(), ["bug", "type:bug"]);
+});
+
 test("triage is skipped for ready or terminal issues", () => {
   assert.equal(shouldAddTriage("opened", issue()), true);
   for (const name of [
