@@ -71,6 +71,22 @@ test("free-form edits preserve maintainer-applied inferred labels", () => {
   assert.deepEqual(stale, []);
 });
 
+test("structured type edits replace stale category labels", () => {
+  const currentIssue = issue({
+    title: "[Feature]: Add a gateway option",
+    body: "### Affected component\n\nGateway",
+    labels: [{ name: "bug" }, { name: "type:bug" }],
+  });
+  const inferred = inferStructuredLabels(currentIssue);
+  const stale = staleInferredLabels(
+    currentIssue,
+    { title: { from: "[Bug]: Gateway rejects a valid request" } },
+    new Set(["bug", "type:bug", "go"]),
+  );
+  assert.deepEqual([...inferred.labels].sort(), ["enhancement", "go", "type:feature"]);
+  assert.deepEqual(stale.sort(), ["bug", "type:bug"]);
+});
+
 test("triage is skipped for ready or terminal issues", () => {
   assert.equal(shouldAddTriage("opened", issue()), true);
   for (const name of [

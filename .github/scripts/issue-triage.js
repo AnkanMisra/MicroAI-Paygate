@@ -47,12 +47,11 @@ function inferStructuredLabels(issue) {
   const labels = new Set();
   const title = issue.title || "";
   const component = sectionValue(issue.body, "Affected component");
-  const current = labelNames(issue);
 
-  if (/^\[bug\]\s*:/i.test(title) || current.has("bug")) {
+  if (/^\[bug\]\s*:/i.test(title)) {
     labels.add("bug");
     labels.add("type:bug");
-  } else if (/^\[feature\]\s*:/i.test(title) || current.has("enhancement")) {
+  } else if (/^\[feature\]\s*:/i.test(title)) {
     labels.add("enhancement");
     labels.add("type:feature");
   }
@@ -122,6 +121,7 @@ async function run({ github, context }) {
       existingLabels.add(label.name);
     } catch (error) {
       if (error.status !== 422) throw error;
+      existingLabels.add(label.name);
     }
   }
 
