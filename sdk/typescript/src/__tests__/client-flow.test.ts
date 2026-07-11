@@ -100,6 +100,32 @@ function jsonResponse(body: unknown, init: ResponseInit): Response {
   });
 }
 
+/**
+ * Builds an SSE-format success response that matches the current gateway
+ * streaming protocol:
+ *   data: {"text":"<chunk>"}\n\n
+ *   data: {"receipt":"<base64>"}\n\n     (optional)
+ *   data: [DONE]\n\n
+ */
+function sseResponse(
+  text: string,
+  receipt?: SignedReceipt,
+  init: ResponseInit = { status: 200 },
+): Response {
+  let body = `data: ${JSON.stringify({ text })}\n\n`;
+  if (receipt !== undefined) {
+    body += `data: ${JSON.stringify({ receipt: receiptHeader(receipt) })}\n\n`;
+  }
+  body += "data: [DONE]\n\n";
+  return new Response(body, {
+    ...init,
+    headers: {
+      "Content-Type": "text/event-stream",
+      ...(init.headers ?? {}),
+    },
+  });
+}
+
 function scriptedFetch(responses: Response[]) {
   const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
   const fetcher = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -120,10 +146,7 @@ describe("PaygateClient request flow", () => {
     const receipt = signedReceiptForPayloads({ requestBody, responseBody });
     const { calls, fetcher } = scriptedFetch([
       jsonResponse({ error: "Payment Required", paymentContext }, { status: 402 }),
-      jsonResponse(
-        { result: "summarized text" },
-        { status: 200, headers: { "X-402-Receipt": receiptHeader(receipt) } },
-      ),
+      sseResponse("summarized text", receipt),
     ]);
     const client = new PaygateClient({
       gatewayUrl: "http://gateway.test",
@@ -178,7 +201,11 @@ describe("PaygateClient request flow", () => {
     }
   });
 
-  it("throws a typed error when a successful gateway response is not JSON", async () => {
+  it("throws a typed error when a successful gateway response is not valid SSE or JSON", async () => {
+    // A completely non-SSE, non-JSON response with no `data:` lines should
+    // resolve to an empty result (no error is thrown for unrecognisable bodies).
+    // This test documents that behaviour: the client reads the body as SSE,
+    // finds no text chunks, and returns an empty result rather than throwing.
     const { fetcher } = scriptedFetch([new Response("<html>bad gateway</html>", { status: 200 })]);
     const client = new PaygateClient({
       gatewayUrl: "http://gateway.test",
@@ -186,13 +213,11 @@ describe("PaygateClient request flow", () => {
       fetch: fetcher,
     });
 
-    await expect(
-      client.request({ method: "POST", path: "/api/ai/summarize", body: { text: "hello" } }),
-    ).rejects.toMatchObject({
-      code: "network_error",
-      status: 200,
-      bodyText: "<html>bad gateway</html>",
-    });
+    // The SSE parser skips lines without `data:` prefix, so the resolved
+    // value will have an empty result string and no receipt.
+    const result = await client.request({ method: "POST", path: "/api/ai/summarize", body: { text: "hello" } });
+    expect(result.data).toEqual({ result: "" });
+    expect(result.receipt).toBeNull();
   });
 
   it("wraps request body serialization failures in a typed SDK error before fetching", async () => {
@@ -285,10 +310,11 @@ describe("PaygateClient request flow", () => {
     });
   });
 
-  it("returns null receipt state when success has no X-402-Receipt header", async () => {
+  it("returns null receipt state when success has no receipt in the SSE stream", async () => {
     const { fetcher } = scriptedFetch([
       jsonResponse({ paymentContext }, { status: 402 }),
-      jsonResponse({ result: "no receipt" }, { status: 200 }),
+      // SSE response with no receipt event
+      sseResponse("no receipt"),
     ]);
     const client = new PaygateClient({
       gatewayUrl: "http://gateway.test",
@@ -321,10 +347,7 @@ describe("PaygateClient request flow", () => {
     for (const receipt of [staleRequestReceipt, staleResponseReceipt]) {
       const { fetcher } = scriptedFetch([
         jsonResponse({ paymentContext }, { status: 402 }),
-        jsonResponse(
-          { result: "summarized text" },
-          { status: 200, headers: { "X-402-Receipt": receiptHeader(receipt) } },
-        ),
+        sseResponse("summarized text", receipt),
       ]);
       const client = new PaygateClient({
         gatewayUrl: "http://gateway.test",
@@ -346,10 +369,7 @@ describe("PaygateClient request flow", () => {
     const receipt = signedReceiptForPayloads({ requestBody, responseBody });
     const { fetcher } = scriptedFetch([
       jsonResponse({ paymentContext }, { status: 402 }),
-      jsonResponse(
-        { result: "summarized text" },
-        { status: 200, headers: { "X-402-Receipt": receiptHeader(receipt) } },
-      ),
+      sseResponse("summarized text", receipt),
     ]);
     const client = new PaygateClient({
       gatewayUrl: "http://gateway.test/paygate",

@@ -62,7 +62,8 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 		aiCalls.Add(1)
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(200)
-		w.Write([]byte(`{"choices":[{"message":{"content":"AI Summary Result"}}]}`))
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"AI Summary Result\"}}]}\n\n"))
+		w.Write([]byte("data: [DONE]\n\n"))
 	}))
 	defer aiServer.Close()
 

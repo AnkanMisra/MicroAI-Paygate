@@ -17,6 +17,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// resetMemoryUsedTxForTest clears the in-memory replay map so that tests
+// using the same hardcoded signature do not pollute each other. It also
+// ensures that redisClient is nil so markTransactionUsed falls back to the
+// in-memory path.
+func resetMemoryUsedTxForTest(t *testing.T) {
+	t.Helper()
+	memoryUsedTxMu.Lock()
+	origMap := memoryUsedTx
+	memoryUsedTx = make(map[string]time.Time)
+	memoryUsedTxMu.Unlock()
+	t.Cleanup(func() {
+		memoryUsedTxMu.Lock()
+		memoryUsedTx = origMap
+		memoryUsedTxMu.Unlock()
+	})
+}
+
 type failingProvider struct {
 	err error
 }
@@ -46,9 +63,13 @@ func newCachedSummarizeTestRouter() *gin.Engine {
 }
 
 func signedSummarizeRequest(body string) *http.Request {
+	return signedSummarizeRequestWithSig(body, "0xsigned")
+}
+
+func signedSummarizeRequestWithSig(body, sig string) *http.Request {
 	req := httptest.NewRequest(http.MethodPost, "/api/ai/summarize", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-402-Signature", "0xsigned")
+	req.Header.Set("X-402-Signature", sig)
 	req.Header.Set("X-402-Nonce", "nonce-1")
 	req.Header.Set("X-402-Timestamp", "1700000000")
 	req.Header.Set("X-Correlation-ID", "test-correlation-id")
@@ -213,6 +234,9 @@ func TestCacheHitMapsVerifierNonceReplay(t *testing.T) {
 }
 
 func TestHandleSummarizePreservesAIProviderTimeoutStatus(t *testing.T) {
+	// Use a unique signature so the in-memory replay guard does not collide
+	// with other tests that already consumed "0xsigned".
+	resetMemoryUsedTxForTest(t)
 	origProvider := aiProvider
 	t.Cleanup(func() { aiProvider = origProvider })
 	aiProvider = failingProvider{err: context.DeadlineExceeded}
@@ -220,7 +244,8 @@ func TestHandleSummarizePreservesAIProviderTimeoutStatus(t *testing.T) {
 
 	router := newSummarizeTestRouter()
 	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, signedSummarizeRequest(`{"text":"hello"}`))
+	// Use a signature unique to this test to avoid replay-guard interference.
+	router.ServeHTTP(recorder, signedSummarizeRequestWithSig(`{"text":"hello"}`, "0xsigned-timeout-test"))
 
 	require.Equal(t, http.StatusGatewayTimeout, recorder.Code)
 

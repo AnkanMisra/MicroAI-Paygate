@@ -39,7 +39,8 @@ func TestRedisReceiptStore_PersistsAcrossGatewayRestart(t *testing.T) {
 
 	aiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"Redis receipt summary"}}]}`))
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"Redis receipt summary\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	}))
 	defer aiServer.Close()
 
@@ -212,7 +213,8 @@ func TestHandleSummarize_ConcurrentReplayAttack(t *testing.T) {
 
 	aiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"AI response"}}]}`))
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"AI response\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	}))
 	defer aiServer.Close()
 
