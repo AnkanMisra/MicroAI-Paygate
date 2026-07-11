@@ -100,6 +100,19 @@ test("structured titles replace conflicting type labels without edit history", (
   assert.deepEqual(stale.sort(), ["bug", "type:bug"]);
 });
 
+test("body-only structured edits preserve maintainer type labels", () => {
+  const currentIssue = issue({
+    title: "Gateway request fails in one environment",
+    body: "### Affected component\n\nGateway",
+  });
+  const stale = staleInferredLabels(
+    currentIssue,
+    { body: { from: "Free-form issue body" } },
+    new Set(["bug"]),
+  );
+  assert.deepEqual(stale, []);
+});
+
 test("triage is skipped for ready or terminal issues", () => {
   assert.equal(shouldAddTriage("opened", issue()), true);
   for (const name of [

@@ -89,7 +89,10 @@ function staleInferredLabels(issue, changes, currentLabels) {
     }
   }
 
-  if (next.isStructured) {
+  const nextHasInferredType = [...TYPE_LABELS].some((label) =>
+    next.labels.has(label),
+  );
+  if (next.isStructured && nextHasInferredType) {
     for (const label of TYPE_LABELS) {
       if (currentLabels.has(label) && !next.labels.has(label)) stale.add(label);
     }
