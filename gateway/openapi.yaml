@@ -240,6 +240,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReceiptLookupResponse"
+        "400":
+          description: Invalid receipt ID format.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error, message]
+                properties:
+                  error:
+                    type: string
+                    example: invalid receipt id format
+                  message:
+                    type: string
+                    example: receipt id must start with rcpt_ followed by exactly 12 lowercase hexadecimal characters
         "404":
           description: Receipt expired or never existed.
           content:
@@ -262,7 +276,7 @@ paths:
                 properties:
                   error:
                     type: string
-                    example: Failed to retrieve receipt
+                    example: failed to retrieve receipt
 
 components:
   schemas:

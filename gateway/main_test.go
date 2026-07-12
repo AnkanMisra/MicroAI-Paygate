@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,10 +10,37 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+type spyReceiptStore struct {
+	getCalls int
+	lastID   string
+	receipt  *SignedReceipt
+	exists   bool
+	err      error
+}
+
+func (s *spyReceiptStore) Store(ctx context.Context, receipt *SignedReceipt, ttl time.Duration) error {
+	return nil
+}
+
+func (s *spyReceiptStore) Get(ctx context.Context, id string) (*SignedReceipt, bool, error) {
+	s.getCalls++
+	s.lastID = id
+	return s.receipt, s.exists, s.err
+}
+
+func (s *spyReceiptStore) CleanupExpired(ctx context.Context) error {
+	return nil
+}
+
+func (s *spyReceiptStore) Close() error {
+	return nil
+}
 
 func TestHandleSummarize_NoHeaders(t *testing.T) {
 	// Setup
@@ -615,4 +643,113 @@ func TestHandleReadyz_RedisUnreachable(t *testing.T) {
 	require.Equal(t, false, response["ready"])
 	checks := response["checks"].(map[string]interface{})
 	require.Equal(t, "unreachable", checks["redis"])
+}
+func TestIsValidReceiptID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want bool
+	}{
+		{"valid", "rcpt_abc123def456", true},
+		{"empty", "", false},
+		{"prefix only", "rcpt_", false},
+		{"short", "rcpt_abc", false},
+		{"long", "rcpt_abc123def456789", false},
+		{"uppercase", "rcpt_ABC123DEF456", false},
+		{"non hex", "rcpt_zzzzzzzzzzzz", false},
+		{"wrong prefix", "foo", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isValidReceiptID(tt.id); got != tt.want {
+				t.Fatalf("isValidReceiptID(%q) = %v, want %v",
+					tt.id, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHandleGetReceipt_ValidationAndLookupPaths(t *testing.T) {
+	tests := []struct {
+		name             string
+		useRouter        bool
+		id               string
+		expectedStatus   int
+		expectedBody     map[string]string
+		expectedGetCalls int
+	}{
+		{
+			name:           "empty id",
+			id:             "",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody: map[string]string{
+				"error":   "invalid receipt id format",
+				"message": "receipt id must start with rcpt_ followed by exactly 12 lowercase hexadecimal characters",
+			},
+			expectedGetCalls: 0,
+		},
+		{
+			name:           "prefix only",
+			id:             "rcpt_",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody: map[string]string{
+				"error":   "invalid receipt id format",
+				"message": "receipt id must start with rcpt_ followed by exactly 12 lowercase hexadecimal characters",
+			},
+			expectedGetCalls: 0,
+		},
+		{
+			name:           "malformed id",
+			useRouter:      true,
+			id:             "foo",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody: map[string]string{
+				"error":   "invalid receipt id format",
+				"message": "receipt id must start with rcpt_ followed by exactly 12 lowercase hexadecimal characters",
+			},
+			expectedGetCalls: 0,
+		},
+		{
+			name:           "well formed but missing",
+			useRouter:      true,
+			id:             "rcpt_a1b2c3d4e5f6",
+			expectedStatus: http.StatusNotFound,
+			expectedBody: map[string]string{
+				"error":   "Receipt not found",
+				"message": "Receipt may have expired or never existed",
+			},
+			expectedGetCalls: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spy := &spyReceiptStore{}
+
+			oldStore := getActiveReceiptStore()
+			setActiveReceiptStore(spy)
+			defer setActiveReceiptStore(oldStore)
+
+			w := httptest.NewRecorder()
+
+			if tt.useRouter {
+				router := gin.New()
+				router.GET("/api/receipts/:id", handleGetReceipt)
+				req := httptest.NewRequest(http.MethodGet, "/api/receipts/"+tt.id, nil)
+				router.ServeHTTP(w, req)
+			} else {
+				c, _ := gin.CreateTestContext(w)
+				c.Params = gin.Params{gin.Param{Key: "id", Value: tt.id}}
+				handleGetReceipt(c)
+			}
+
+			require.Equal(t, tt.expectedStatus, w.Code)
+			require.Equal(t, tt.expectedGetCalls, spy.getCalls)
+
+			var body map[string]string
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			require.Equal(t, tt.expectedBody, body)
+		})
+	}
 }

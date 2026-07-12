@@ -243,7 +243,7 @@ func TestInMemoryReceiptStoreCopiesReceipts(t *testing.T) {
 		}
 	})
 
-	receipt := validTestReceipt("rcpt_memory_copy")
+	receipt := validTestReceipt("rcpt_abcdef123456")
 	originalSignature := receipt.Signature
 	originalNonce := receipt.Receipt.Payment.Nonce
 
@@ -255,7 +255,7 @@ func TestInMemoryReceiptStoreCopiesReceipts(t *testing.T) {
 	receipt.Signature = "0xmutated-after-store"
 	receipt.Receipt.Payment.Nonce = "mutated-after-store"
 
-	got, exists, err := store.Get(ctx, "rcpt_memory_copy")
+	got, exists, err := store.Get(ctx, "rcpt_abcdef123456")
 	if err != nil {
 		t.Fatalf("get receipt: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestInMemoryReceiptStoreCopiesReceipts(t *testing.T) {
 	got.Signature = "0xmutated-after-get"
 	got.Receipt.Payment.Nonce = "mutated-after-get"
 
-	gotAgain, exists, err := store.Get(ctx, "rcpt_memory_copy")
+	gotAgain, exists, err := store.Get(ctx, "rcpt_abcdef123456")
 	if err != nil {
 		t.Fatalf("get receipt again: %v", err)
 	}

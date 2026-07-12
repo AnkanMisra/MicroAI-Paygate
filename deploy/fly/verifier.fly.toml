@@ -3,9 +3,6 @@ app = "<verifier-app>"
 # Fly region is closer to the intended users.
 primary_region = "bom"
 
-# Keep this app at one Machine until replay nonce storage is moved out of process.
-# Multi-replica verifier deployments need a shared nonce store such as Redis.
-
 [build]
   dockerfile = "Dockerfile"
 
@@ -13,6 +10,10 @@ primary_region = "bom"
   EXPECTED_CHAIN_ID = "84532"
   SIGNATURE_EXPIRY_SECONDS = "300"
   SIGNATURE_CLOCK_SKEW_SECONDS = "60"
+  VERIFIER_NONCE_STORE = "redis"
+  REDIS_URL = "<your-redis-url>"
+  VERIFIER_NONCE_KEY_PREFIX = "microai:verifier:nonce:"
+  VERIFIER_REDIS_TIMEOUT_MS = "2000"
 
 [checks]
   [checks.health]

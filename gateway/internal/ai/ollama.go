@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 )
+
+// maxErrorResponseBytes caps the amount of upstream error response body we
+// read on non-200 responses. Prevents OOM if a misbehaving Ollama instance
+// streams an unbounded error payload.
+const maxOllamaErrorResponseBytes int64 = 4096
 
 // OllamaProvider implements the Provider interface for Ollama API
 type OllamaProvider struct {
@@ -53,15 +57,15 @@ func (p *OllamaProvider) Generate(ctx context.Context, text string) (string, err
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
-			return "", context.DeadlineExceeded
+		if ctx.Err() != nil {
+			return "", ctx.Err()
 		}
 		return "", fmt.Errorf("failed to connect to Ollama: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxOllamaErrorResponseBytes))
 		return "", fmt.Errorf("ollama returned status %d: %s", resp.StatusCode, string(body))
 	}
 

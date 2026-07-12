@@ -22,7 +22,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 echo "Starting Verifier..."
-cargo run --quiet &
+PORT=3002 cargo run --quiet &
 VERIFIER_PID=$!
 
 echo "Starting Gateway..."

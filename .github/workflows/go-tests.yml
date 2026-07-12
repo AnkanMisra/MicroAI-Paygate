@@ -22,6 +22,9 @@ concurrency:
 jobs:
   go-tests:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     
     services:
       redis:
@@ -36,7 +39,7 @@ jobs:
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -46,6 +49,14 @@ jobs:
 
       - name: Run Go tests
         working-directory: gateway
-        run: go test -v ./...
+        run: go test -v -covermode=atomic -coverprofile=coverage.out ./...
         env:
           REDIS_URL: localhost:6379
+
+      - name: Upload gateway coverage
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
+        with:
+          use_oidc: true
+          files: gateway/coverage.out
+          flags: gateway
+          fail_ci_if_error: false

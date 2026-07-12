@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -60,6 +61,8 @@ type VerifyResponse struct {
 type SummarizeRequest struct {
 	Text string `json:"text"`
 }
+
+var receiptIDPattern = regexp.MustCompile(`^rcpt_[a-f0-9]{12}$`)
 
 // validateConfig validates all required environment variables at startup.
 // It checks for OPENROUTER_API_KEY, SERVER_WALLET_PRIVATE_KEY, and conditionally REDIS_URL.
@@ -424,33 +427,11 @@ func main() {
 // applied by middleware and returns appropriate HTTP errors (402, 403, 504,
 // 500) to the client.
 func handleSummarize(c *gin.Context) {
-	// 1. Payment Verification
-	// Note: CacheMiddleware aborts on cache HIT, so this handler only runs on cache MISS or when caching is disabled
 	var requestBody []byte
 	var err error
 
-	signature := c.GetHeader("X-402-Signature")
-	nonce := c.GetHeader("X-402-Nonce")
-	timestampHeader := c.GetHeader("X-402-Timestamp")
-
-	// Basic check
-	if signature == "" || nonce == "" {
-		c.JSON(402, gin.H{
-			"error":          "Payment Required",
-			"message":        "Please sign the payment context",
-			"paymentContext": createPaymentContext(),
-		})
-		return
-	}
-
-	if timestampHeader == "" {
-		respondError(c, 400, "invalid_timestamp", fmt.Errorf("missing X-402-Timestamp header"))
-		return
-	}
-
-	timestampValue, err := strconv.ParseUint(timestampHeader, 10, 64)
-	if err != nil || timestampValue == 0 {
-		respondError(c, 400, "invalid_timestamp", fmt.Errorf("invalid X-402-Timestamp header"))
+	if !hasPaymentHeaders(c) {
+		writePaymentChallenge(c)
 		return
 	}
 
@@ -477,32 +458,10 @@ func handleSummarize(c *gin.Context) {
 		}
 	}
 
-	// Verify
-	verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, uint64(timestampValue))
-	if err != nil {
-		verificationTotal.WithLabelValues("error").Inc()
-
-		if errors.Is(err, context.DeadlineExceeded) {
-			respondError(c, 504, "verifier_timeout", err)
-		} else {
-			respondError(c, 502, "verification_unavailable", err)
-		}
+	payment, ok := verifyPaidRequest(c)
+	if !ok {
 		return
 	}
-
-	if !verifyResp.IsValid {
-		verificationTotal.WithLabelValues("invalid").Inc()
-
-		respondVerificationFailure(c, verifyResp)
-		return
-	}
-	if verifyResp.RecoveredAddress == "" {
-		verificationTotal.WithLabelValues("error").Inc()
-		respondError(c, 502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
-		return
-	}
-
-	verificationTotal.WithLabelValues("success").Inc()
 
 	// 2. Parse Request
 	var req SummarizeRequest
@@ -520,7 +479,9 @@ func handleSummarize(c *gin.Context) {
 	// 3. Call AI Service
 	summary, err := aiProvider.Generate(c.Request.Context(), req.Text)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(c.Request.Context().Err(), context.DeadlineExceeded) {
+		ctxErr := c.Request.Context().Err()
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
+			ctxErr == context.DeadlineExceeded || ctxErr == context.Canceled {
 			respondError(c, 504, "upstream_timeout", err)
 		} else {
 			respondError(c, 502, "upstream_unavailable", err)
@@ -529,11 +490,8 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	// 4. Generate & Send Receipt
-	if err := generateAndSendReceipt(c, *paymentCtx, verifyResp.RecoveredAddress, requestBody, summary); err != nil {
+	if err := sendPaidResult(c, payment, requestBody, summary); err != nil {
 		log.Printf("Failed to generate receipt: %v", err)
-		// generateAndSendReceipt sends error response if it fails?
-		// No, it returns error, we might have already written status if we aren't careful.
-		// Let's implement generateAndSendReceipt to handle sending response.
 		return
 	}
 }
@@ -854,11 +812,8 @@ func validateReceipt(receipt *SignedReceipt) error {
 	}
 
 	// Validate receipt fields
-	if receipt.Receipt.ID == "" {
-		return fmt.Errorf("receipt ID is empty")
-	}
-	if !strings.HasPrefix(receipt.Receipt.ID, "rcpt_") {
-		return fmt.Errorf("receipt ID must start with 'rcpt_'")
+	if !isValidReceiptID(receipt.Receipt.ID) {
+		return fmt.Errorf("invalid receipt ID format")
 	}
 	if receipt.Receipt.Version == "" {
 		return fmt.Errorf("receipt version is empty")
@@ -922,26 +877,41 @@ func getReceiptTTL() time.Duration {
 	}
 	return time.Duration(ttlSeconds) * time.Second
 }
+func isValidReceiptID(id string) bool {
+	return receiptIDPattern.MatchString(id)
+}
 
 // handleGetReceipt handles GET /api/receipts/:id
 func handleGetReceipt(c *gin.Context) {
 	id := c.Param("id")
 
+	// Reject malformed IDs early (no store hit)
+	if !isValidReceiptID(id) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "invalid receipt id format",
+			"message": "receipt id must start with rcpt_ followed by exactly 12 lowercase hexadecimal characters",
+		})
+		return
+	}
+
 	receipt, exists, err := getReceiptWithContext(c.Request.Context(), id)
 	if err != nil {
 		log.Printf("Failed to retrieve receipt %s: %v", id, err)
-		c.JSON(500, gin.H{"error": "Failed to retrieve receipt"})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "failed to retrieve receipt",
+		})
 		return
 	}
+
 	if !exists {
-		c.JSON(404, gin.H{
+		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "Receipt not found",
 			"message": "Receipt may have expired or never existed",
 		})
 		return
 	}
 
-	c.JSON(200, gin.H{
+	c.JSON(http.StatusOK, gin.H{
 		"receipt":           receipt.Receipt,
 		"signature":         receipt.Signature,
 		"server_public_key": receipt.ServerPublicKey,

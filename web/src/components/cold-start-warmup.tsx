@@ -2,30 +2,57 @@
 
 import { useEffect, useState } from "react";
 
-const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL;
-const VERIFIER_URL = process.env.NEXT_PUBLIC_VERIFIER_URL;
+function getGatewayUrl() {
+  return process.env.NEXT_PUBLIC_GATEWAY_URL;
+}
+
+function getVerifierUrl() {
+  return process.env.NEXT_PUBLIC_VERIFIER_URL;
+}
+
+function createWarmupProbes(
+  gatewayUrl: string,
+  verifierUrl?: string,
+  signal?: AbortSignal,
+) {
+  const probes: Promise<unknown>[] = [
+    fetch(`${gatewayUrl}/healthz`, {
+      cache: "no-store",
+      signal,
+    }).catch(() => {}),
+  ];
+
+  if (verifierUrl) {
+    probes.push(
+      fetch(`${verifierUrl}/health`, {
+        cache: "no-store",
+        signal,
+      }).catch(() => {}),
+    );
+  }
+
+  return probes;
+}
 
 export function ColdStartWarmup() {
-  const [warm, setWarm] = useState(!GATEWAY_URL);
+  const [warm, setWarm] = useState(!getGatewayUrl());
 
   useEffect(() => {
-    if (!GATEWAY_URL) return;
+    const gatewayUrl = getGatewayUrl();
+    const verifierUrl = getVerifierUrl();
+
+    if (!gatewayUrl) return;
+
     const controller = new AbortController();
-    const probes: Promise<unknown>[] = [
-      fetch(`${GATEWAY_URL}/healthz`, {
-        cache: "no-store",
-        signal: controller.signal,
-      }).catch(() => {}),
-    ];
-    if (VERIFIER_URL) {
-      probes.push(
-        fetch(`${VERIFIER_URL}/health`, {
-          cache: "no-store",
-          signal: controller.signal,
-        }).catch(() => {}),
-      );
-    }
+
+    const probes = createWarmupProbes(
+      gatewayUrl,
+      verifierUrl,
+      controller.signal,
+    );
+
     Promise.allSettled(probes).then(() => setWarm(true));
+
     return () => controller.abort();
   }, []);
 

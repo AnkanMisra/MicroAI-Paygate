@@ -46,6 +46,13 @@ services:
       - EXPECTED_CHAIN_ID=${EXPECTED_CHAIN_ID:-${CHAIN_ID:-84532}}
       - SIGNATURE_EXPIRY_SECONDS=${SIGNATURE_EXPIRY_SECONDS:-300}
       - SIGNATURE_CLOCK_SKEW_SECONDS=${SIGNATURE_CLOCK_SKEW_SECONDS:-60}
+      - MAX_REQUEST_BODY_BYTES=${MAX_REQUEST_BODY_BYTES:-1048576}
+      - VERIFIER_NONCE_STORE=${VERIFIER_NONCE_STORE:-redis}
+      - VERIFIER_NONCE_KEY_PREFIX=${VERIFIER_NONCE_KEY_PREFIX:-microai:verifier:nonce:}
+      - VERIFIER_REDIS_TIMEOUT_MS=${VERIFIER_REDIS_TIMEOUT_MS:-2000}
+      - REDIS_URL=${REDIS_URL:-redis:6379}
+      - REDIS_PASSWORD
+      - REDIS_DB
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3002/health >/dev/null 2>&1"]
       interval: 5s
@@ -54,6 +61,9 @@ services:
       start_period: 10s
     networks:
       - microai-net
+    depends_on:
+      redis:
+        condition: service_healthy
 
   redis:
     image: redis:7-alpine
@@ -91,10 +101,14 @@ services:
         # mainnet chain id and the wallet widget + stat bar will contradict
         # each other.
         NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-http://localhost:3000}
+        NEXT_PUBLIC_VERIFIER_URL: ${NEXT_PUBLIC_VERIFIER_URL:-}
         NEXT_PUBLIC_EXPECTED_CHAIN_ID: ${NEXT_PUBLIC_EXPECTED_CHAIN_ID:-${CHAIN_ID:-84532}}
         NEXT_PUBLIC_EXPECTED_CHAIN_NAME: ${NEXT_PUBLIC_EXPECTED_CHAIN_NAME:-Base Sepolia}
         NEXT_PUBLIC_PAYMENT_AMOUNT: ${NEXT_PUBLIC_PAYMENT_AMOUNT:-${PAYMENT_AMOUNT:-0.001}}
         NEXT_PUBLIC_PAYMENT_TOKEN: ${NEXT_PUBLIC_PAYMENT_TOKEN:-USDC}
+        NEXT_PUBLIC_POSTHOG_ENABLED: ${NEXT_PUBLIC_POSTHOG_ENABLED:-false}
+        NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}
+        NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-https://us.i.posthog.com}
     ports:
       - "3001:3001"
     environment:

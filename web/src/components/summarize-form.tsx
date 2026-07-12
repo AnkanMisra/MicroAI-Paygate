@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { browserAnalytics } from "@/lib/browser-analytics";
+import { AnalyticsEvent } from "@/lib/analytics-events";
 import { useX402 } from "@/hooks/use-x402";
 import { Button } from "./ui/button";
 import { StatusStrip } from "./status-strip";
-import { OutputCard } from "./output-card";
+import { OutputCard, useReceiptVerification, type ReceiptVerifyState } from "./output-card";
 import { ErrorBanner } from "./error-banner";
 
 const SAMPLE_PROMPT =
@@ -18,9 +20,17 @@ const DISPLAY_AMOUNT = process.env.NEXT_PUBLIC_PAYMENT_AMOUNT ?? "0.001";
 const DISPLAY_TOKEN = process.env.NEXT_PUBLIC_PAYMENT_TOKEN ?? "USDC";
 const DISPLAY_CHAIN_NAME = process.env.NEXT_PUBLIC_EXPECTED_CHAIN_NAME ?? "Base Sepolia";
 
+/**
+ * Renders a two-column "Summarize" form UI that accepts text input, initiates a signed summarize flow, and displays progress, errors, or the resulting summary and receipt.
+ *
+ * The left column contains a controlled textarea, sample-loading action (which records analytics), word/character counts, cost info, and submit/reset controls. The right column shows the current step, an error banner when present, the summary with its receipt when available, or an idle placeholder otherwise.
+ *
+ * @returns The React element for the summarize form.
+ */
 export function SummarizeForm() {
   const [input, setInput] = useState("");
   const { submit, reset, step, summary, receipt, error, isRunning } = useX402();
+  const verifyState = useReceiptVerification(receipt);
 
   const wordCount = input.trim() ? input.trim().split(/\s+/).length : 0;
   const charCount = input.length;
@@ -49,7 +59,13 @@ export function SummarizeForm() {
             </h3>
             <button
               type="button"
-              onClick={() => setInput(SAMPLE_PROMPT)}
+              onClick={() => {
+                setInput(SAMPLE_PROMPT);
+                browserAnalytics.capture(AnalyticsEvent.SamplePromptLoaded, {
+                  input_word_count: SAMPLE_PROMPT.trim().split(/\s+/).length,
+                  input_char_count: SAMPLE_PROMPT.length,
+                });
+              }}
               className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:text-accent"
             >
               Use sample
@@ -97,13 +113,27 @@ export function SummarizeForm() {
         <h3 id="result-heading" className="sr-only">
           Payment flow and result
         </h3>
+        <div role="status" aria-live="polite" className="sr-only">
+          {getReceiptAnnouncement(summary, verifyState)}
+        </div>
         <StatusStrip step={step} hasError={!!error} />
         {error && <ErrorBanner error={error} onRetry={handleSubmit} onDismiss={handleReset} />}
-        {summary && <OutputCard summary={summary} receipt={receipt} />}
+        {summary && <OutputCard summary={summary} receipt={receipt} verifyState={verifyState} />}
         {!summary && !error && step === "idle" && <PlaceholderCard />}
       </section>
     </div>
   );
+}
+export function getReceiptAnnouncement(
+  summary: string | null,
+  state: ReceiptVerifyState,
+): string {
+  if (!summary) return "";
+
+  if (state === "valid") return "Receipt verified.";
+  if (state === "invalid") return "Receipt not verified.";
+  if (state === "verifying") return "Verifying receipt…";
+  return "Receipt not returned.";
 }
 
 function PlaceholderCard() {

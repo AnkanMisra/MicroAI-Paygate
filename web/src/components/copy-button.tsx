@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { browserAnalytics } from "@/lib/browser-analytics";
+import type { AnalyticsProperties } from "@/lib/analytics";
+import type { AnalyticsEventName } from "@/lib/analytics-events";
 
 type Props = {
   value: string;
@@ -8,14 +11,30 @@ type Props = {
   copiedLabel?: string;
   className?: string;
   ariaLabel?: string;
+  analyticsEvent?: AnalyticsEventName;
+  analyticsProperties?: AnalyticsProperties;
 };
 
+/**
+ * Render a button that copies `value` to the clipboard and shows a temporary "Copied" state.
+ *
+ * When clicked, the component attempts to write `value` to navigator.clipboard, toggles its visual
+ * state to indicate success for 1600ms, and optionally records an analytics event.
+ *
+ * @param value - The string to copy to the clipboard.
+ * @param ariaLabel - Optional override for the button's accessible label; if omitted a label is synthesized from `label` and the start of `value`.
+ * @param analyticsEvent - Optional analytics event name to record after a successful copy.
+ * @param analyticsProperties - Optional analytics properties sent with `analyticsEvent`.
+ * @returns The rendered copy button element.
+ */
 export function CopyButton({
   value,
   label = "Copy",
   copiedLabel = "Copied",
   className = "",
   ariaLabel,
+  analyticsEvent,
+  analyticsProperties,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
@@ -31,6 +50,9 @@ export function CopyButton({
   async function onClick() {
     try {
       await navigator.clipboard.writeText(value);
+      if (analyticsEvent) {
+        browserAnalytics.capture(analyticsEvent, analyticsProperties);
+      }
       setCopied(true);
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
       timerRef.current = window.setTimeout(() => setCopied(false), 1600);

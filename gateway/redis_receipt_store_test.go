@@ -24,7 +24,7 @@ func TestRedisReceiptStore_StoreGetAndTTL(t *testing.T) {
 		t.Fatalf("new redis receipt store: %v", err)
 	}
 
-	receipt := validTestReceipt("rcpt_redis123456")
+	receipt := validTestReceipt("rcpt_a1b2c3d4e5f6")
 	key := "receipt:" + receipt.Receipt.ID
 	t.Cleanup(func() {
 		_ = rdb.Del(ctx, key).Err()
@@ -122,7 +122,7 @@ func TestRedisReceiptStore_PropagatesContextErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name+"/store", func(t *testing.T) {
-			receipt := validTestReceipt("rcpt_redis_ctx_store_" + tt.name)
+			receipt := validTestReceipt("rcpt_a1b2c3d4e5f6")
 			ctx, cancel := tt.ctxFunc()
 			defer cancel()
 
@@ -141,7 +141,7 @@ func TestRedisReceiptStore_PropagatesContextErrors(t *testing.T) {
 		})
 
 		t.Run(tt.name+"/get", func(t *testing.T) {
-			receipt := validTestReceipt("rcpt_redis_ctx_get_" + tt.name)
+			receipt := validTestReceipt("rcpt_b1c2d3e4f5a6")
 			if err := store.Store(context.Background(), receipt, time.Minute); err != nil {
 				t.Fatalf("pre-store receipt: %v", err)
 			}
@@ -184,8 +184,8 @@ func TestRedisReceiptStore_RejectsNonPositiveTTL(t *testing.T) {
 		ttl  time.Duration
 		id   string
 	}{
-		{name: "zero", ttl: 0, id: "rcpt_redis_ttl_zero"},
-		{name: "negative", ttl: -1 * time.Second, id: "rcpt_redis_ttl_negative"},
+		{name: "zero", ttl: 0, id: "rcpt_d1e2f3a4b5c6"},
+		{name: "negative", ttl: -1 * time.Second, id: "rcpt_e1f2a3b4c5d6"},
 	}
 
 	for _, tt := range tests {

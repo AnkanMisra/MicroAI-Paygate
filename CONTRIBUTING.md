@@ -104,6 +104,16 @@ git checkout -b docs/contributor-setup
 git checkout -b feat/web-receipt-viewer
 ```
 
+## GitHub Automation
+
+- New issues are auto-labeled for broad triage based on the issue template and body content.
+- Minimal public security-fallback issues from `SECURITY.md` are auto-labeled `type:security` so stale cleanup does not close them while maintainers move the report to a private channel.
+- New pull requests are auto-labeled from changed paths, for example `go`, `rust`, `TypeScript`, `documentation`, and workflow-related labels.
+- PR path labels stay in sync with the current diff when files are added or removed from the branch.
+- Comment `/claim` on an unassigned issue to ask the bot to assign it to you. Writing "assign me" in a new issue body also triggers self-assignment when the issue is still unassigned.
+- Inactive issues and pull requests are marked stale after 45 days and closed 7 days later unless they have an assignee or exempt labels.
+- Automation is intentionally conservative. Maintainers may adjust labels manually when the bot guesses wrong.
+
 ## Validation Matrix
 
 Run the checks for the area you touched. When a change crosses services, run every affected service's checks.

@@ -20,12 +20,39 @@ The frontend reads these `NEXT_PUBLIC_*` environment variables at build time:
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `NEXT_PUBLIC_GATEWAY_URL` | `http://localhost:3000` | Gateway base URL the browser fetches `/api/ai/summarize` and `/api/receipts/:id` from. |
+| `NEXT_PUBLIC_VERIFIER_URL` | unset | Optional verifier endpoint used by the frontend warm-up banner to pre-warm the verifier and improve first-request UX. |
 | `NEXT_PUBLIC_EXPECTED_CHAIN_ID` | `84532` | Chain id the wallet widget expects. Must match the gateway's `CHAIN_ID`. Deployments on Base mainnet should set `8453` so the widget doesn't fight every payment context. |
 | `NEXT_PUBLIC_EXPECTED_CHAIN_NAME` | `Base Sepolia` | Display name used by the wallet widget's `Switch to <name>` button and the summarize form's placeholder copy. |
 | `NEXT_PUBLIC_PAYMENT_AMOUNT` | `0.001` | Pre-challenge fee label shown under the summarize form. **Informational only** — the actual signed amount is whatever the gateway embeds in the 402 payment context. |
 | `NEXT_PUBLIC_PAYMENT_TOKEN` | `USDC` | Token symbol shown next to `NEXT_PUBLIC_PAYMENT_AMOUNT`. Same caveat — display-only. |
+| `NEXT_PUBLIC_POSTHOG_ENABLED` | `false` | Kill switch for Phase 1 product analytics. Set to `true` only when `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` is also present. |
+| `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` | unset | PostHog project token for browser capture. Leave unset to keep analytics disabled. |
+| `NEXT_PUBLIC_POSTHOG_HOST` | `https://us.i.posthog.com` | PostHog ingestion host. Override for EU region or self-hosted PostHog Cloud-compatible endpoints. |
 
 The signed amount, recipient, chain id, nonce, and timestamp at signing time **always come from the gateway's payment context**, not from these vars. The `NEXT_PUBLIC_*` values are display defaults so deployers running with non-default `CHAIN_ID` / `PAYMENT_AMOUNT` don't see the UI mislead users before the wallet opens.
+
+## Phase 1 Analytics
+
+Phase 1 adds browser-side product analytics through a thin internal layer in `src/lib/`. The web app captures pageviews and explicit funnel events for the x402 flow:
+
+- sample prompt loaded
+- summary requested
+- payment challenge received
+- wallet connect / chain switch / signature lifecycle
+- signed retry sent
+- summary completed / failed
+- receipt history viewed
+- summary / receipt ID copied
+
+Privacy guardrails are enforced in code:
+
+- no raw prompt text
+- no raw summary text
+- no EIP-712 signature
+- no nonce
+- no full receipt payload
+
+No person profile is created while browsing anonymously (`person_profiles: "identified_only"`). The app only calls `identify(walletAddress)` after a successful signature. Per PostHog's standard behavior, `identify` then associates the current session's earlier anonymous events with the wallet's profile, so same-session events from before signing become attributable to that wallet. Cross-session / cross-reload identity governance is out of scope for Phase 1.
 
 ## Payment Signing Shape
 
@@ -83,6 +110,8 @@ bun run build
 
 ## Deployment Notes
 
-`web/vercel.json` configures Vercel to install with Bun and build with `bun run build`. Set `NEXT_PUBLIC_GATEWAY_URL` in Vercel project environment settings; do not hard-code the real gateway URL in committed files.
+`web/vercel.json` configures Vercel to install with Bun and build with `bun run build`. Set `NEXT_PUBLIC_GATEWAY_URL` in Vercel project environment settings; do not hard-code the real gateway URL in committed files. If you enable PostHog, add the three PostHog `NEXT_PUBLIC_*` vars in Vercel too.
+
+For Docker/Compose builds, those same PostHog variables must be passed as build args because Next.js inlines `NEXT_PUBLIC_*` values at build time. `web/Dockerfile` and the root `docker-compose.yml` now wire all three PostHog args through explicitly.
 
 When linking the Vercel project, use `web` as the project root.

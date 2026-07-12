@@ -1,6 +1,6 @@
 # Verifier Service
 
-The verifier is a Rust/Axum service on port `3002`. It validates EIP-712 payment signatures for the gateway and rejects malformed signatures, wrong-chain contexts, expired/future timestamps, and replayed nonces for a single verifier instance.
+The verifier is a Rust/Axum service on port `3002`. It validates EIP-712 payment signatures for the gateway and rejects malformed signatures, wrong-chain contexts, expired/future timestamps, and replayed nonces.
 
 ## Responsibilities
 
@@ -119,13 +119,22 @@ Returns Prometheus text-format metrics for verifier request volume, verification
 | `EXPECTED_CHAIN_ID` | `84532` | Preferred chain ID enforcement variable. |
 | `CHAIN_ID` | unset | Fallback when `EXPECTED_CHAIN_ID` is unset. |
 | `SIGNATURE_EXPIRY_SECONDS` | `300` | Signature freshness window and nonce retention TTL. |
+| `PORT` | `3002` | Listen port for the verifier service. Invalid values fall back to `3002` with a warning. |
+| `BIND_ADDRESS` | `0.0.0.0` | Network interface/address the verifier binds to. Invalid values fall back to `0.0.0.0` with a warning. |
 | `SIGNATURE_CLOCK_SKEW_SECONDS` | `60` | Allowed future timestamp skew. |
+| `VERIFIER_NONCE_STORE` | `memory` | Use `memory` locally/tests or `redis` for shared multi-replica replay protection. |
+| `REDIS_URL` | unset | Required when `VERIFIER_NONCE_STORE=redis`; accepts `host:port`, `redis://...`, or `rediss://...`. |
+| `VERIFIER_NONCE_KEY_PREFIX` | `microai:verifier:nonce:` | Redis key prefix for accepted nonce hashes. |
+| `VERIFIER_REDIS_TIMEOUT_MS` | `2000` | Redis nonce-store connection and claim timeout in milliseconds. |
 
 ## Replay Protection
 
-Nonce replay protection is in memory. It protects one verifier process. Production multi-replica verifier deployments need a shared nonce store such as Redis so every replica rejects the same replayed nonce.
+Nonce replay protection uses `VERIFIER_NONCE_STORE`.
 
-Keep the verifier to one service instance or replica until shared nonce storage exists.
+- `memory` keeps accepted nonce hashes inside one verifier process. This is the default for local development and tests.
+- `redis` stores accepted nonce hashes with atomic `SET NX EX` writes so every verifier replica rejects the same replayed nonce. The Redis TTL is `SIGNATURE_EXPIRY_SECONDS + SIGNATURE_CLOCK_SKEW_SECONDS + 1`.
+
+The verifier validates the signature before claiming a nonce, so malformed or invalid signatures do not burn nonces. If Redis is configured but unavailable, `/verify` returns `503` with `error_code: "nonce_store_unavailable"` instead of accepting a payment without shared replay protection.
 
 ## Local Development
 
@@ -134,11 +143,11 @@ cd verifier
 cargo run
 ```
 
-The service listens on `0.0.0.0:3002` by default.
+The service listens on `0.0.0.0:3002` by default. Override the bind address and port with `BIND_ADDRESS` and `PORT`.
 
 ## Metrics
 
-The verifier exposes Prometheus metrics at `GET /metrics` on port `3002`.
+The verifier exposes Prometheus metrics at `GET /metrics` on the configured listener port. The default port is `3002`.
 
 Example local scrape config:
 
@@ -146,7 +155,7 @@ Example local scrape config:
 scrape_configs:
   - job_name: microai-verifier
     static_configs:
-      - targets: ["localhost:3002"]
+      - targets: ["localhost:<configured-port>"]
     metrics_path: /metrics
 ```
 

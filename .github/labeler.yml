@@ -1,0 +1,68 @@
+go:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "gateway/**"
+          - "deploy/fly/gateway.fly.toml"
+
+rust:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "verifier/**"
+
+TypeScript:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "web/**"
+          - "sdk/typescript/**"
+          - "tests/**/*.ts"
+          - "tests/**/*.tsx"
+          - "package.json"
+          - "bun.lock"
+          - "tsconfig.json"
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.md"
+          - "gateway/openapi.yaml"
+          - ".env.example"
+          - ".env.production.example"
+          - ".github/ISSUE_TEMPLATE/**"
+          - ".github/pull_request_template.md"
+
+github_actions:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/workflows/**"
+          - ".github/ISSUE_TEMPLATE/**"
+          - ".github/dependabot.yml"
+          - ".github/pull_request_template.md"
+
+type:docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.md"
+          - "gateway/openapi.yaml"
+          - ".env.example"
+          - ".env.production.example"
+          - ".github/ISSUE_TEMPLATE/**"
+          - ".github/pull_request_template.md"
+
+type:devops:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "deploy/**"
+          - "docker-compose.yml"
+          - ".env.production.example"
+          - ".github/workflows/**"
+          - ".github/dependabot.yml"
+
+type:testing:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "tests/**"
+          - "run_e2e.sh"
+          - "gateway/**/*_test.go"
+          - "sdk/typescript/**/__tests__/**"
+          - "web/**/*.test.*"
+          - "web/**/*.spec.*"

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { browserAnalytics } from "@/lib/browser-analytics";
 import {
   connectWallet,
   getChainMeta,
@@ -29,9 +30,23 @@ type State =
   | { kind: "disconnected" }
   | { kind: "connected"; address: string; chainId: number };
 
+/**
+ * Render the wallet connection widget and keep analytics identity in sync with live account changes.
+ *
+ * Displays the current wallet state (loading, missing provider, disconnected, or connected with a
+ * chain-switch CTA when on the wrong chain) and reacts to account/chain changes from the injected
+ * provider. When a previously connected wallet disconnects or switches accounts during a live
+ * session, it resets the analytics identity so events are not attributed to the wrong wallet.
+ *
+ * @returns The React element for the wallet widget.
+ */
 export function WalletWidget() {
   const [state, setState] = useState<State>({ kind: "loading" });
   const [switching, setSwitching] = useState(false);
+  // Tracks the last connected address so a live disconnect or account switch
+  // can reset analytics identity. Phase 1 scope: live-session reset only —
+  // cross-reload identity governance is intentionally out of scope.
+  const lastConnectedAddress = useRef<string | null>(null);
   // Visible inline error chip for non-rejection provider failures (provider
   // crash, network error, silent no-op switch). Auto-clears after a few
   // seconds so it doesn't linger forever.
@@ -42,6 +57,10 @@ export function WalletWidget() {
     const id = window.setTimeout(() => setActionError(null), ACTION_ERROR_TTL_MS);
     return () => window.clearTimeout(id);
   }, [actionError]);
+
+  useEffect(() => {
+    lastConnectedAddress.current = state.kind === "connected" ? state.address : null;
+  }, [state]);
 
   useEffect(() => {
     let mounted = true;
@@ -59,9 +78,18 @@ export function WalletWidget() {
         }
 
         unsubAcc = subscribeAccountsChanged(async (accounts) => {
+          // Live-session identity reset: if a previously connected wallet
+          // disconnects or switches to a different account, clear analytics
+          // identity so events aren't attributed to the wrong wallet.
           if (!accounts[0]) {
+            if (lastConnectedAddress.current) {
+              browserAnalytics.reset();
+            }
             setState({ kind: "disconnected" });
             return;
+          }
+          if (lastConnectedAddress.current && lastConnectedAddress.current !== accounts[0]) {
+            browserAnalytics.reset();
           }
           // Read the live chainId — otherwise an external connect lands us in
           // `chainId: 0`, which is never a real EVM chain and triggers the
