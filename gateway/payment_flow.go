@@ -15,16 +15,24 @@ type verifiedPayment struct {
 	RecoveredAddress string
 }
 
+func hasPaymentHeaders(c *gin.Context) bool {
+	return c.GetHeader("X-402-Signature") != "" && c.GetHeader("X-402-Nonce") != ""
+}
+
+func writePaymentChallenge(c *gin.Context) {
+	c.JSON(http.StatusPaymentRequired, gin.H{
+		"error":          "Payment Required",
+		"message":        "Please sign the payment context",
+		"paymentContext": createPaymentContext(),
+	})
+}
+
 func verifyPaidRequest(c *gin.Context) (*verifiedPayment, bool) {
 	signature := c.GetHeader("X-402-Signature")
 	nonce := c.GetHeader("X-402-Nonce")
 
-	if signature == "" || nonce == "" {
-		c.JSON(http.StatusPaymentRequired, gin.H{
-			"error":          "Payment Required",
-			"message":        "Please sign the payment context",
-			"paymentContext": createPaymentContext(),
-		})
+	if !hasPaymentHeaders(c) {
+		writePaymentChallenge(c)
 		return nil, false
 	}
 

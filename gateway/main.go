@@ -430,8 +430,8 @@ func handleSummarize(c *gin.Context) {
 	var requestBody []byte
 	var err error
 
-	payment, ok := verifyPaidRequest(c)
-	if !ok {
+	if !hasPaymentHeaders(c) {
+		writePaymentChallenge(c)
 		return
 	}
 
@@ -456,6 +456,11 @@ func handleSummarize(c *gin.Context) {
 			}
 			return
 		}
+	}
+
+	payment, ok := verifyPaidRequest(c)
+	if !ok {
+		return
 	}
 
 	// 2. Parse Request

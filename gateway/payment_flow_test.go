@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -49,6 +50,24 @@ func TestVerifyPaidRequestWritesPaymentChallengeForMissingHeaders(t *testing.T) 
 	require.NotEmpty(t, response.PaymentContext.Nonce)
 	require.Positive(t, response.PaymentContext.ChainID)
 	require.Positive(t, response.PaymentContext.Timestamp)
+}
+
+func TestHandleSummarizeRejectsOversizedBodyBeforeVerification(t *testing.T) {
+	var verifierCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		verifierCalls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("VERIFIER_URL", server.URL)
+
+	router := newSummarizeTestRouter()
+	request := signedSummarizeRequest(strings.Repeat("x", 10*1024*1024+1))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, recorder.Code)
+	require.Zero(t, verifierCalls.Load())
 }
 
 func TestVerifyPaidRequestReturnsVerifiedPayment(t *testing.T) {
