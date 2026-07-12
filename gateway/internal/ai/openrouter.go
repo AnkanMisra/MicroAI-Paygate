@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -65,8 +64,7 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, text string) (string,
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
-			ctx.Err() == context.DeadlineExceeded || ctx.Err() == context.Canceled {
+		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
 		return "", err

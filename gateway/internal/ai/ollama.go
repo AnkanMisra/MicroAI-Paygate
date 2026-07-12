@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -58,8 +57,7 @@ func (p *OllamaProvider) Generate(ctx context.Context, text string) (string, err
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
-			ctx.Err() == context.DeadlineExceeded || ctx.Err() == context.Canceled {
+		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
 		return "", fmt.Errorf("failed to connect to Ollama: %w", err)

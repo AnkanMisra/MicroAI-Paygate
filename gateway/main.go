@@ -485,7 +485,7 @@ func handleSummarize(c *gin.Context) {
 	if err != nil {
 		verificationTotal.WithLabelValues("error").Inc()
 
-		if errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			respondError(c, 504, "verifier_timeout", err)
 		} else {
 			respondError(c, 502, "verification_unavailable", err)

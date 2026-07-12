@@ -141,6 +141,27 @@ func TestHandleSummarizeSanitizesVerifierTimeout(t *testing.T) {
 	require.Equal(t, "test-correlation-id", response["correlation_id"])
 }
 
+func TestHandleSummarizeTreatsVerifierCancellationAsTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	t.Cleanup(server.Close)
+	t.Setenv("VERIFIER_URL", server.URL)
+
+	router := newSummarizeTestRouter()
+	recorder := httptest.NewRecorder()
+	request := signedSummarizeRequest(`{"text":"hello"}`)
+	ctx, cancel := context.WithCancel(request.Context())
+	cancel()
+	request = request.WithContext(ctx)
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusGatewayTimeout, recorder.Code)
+
+	var response map[string]string
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, "verifier_timeout", response["error"])
+	require.Equal(t, "test-correlation-id", response["correlation_id"])
+}
+
 func TestHandleSummarizeMapsVerifierNonceReplay(t *testing.T) {
 	withVerifierResponse(t, http.StatusConflict, `{"is_valid":false,"recovered_address":null,"error":"SENSITIVE_REPLAY_DETAIL","error_code":"nonce_already_used"}`)
 
