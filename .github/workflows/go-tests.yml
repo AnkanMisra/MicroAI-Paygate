@@ -4,11 +4,15 @@ on:
   pull_request:
     paths:
       - 'gateway/**'
+      - 'deploy/fly/gateway.fly.toml'
+      - 'docker-compose.yml'
       - '.github/workflows/go-tests.yml'
   push:
     branches: [main]
     paths:
       - 'gateway/**'
+      - 'deploy/fly/gateway.fly.toml'
+      - 'docker-compose.yml'
       - '.github/workflows/go-tests.yml'
 
 concurrency:
@@ -18,6 +22,9 @@ concurrency:
 jobs:
   go-tests:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     
     services:
       redis:
@@ -42,6 +49,14 @@ jobs:
 
       - name: Run Go tests
         working-directory: gateway
-        run: go test -v ./...
+        run: go test -v -covermode=atomic -coverprofile=coverage.out ./...
         env:
           REDIS_URL: localhost:6379
+
+      - name: Upload gateway coverage
+        uses: codecov/codecov-action@04b047e8bb82a0c002c8312c1c880fbc6a999d45 # v5
+        with:
+          use_oidc: true
+          files: gateway/coverage.out
+          flags: gateway
+          fail_ci_if_error: false

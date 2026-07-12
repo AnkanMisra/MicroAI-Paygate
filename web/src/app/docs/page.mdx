@@ -1,0 +1,44 @@
+# Documentation
+
+MicroAI Paygate is an open-source reference stack for payment-gated AI requests. It shows how an AI API can issue an HTTP `402 Payment Required` challenge, accept an EIP-712 wallet signature, retry the request with signed headers, and return a signed receipt that clients can verify.
+
+The project is built for AI API builders, hackathon and interview demos, and protocol experimentation. The cryptographic authorization flow is real. The current implementation does not prove that USDC moved on-chain.
+
+## What This Stack Proves
+
+- A wallet authorized a specific payment context.
+- The gateway accepted a signed retry with `X-402-*` headers.
+- The verifier recovered the signer and rejected replayed nonces for the current verifier instance.
+- The gateway signed a receipt over the request and response hashes.
+- A client can verify that receipt with a trusted gateway receipt signing key.
+
+## What It Does Not Prove
+
+- It does not prove on-chain USDC transfer.
+- It is x402-style, not official x402-compatible.
+- It does not use an official facilitator settlement path.
+- It does not yet provide multi-replica nonce replay protection without the planned shared nonce store.
+
+## Start Here
+
+1. Run the stack locally with the Quickstart.
+2. Try the live web demo and watch the `402` flow.
+3. Use the TypeScript SDK from a local app.
+4. Read Security & Limits before making production claims.
+
+## Documentation Map
+
+- [Quickstart](/docs/quickstart) - local setup, ports, first request.
+- [SDK](/docs/sdk) - `@microai/paygate-sdk`, signing, retries, receipts.
+- [API](/docs/api) - gateway endpoints, headers, OpenAPI, error categories.
+- [Protocol](/docs/protocol) - current custom x402-style wire contract.
+- [Architecture](/docs/architecture) - gateway, verifier, web, SDK, Redis, AI provider.
+- [Operations](/docs/operations) - env vars, providers, tests, troubleshooting.
+- [Security & Limits](/docs/security-limits) - trust boundaries and roadmap.
+
+## Live Surfaces
+
+- Web app: `http://localhost:3001`
+- Gateway: `http://localhost:3000`
+- Gateway Swagger UI: `http://localhost:3000/docs`
+- Verifier health: `http://localhost:3002/health`

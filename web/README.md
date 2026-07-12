@@ -1,53 +1,117 @@
 # Web Frontend
 
-The Web Frontend is the user-facing interface for MicroAI Paygate. Built with Next.js, it manages the user journey from inputting text to signing crypto transactions.
+The web app is a Next.js/Bun frontend on port `3001`. It lets users submit text for summarization, receives `402 Payment Required` contexts from the gateway, prompts an EVM wallet to switch chain and sign EIP-712 typed data, and retries the request with custom `X-402-*` headers.
 
-## Role & Responsibilities
+## Responsibilities
 
-- **User Interface**: Provides a clean, responsive UI for text summarization.
-- **Wallet Integration**: Connects to browser wallets (MetaMask, Phantom) using `ethers.js`.
-- **Payment Flow Handling**:
-    1.  Sends initial request.
-    2.  Catches `402 Payment Required` errors.
-    3.  Prompts user to sign EIP-712 typed data.
-    4.  Retries request with signature headers.
-- **Network Management**: Automatically detects network mismatches and prompts switching to the Base network.
+- Send unsigned summarize requests to the gateway.
+- Detect `402` responses and read `paymentContext`.
+- Detect an injected EVM provider such as MetaMask, Rabby, or Coinbase Wallet.
+- Switch or add the requested chain when the wallet is on the wrong network.
+- Sign the gateway-provided EIP-712 payment context.
+- Retry with `X-402-Signature`, `X-402-Nonce`, and `X-402-Timestamp`.
+- Display summary results or user-facing errors.
+- Serve the in-app MDX documentation experience at `/docs`.
 
-## Technology Stack
+## Current Configuration
 
-- **Framework**: Next.js 14 (App Router)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS
-- **Blockchain Interaction**: Ethers.js v6
+The frontend reads these `NEXT_PUBLIC_*` environment variables at build time:
 
-## Key Files
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `NEXT_PUBLIC_GATEWAY_URL` | `http://localhost:3000` | Gateway base URL the browser fetches `/api/ai/summarize` and `/api/receipts/:id` from. |
+| `NEXT_PUBLIC_VERIFIER_URL` | unset | Optional verifier endpoint used by the frontend warm-up banner to pre-warm the verifier and improve first-request UX. |
+| `NEXT_PUBLIC_EXPECTED_CHAIN_ID` | `84532` | Chain id the wallet widget expects. Must match the gateway's `CHAIN_ID`. Deployments on Base mainnet should set `8453` so the widget doesn't fight every payment context. |
+| `NEXT_PUBLIC_EXPECTED_CHAIN_NAME` | `Base Sepolia` | Display name used by the wallet widget's `Switch to <name>` button and the summarize form's placeholder copy. |
+| `NEXT_PUBLIC_PAYMENT_AMOUNT` | `0.001` | Pre-challenge fee label shown under the summarize form. **Informational only** — the actual signed amount is whatever the gateway embeds in the 402 payment context. |
+| `NEXT_PUBLIC_PAYMENT_TOKEN` | `USDC` | Token symbol shown next to `NEXT_PUBLIC_PAYMENT_AMOUNT`. Same caveat — display-only. |
+| `NEXT_PUBLIC_POSTHOG_ENABLED` | `false` | Kill switch for Phase 1 product analytics. Set to `true` only when `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` is also present. |
+| `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` | unset | PostHog project token for browser capture. Leave unset to keep analytics disabled. |
+| `NEXT_PUBLIC_POSTHOG_HOST` | `https://us.i.posthog.com` | PostHog ingestion host. Override for EU region or self-hosted PostHog Cloud-compatible endpoints. |
 
-- `src/app/page.tsx`: The main application logic, including state management and the `handleSummarize` function.
-- `Dockerfile`: Configuration for building the Next.js application for production.
+The signed amount, recipient, chain id, nonce, and timestamp at signing time **always come from the gateway's payment context**, not from these vars. The `NEXT_PUBLIC_*` values are display defaults so deployers running with non-default `CHAIN_ID` / `PAYMENT_AMOUNT` don't see the UI mislead users before the wallet opens.
 
-## Development
+## Phase 1 Analytics
 
-To run the frontend locally:
+Phase 1 adds browser-side product analytics through a thin internal layer in `src/lib/`. The web app captures pageviews and explicit funnel events for the x402 flow:
+
+- sample prompt loaded
+- summary requested
+- payment challenge received
+- wallet connect / chain switch / signature lifecycle
+- signed retry sent
+- summary completed / failed
+- receipt history viewed
+- summary / receipt ID copied
+
+Privacy guardrails are enforced in code:
+
+- no raw prompt text
+- no raw summary text
+- no EIP-712 signature
+- no nonce
+- no full receipt payload
+
+No person profile is created while browsing anonymously (`person_profiles: "identified_only"`). The app only calls `identify(walletAddress)` after a successful signature. Per PostHog's standard behavior, `identify` then associates the current session's earlier anonymous events with the wallet's profile, so same-session events from before signing become attributable to that wallet. Cross-session / cross-reload identity governance is out of scope for Phase 1.
+
+## Payment Signing Shape
+
+The frontend signs the same EIP-712 domain and type enforced by the verifier:
+
+```text
+Domain:
+  name: MicroAI Paygate
+  version: 1
+  chainId: paymentContext.chainId
+  verifyingContract: 0x0000000000000000000000000000000000000000
+
+Payment:
+  recipient address
+  token string
+  amount string
+  nonce string
+  timestamp uint256
+```
+
+If this shape changes, update gateway, verifier, web, E2E tests, OpenAPI, and docs together.
+
+## Local Development
+
+Install dependencies:
+
+```bash
+cd web
+bun install
+```
+
+Run the app:
 
 ```bash
 bun run dev
 ```
 
-The application will be available at `http://localhost:3001`.
+Open `http://localhost:3001`.
 
-## Configuration
+The gateway must be reachable at `NEXT_PUBLIC_GATEWAY_URL` or `http://localhost:3000`.
 
-Environment variables (place in `.env.local` or `.env`):
+The documentation site is available at `http://localhost:3001/docs`.
 
-- `NEXT_PUBLIC_GATEWAY_URL` — gateway base URL (e.g., http://localhost:3000)
-- `NEXT_PUBLIC_CHAIN_ID` — chain id for EIP-712 domain (align with gateway/verifier)
-- `NEXT_PUBLIC_RPC_URL` — RPC endpoint for wallet network detection/switching
-- `NEXT_PUBLIC_RECIPIENT` — expected recipient address for payments
+## Production Build
 
-## Payment Flow
+```bash
+cd web
+bun run lint
+bun run typecheck
+bun run test:unit
+bun run build
+```
 
-1) Send summarize request to gateway. 2) Receive `402 Payment Required`. 3) Sign EIP-712 typed data in-browser. 4) Retry with `X-402-Signature` and `X-402-Nonce`. 5) Display AI result or failure if the upstream model call fails.
+`bun run typecheck` runs `tsc --noEmit` (`bun run test` is kept as an alias for it). `bun run test:unit` runs the Bun unit tests. CI runs these same checks via `.github/workflows/web-lint-build.yml`.
 
-## Testing
+## Deployment Notes
 
-Frontend E2E coverage is driven from the root `tests/e2e.test.ts`; ensure the gateway and verifier are reachable at the configured URLs when running it.
+`web/vercel.json` configures Vercel to install with Bun and build with `bun run build`. Set `NEXT_PUBLIC_GATEWAY_URL` in Vercel project environment settings; do not hard-code the real gateway URL in committed files. If you enable PostHog, add the three PostHog `NEXT_PUBLIC_*` vars in Vercel too.
+
+For Docker/Compose builds, those same PostHog variables must be passed as build args because Next.js inlines `NEXT_PUBLIC_*` values at build time. `web/Dockerfile` and the root `docker-compose.yml` now wire all three PostHog args through explicitly.
+
+When linking the Vercel project, use `web` as the project root.

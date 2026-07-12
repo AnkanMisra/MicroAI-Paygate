@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -71,8 +70,7 @@ func CacheMiddleware() gin.HandlerFunc {
 					return
 				}
 				// Other read errors - don't continue to handler since body is corrupted
-				log.Printf("[ERROR] Failed to read request body: %v", err)
-				c.JSON(500, gin.H{"error": "Failed to read request body"})
+				respondError(c, 500, "request_body_read_failed", err)
 				c.Abort()
 				return
 			}
@@ -103,8 +101,14 @@ func CacheMiddleware() gin.HandlerFunc {
 		}
 
 		// Generate Cache Key (include model to prevent cache collisions)
+		// Get the model from the active provider configuration
 		model := os.Getenv("OPENROUTER_MODEL")
-		if model == "" {
+		if os.Getenv("AI_PROVIDER") == "ollama" {
+			model = os.Getenv("OLLAMA_MODEL")
+			if model == "" {
+				model = "llama2"
+			}
+		} else if model == "" {
 			model = "z-ai/glm-4.5-air:free"
 		}
 		cacheKey := getCacheKey(req.Text, model)
@@ -113,45 +117,54 @@ func CacheMiddleware() gin.HandlerFunc {
 		if cached, err := getFromCache(c.Request.Context(), cacheKey); err == nil {
 			log.Printf("Cache HIT: %s", cacheKey)
 
+			routePath := c.FullPath()
+			if routePath == "" {
+				routePath = "unknown"
+			}
+			cacheHits.WithLabelValues(routePath).Inc()
+
 			// Cache HIT! -> Verify Payment *BEFORE* serving
 			// verifyPayment creates its own timeout context, so pass request context directly
 			timestampStr := c.GetHeader("X-402-Timestamp")
 			if timestampStr == "" {
-				c.JSON(400, gin.H{"error": "Invalid timestamp", "details": "Missing X-402-Timestamp header"})
+				respondError(c, 400, "invalid_timestamp", fmt.Errorf("missing X-402-Timestamp header"))
 				c.Abort()
 				return
 			}
 			timestamp, err := strconv.ParseUint(timestampStr, 10, 64)
 			if err != nil || timestamp == 0 {
-				c.JSON(400, gin.H{"error": "Invalid timestamp", "details": "Invalid X-402-Timestamp header"})
+				respondError(c, 400, "invalid_timestamp", fmt.Errorf("invalid X-402-Timestamp header"))
 				c.Abort()
 				return
 			}
 			verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, timestamp)
 			if err != nil {
+
+				verificationTotal.WithLabelValues("error").Inc()
 				log.Printf("Verification error on cache hit: %v", err)
+
 				if errors.Is(err, context.DeadlineExceeded) {
-					c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "Verifier request timed out"})
+					respondError(c, 504, "verifier_timeout", err)
 				} else {
-					c.JSON(500, gin.H{"error": "Verification Service Failed", "message": "An internal error occurred"})
+					respondError(c, 502, "verification_unavailable", err)
 				}
 				c.Abort()
 				return
 			}
 
 			if !verifyResp.IsValid {
-				// Check for timestamp-related errors (E007, E008, E009)
-				if strings.HasPrefix(verifyResp.Error, "E007") ||
-					strings.HasPrefix(verifyResp.Error, "E008") ||
-					strings.HasPrefix(verifyResp.Error, "E009") {
-					c.JSON(400, gin.H{"error": "Invalid timestamp", "details": verifyResp.Error})
-				} else {
-					c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
-				}
+				verificationTotal.WithLabelValues("invalid").Inc()
+				respondVerificationFailure(c, verifyResp)
 				c.Abort()
 				return
 			}
-
+			if verifyResp.RecoveredAddress == "" {
+				verificationTotal.WithLabelValues("error").Inc()
+				respondError(c, 502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
+				c.Abort()
+				return
+			}
+			verificationTotal.WithLabelValues("success").Inc()
 			// Payment Verified. Store verification for downstream if needed (though we abort)
 			c.Set("payment_verification", verifyResp)
 			c.Set("payment_context", paymentCtx)
@@ -171,6 +184,12 @@ func CacheMiddleware() gin.HandlerFunc {
 
 		// Cache MISS
 		log.Printf("Cache MISS: %s", cacheKey)
+
+		routePath := c.FullPath()
+		if routePath == "" {
+			routePath = "unknown"
+		}
+		cacheMisses.WithLabelValues(routePath).Inc()
 
 		// Prepare to capture response
 		writer := &cachedWriter{
@@ -208,7 +227,7 @@ func CacheMiddleware() gin.HandlerFunc {
 func getCacheKey(text string, model string) string {
 	// IMPORTANT: This cache key ONLY includes text and model.
 	// Cache version v1 - if parameters change, increment version to invalidate old caches
-	// If callOpenRouter() is modified to accept additional parameters
+	// If the AI provider's Generate() method is modified to accept additional parameters
 	// (temperature, max_tokens, top_p, etc.), those MUST be added to
 	// this cache key to prevent incorrect cache hits.
 	// TODO: Consider accepting a struct with all OpenRouter parameters

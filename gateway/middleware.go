@@ -8,30 +8,44 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid" // Added this import for the ID generation
+	"github.com/google/uuid"
 )
 
 type contextKey string
 
-const correlationIDKey contextKey = "correlation_id"
+// CorrelationIDKey is the context key for correlation IDs
+const CorrelationIDKey contextKey = "correlation_id"
+
+const maxCorrelationIDLength = 64
+
+func safeCorrelationID(id string) string {
+	if id == "" || len(id) > maxCorrelationIDLength {
+		return uuid.New().String()
+	}
+	for _, r := range id {
+		if r < 0x20 || r == 0x7f {
+			return uuid.New().String()
+		}
+	}
+	return id
+}
 
 // CorrelationIDMiddleware checks for an existing X-Correlation-ID header
 // or generates a new one, ensuring requests can be traced across services.
 func CorrelationIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id := c.GetHeader("X-Correlation-ID")
-		if id == "" {
-			id = uuid.New().String()
-		}
+		id := safeCorrelationID(c.GetHeader("X-Correlation-ID"))
 
 		c.Set("correlation_id", id) // Keep this as a string for Gin
 
-		// VIBE FIX: Use the custom typed key for the standard context
-		ctx := context.WithValue(c.Request.Context(), correlationIDKey, id)
+		// Use a typed context key (not a bare string) to avoid collisions with
+		// other packages writing to the same request context.
+		ctx := context.WithValue(c.Request.Context(), CorrelationIDKey, id)
 		c.Request = c.Request.WithContext(ctx)
 
 		c.Header("X-Correlation-ID", id)
@@ -202,10 +216,11 @@ func RequestTimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 			// running handler may write directly to the real writer after the
 			// timeout response was already sent (causing panics or corruption).
 			bw.mu.Lock()
+			bw.status = http.StatusGatewayTimeout
 			bw.closed = true
 			bw.mu.Unlock()
 			origWriter.Header().Set("Content-Type", "application/json; charset=utf-8")
-			origWriter.WriteHeader(504)
+			origWriter.WriteHeader(http.StatusGatewayTimeout)
 			_, _ = origWriter.Write([]byte(`{"error":"Gateway Timeout","message":"Request exceeded maximum allowed time"}`))
 			return
 		}
@@ -265,4 +280,39 @@ func (rws *responseWriterShim) CloseNotify() <-chan bool {
 	close(ch)
 	return ch
 
+}
+func MetricsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		path := c.FullPath()
+		if path == "" {
+			path = "unknown"
+		}
+
+		activeRequests.Inc()
+
+		defer func() {
+			statusCode := c.Writer.Status()
+			if recovered := recover(); recovered != nil {
+				if statusCode < http.StatusInternalServerError {
+					statusCode = http.StatusInternalServerError
+				}
+				recordRequestMetrics(c.Request.Method, path, statusCode, start)
+				activeRequests.Dec()
+				panic(recovered)
+			}
+
+			recordRequestMetrics(c.Request.Method, path, statusCode, start)
+			activeRequests.Dec()
+		}()
+
+		c.Next()
+	}
+}
+
+func recordRequestMetrics(method, path string, statusCode int, start time.Time) {
+	status := strconv.Itoa(statusCode)
+
+	requestsTotal.WithLabelValues(method, path, status).Inc()
+	requestsDuration.WithLabelValues(method, path).Observe(time.Since(start).Seconds())
 }

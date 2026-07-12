@@ -1,83 +1,82 @@
 # Security Policy
 
-MicroAI Paygate is a decentralized payment gateway for AI services that enforces per-request crypto micropayments using HTTP 402 (Payment Required).  
-Given its use of cryptography, distributed microservices, and on-chain interactions, security is a top priority.
+MicroAI Paygate handles wallet signatures, payment contexts, replay protection, receipts, Redis persistence, CORS, rate limits, and service-to-service calls. Please report vulnerabilities responsibly and do not publish exploit details before maintainers have had a reasonable chance to respond.
 
----
+## Supported Scope
 
-## Reporting a Vulnerability
+Security reports are welcome for the current `main` branch and the hosted deployment configuration documented in this repository.
 
-If you discover a security vulnerability, please report it responsibly.
+In scope examples:
 
-🚫 **Do NOT open a public GitHub issue for security vulnerabilities.**  
-Public disclosure may put users, wallets, or funds at risk.
+- EIP-712 signature verification bypass.
+- Replay protection bypass or nonce reuse bugs.
+- Timestamp expiry or clock-skew bypass.
+- Chain ID, recipient, token, or amount mismatch that still verifies.
+- Receipt signature or receipt lookup integrity bugs.
+- Cache behavior that serves paid content without valid verification.
+- CORS, trusted proxy, or rate-limit bypass with security impact.
+- Secret exposure in code, logs, docs, workflows, Docker, or deployment files.
+- Server-side request, dependency, or workflow issues that could compromise users, keys, funds, or infrastructure.
 
-### How to Report
+Out of scope examples:
 
-Please report security issues privately via one of the following:
-- GitHub private messages to the repository maintainers, or
-- Any official security contact listed in the repository (if available)
+- Reports that require a funded wallet intentionally configured by the reporter.
+- Spam, social engineering, or denial-of-service against third-party providers.
+- Generic dependency reports without an exploit path or project-specific impact.
+- Issues that only affect local test keys or documented placeholder values.
 
-When reporting, please include:
-- A detailed description of the vulnerability
-- Steps to reproduce the issue (proof-of-concept if possible)
-- Affected component or service (Gateway, Verifier, UI, etc.)
-- Potential impact (fund loss, replay attack, DoS, auth bypass, etc.)
-- Relevant logs, traces, or request samples (redacted where appropriate)
+## How To Report A Vulnerability
 
----
+Do not open a public GitHub issue with vulnerability details.
 
-## Security Scope
+Preferred path:
 
-Security issues may include, but are not limited to:
+1. Use GitHub private vulnerability reporting from the repository security policy page when it is enabled:
+   `https://github.com/AnkanMisra/MicroAI-Paygate/security/policy`
+2. Include a clear description, affected component, impact, reproduction steps, and sanitized logs or requests.
+3. Redact all private keys, API keys, Redis URLs, seed phrases, wallet secrets, and production identifiers.
 
-### Payment & Cryptography
-- EIP-712 signature verification issues
-- Replay attacks or nonce misuse
-- Incorrect payment validation
-- Wallet impersonation or authorization bypass
-- Chain/network mismatch (Base L2)
+Fallback path when private vulnerability reporting is not enabled:
 
-### Protocol & Networking
-- Incorrect HTTP 402 handling
-- Request tampering or downgrade attacks
-- Rate-limit bypass (per-IP or per-wallet)
-- Abuse of token bucket configuration
+1. Open a minimal public issue that says only: "I need to report a security issue privately."
+2. Do not include exploit details, vulnerable code paths, secrets, screenshots, or proof-of-concept payloads in that public issue.
+3. Wait for a maintainer to provide a private contact path.
 
-### Microservices Architecture
-- Insecure service-to-service communication
-- Authentication or authorization flaws between services
-- Memory safety issues (especially in non-Rust components)
-- Race conditions under high concurrency
+## What To Include
 
-### Web & API
-- API authentication issues
-- Injection vulnerabilities
-- Exposure of secrets or private keys
-- Misconfigured environment variables
+- Affected component: gateway, verifier, web, E2E, Docker/Compose, deployment, workflow, or docs.
+- Exact version or commit SHA tested.
+- Environment details needed to reproduce.
+- Reproduction steps or proof of concept, written so maintainers can validate safely.
+- Expected result and actual result.
+- Security impact: replay, impersonation, signature bypass, fund risk, secret exposure, denial of service, or privilege escalation.
+- Suggested fix if you have one.
 
----
+## Response Expectations
 
-## Responsible Disclosure
+Maintainers aim to acknowledge valid private reports within 7 days. The fix timeline depends on severity, exploitability, and whether the issue affects hosted deployments, local development only, or documentation/configuration.
 
-Please allow maintainers a reasonable amount of time to:
-- Investigate the issue
-- Develop and deploy a fix
-- Notify users if necessary
+Please allow maintainers time to investigate, patch, test, and publish remediation notes before public disclosure.
 
-We kindly ask that vulnerabilities are not disclosed publicly until a fix has been released.
+## Safe Harbor
 
----
+Good-faith research is welcome when it:
 
-## Security Design Notes
+- Avoids privacy violations and data destruction.
+- Avoids accessing, modifying, or exfiltrating data that is not yours.
+- Avoids service disruption.
+- Uses local development environments whenever possible.
+- Reports findings privately and gives maintainers time to respond.
 
-MicroAI Paygate incorporates multiple defense layers:
-- Typed cryptographic signatures (EIP-712)
-- Rust-based verification for memory safety
-- Go-based high-concurrency gateway
-- Strict rate-limiting per IP and wallet
-- Minimal on-chain payment amounts to reduce exposure
+## Secret Handling
 
----
+Never share:
 
-Thank you for helping keep MicroAI Paygate secure and reliable.
+- OpenRouter API keys.
+- Server wallet private keys.
+- Wallet seed phrases.
+- Upstash Redis URLs or passwords.
+- Full `.env` files.
+- Unredacted `X-402-Signature` headers from real users.
+
+Committed examples and benchmark fixtures use placeholders or deterministic local test keys. Do not fund test wallets.

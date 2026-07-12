@@ -1,48 +1,212 @@
-# Contributing to MicroAI Paygate
+# Contributing To MicroAI Paygate
 
-Thanks for considering a contribution! This project is open to issues, bug fixes, docs improvements, and new features that keep the system lean and secure.
+Thanks for helping improve MicroAI Paygate. This project is open to focused bug fixes, documentation improvements, tests, deployment/config cleanup, and carefully scoped features.
 
-## Getting Started
-- Fork the repo and create a feature branch: `git checkout -b feature/my-change`
-- Install prerequisites: Bun, Go 1.24+, Rust/Cargo, and Node 20+ (for Next.js 16.x).
-- Copy `.env.example` to `.env` and fill in required keys (see README).
-- Run `bun install`, `go mod tidy -C gateway`, and `cargo build -q -C verifier`.
+MicroAI Paygate is security-sensitive: it handles wallet signatures, payment contexts, replay protection, receipts, rate limits, and service-to-service calls. Small changes can cross service boundaries, so read this guide before opening a pull request.
 
-## Development Workflow
-- Run the stack locally: `bun run stack`
-- Run unit tests:
-  - Gateway: `cd gateway && go test -v`
-  - Verifier: `cd verifier && cargo test`
-- Run E2E tests: `bun run test:e2e` (auto-starts gateway/verifier)
-- Keep ports 3000/3001/3002 free when running locally.
+## Contributor Workflow
 
-## Pull Request Checklist
-- Tests pass locally (gateway, verifier, and E2E where applicable).
-- README/docs updated if behavior or env changes.
-- No unrelated formatting-only diffs.
-- Minimal surface area: focused, reviewable changes.
+```mermaid
+flowchart LR
+    Issue["Find or open an issue"]
+    Branch["Create a focused branch"]
+    Setup["Install and run local stack"]
+    Change["Make the smallest useful change"]
+    Validate["Run component checks"]
+    Docs["Update docs, env examples, OpenAPI, or deployment notes"]
+    PR["Open pull request with template"]
+    Review["Respond to review and CI"]
 
-## Local Validation (mirrors CI)
-- Gateway: `go test -v ./...` and `go vet ./...`
-- Verifier: `cargo fmt -- --check`, `cargo clippy -- -D warnings`, `cargo test`
-- Web: `cd web && bun run lint && bun run build`
-- E2E (optional): `bun run test:e2e` (requires `OPENROUTER_API_KEY`)
+    Issue --> Branch --> Setup --> Change --> Validate --> Docs --> PR --> Review
+```
 
-## Coding Standards
-- Keep changes minimal and focused; avoid large, unrelated refactors.
-- Add tests for new behavior; update existing tests if logic changes.
-- Prefer clear, concise documentation alongside code changes.
-- Follow existing language idioms: Go fmt/go vet style; Rust fmt/clippy where applicable.
-- New features must include tests (unit and/or E2E) covering the added behavior.
+## Repository Components
 
-## Pull Requests
-- Describe the problem, the solution, and testing performed.
-- Link related issues if they exist.
-- Be responsive to review feedback; small, incremental PRs are easier to merge.
-- Use draft PRs for WIP to get early feedback.
+| Component | Path | Main responsibility |
+| --- | --- | --- |
+| Gateway | `gateway/` | Go/Gin HTTP gateway, x402 challenge creation, verifier orchestration, AI provider calls, CORS, gzip, rate limits, Redis cache, receipts, health/readiness. |
+| Verifier | `verifier/` | Rust/Axum EIP-712 signature verification, expected chain enforcement, timestamp freshness, in-memory nonce replay protection. |
+| Web | `web/` | Next.js frontend, wallet detection, configured-chain switching, EIP-712 signing, signed retry, result display. |
+| SDK | `sdk/typescript/` | Private TypeScript SDK for the current x402-style protocol, including challenge handling, EIP-712 signing, signed retry headers, receipt decoding, and trusted-key receipt verification. |
+| E2E | `tests/`, `run_e2e.sh` | Bun tests for unsigned challenge, signed retry, upstream behavior, and replay rejection. |
+| Benchmarks | `bench/` | Verifier-only benchmark harness and raw measured results. |
+| Deployment | `deploy/`, `DEPLOY.md`, `.env.production.example`, `docker-compose.yml` | Render/Vercel/Upstash prep, local Compose stack, ports, service names, health checks, and environment wiring. |
 
-## Reporting Issues
-- Include steps to reproduce, expected vs actual behavior, logs, and environment details (OS, versions).
-- For security-sensitive reports, please open a private disclosure channel (create a security-labeled issue requesting contact).
+## First-Time Setup
 
-Thank you for helping improve MicroAI Paygate!
+Install:
+
+- Bun `1.3.13+`
+- Go `1.24.x`
+- Rust stable
+- Docker and Redis only when using Docker Compose or Redis-backed local receipts/cache
+
+Then run:
+
+```bash
+git clone https://github.com/AnkanMisra/MicroAI-Paygate.git
+cd MicroAI-Paygate
+
+bun install
+(cd web && bun install)
+(cd sdk/typescript && bun install)
+(cd gateway && go mod download)
+(cd verifier && cargo build -q)
+cp .env.example .env
+```
+
+Edit `.env` with development values. Use an unfunded local server wallet key. Never paste funded wallet keys, seed phrases, production Redis URLs, or real API keys into issues or pull requests.
+
+Start the local stack:
+
+```bash
+bun run stack
+```
+
+This starts:
+
+- Gateway: `http://localhost:3000`
+- Web: `http://localhost:3001`
+- Verifier: `http://localhost:3002`
+
+The root stack command defaults to memory receipts and cache disabled unless those values are exported in your shell, so Redis is not required for the normal quick start.
+
+## Docker Compose Setup
+
+Use Docker Compose when you want Redis-backed receipts locally:
+
+```bash
+cp .env.example .env
+docker-compose up --build
+```
+
+Inside Compose, use service names instead of localhost:
+
+- Gateway to verifier: `http://verifier:3002`
+- Gateway to Redis: `redis:6379`
+- Browser to gateway: `http://localhost:3000`
+
+## Branch And Pull Request Rules
+
+- Work on a branch. Do not make unrelated changes on `main`.
+- Keep pull requests small and reviewable.
+- Link the issue when one exists.
+- Use the PR template and list exact validation commands.
+- Update docs/config with behavior changes.
+- Do not force-push shared branches without coordination.
+- Do not commit generated build output, `.env` files, secrets, private keys, or local IDE files.
+
+Recommended branch names:
+
+```bash
+git checkout -b fix/gateway-timeout
+git checkout -b docs/contributor-setup
+git checkout -b feat/web-receipt-viewer
+```
+
+## GitHub Automation
+
+- New issues are auto-labeled for broad triage based on the issue template and body content.
+- Minimal public security-fallback issues from `SECURITY.md` are auto-labeled `type:security` so stale cleanup does not close them while maintainers move the report to a private channel.
+- New pull requests are auto-labeled from changed paths, for example `go`, `rust`, `TypeScript`, `documentation`, and workflow-related labels.
+- PR path labels stay in sync with the current diff when files are added or removed from the branch.
+- Comment `/claim` on an unassigned issue to ask the bot to assign it to you. Writing "assign me" in a new issue body also triggers self-assignment when the issue is still unassigned.
+- Inactive issues and pull requests are marked stale after 45 days and closed 7 days later unless they have an assignee or exempt labels.
+- Automation is intentionally conservative. Maintainers may adjust labels manually when the bot guesses wrong.
+
+## Validation Matrix
+
+Run the checks for the area you touched. When a change crosses services, run every affected service's checks.
+
+| Changed area | Required local checks |
+| --- | --- |
+| `gateway/**` | `cd gateway && gofmt -w . && go test -v ./... && go vet ./...` |
+| `verifier/**` | `cd verifier && cargo fmt -- --check && cargo clippy -- -D warnings && cargo test` |
+| `web/**` | `cd web && bun run lint && bun run typecheck && bun run test:unit && bun run build` |
+| `sdk/typescript/**` | `cd sdk/typescript && bun run typecheck && bun run test` |
+| `tests/**` or x402 flow | `bun run test:e2e` when `OPENROUTER_API_KEY` is available |
+| `gateway/openapi.yaml` | YAML parse plus compare against gateway routes |
+| `.github/workflows/**` | YAML parse and explain which paths trigger checks |
+| Docker/Compose/deploy docs | Validate YAML/TOML where practical and do not run real deploy commands unless maintainers explicitly approve |
+| Documentation only | Run stale-text searches and any command examples you changed when practical |
+
+Do not use plain `bun test` as a replacement for `bun run test:e2e`; plain `bun test` does not start gateway and verifier.
+
+## Docs And Config Sync Requirements
+
+Update all affected docs/config in the same pull request when you change:
+
+- Environment variables.
+- Ports or service names.
+- HTTP routes, headers, status codes, or response bodies.
+- x402 payment context fields.
+- EIP-712 domain name/version/chain/verifying contract/types.
+- Receipt shape, TTL, storage, or lookup behavior.
+- SDK exports, examples, package scripts, or protocol adapter behavior.
+- CORS, trusted proxy, rate limit, timeout, Redis, cache, or provider defaults.
+- Docker Compose, Fly, Vercel, Upstash, or CI behavior.
+
+Common files to check:
+
+- `README.md`
+- `CONTRIBUTING.md`
+- `gateway/README.md`
+- `verifier/README.md`
+- `web/README.md`
+- `sdk/typescript/README.md`
+- `tests/README.md`
+- `gateway/openapi.yaml`
+- `.env.example`
+- `.env.production.example`
+- `docker-compose.yml`
+- `DEPLOY.md`
+- `.github/workflows/*`
+
+## Security-Sensitive Review Areas
+
+Treat these changes as security-sensitive even if they look small:
+
+- `PaymentContext` fields in Go, Rust, TypeScript, tests, or docs.
+- `X-402-Signature`, `X-402-Nonce`, or `X-402-Timestamp` handling.
+- Signature expiry, client clock skew, chain ID, or recipient/token/amount validation.
+- Verifier nonce replay protection.
+- Receipt signing, receipt TTL, receipt lookup, and Redis persistence.
+- Cache behavior. Cached responses must still require valid payment verification.
+- Rate limit key selection and trusted proxy configuration.
+- CORS allowed origins and exposed headers.
+- Logging of request headers, verifier errors, private keys, API keys, Redis URLs, or wallet material.
+- GitHub Actions permissions and workflows that can write to the repository.
+
+## Public API And OpenAPI
+
+The gateway's public contract is documented in `gateway/openapi.yaml` and served from:
+
+- `GET /openapi.yaml`
+- `GET /docs`
+
+If you change a public gateway endpoint, update `gateway/openapi.yaml` in the same pull request. Internal verifier details belong in `verifier/README.md`.
+
+## E2E Behavior
+
+`bun run test:e2e` uses `run_e2e.sh` to build and start the verifier and gateway before running Bun tests. The helper defaults to:
+
+- `RECEIPT_STORE=memory`
+- `CACHE_ENABLED=false`
+
+The default OpenRouter path still requires `OPENROUTER_API_KEY` for gateway startup. If a signed request returns `502 upstream_unavailable` or `504 upstream_timeout`, payment verification may have succeeded and only the upstream model call failed. Read the test output before assuming the x402 flow broke.
+
+## Security Reports
+
+Do not open public issues for vulnerabilities. Follow [SECURITY.md](SECURITY.md). Public issues and pull requests must not include exploit details, leaked secrets, private keys, seed phrases, or full `.env` files.
+
+## Maintainer Review Expectations
+
+Reviewers should check the whole affected flow, not only changed lines. Cross-service behavior often touches gateway structs, verifier structs, web typed data, E2E signing, OpenAPI, README diagrams, env examples, Docker, deployment docs, and CI path filters.
+
+Pull requests are easiest to merge when they:
+
+- Solve one clear problem.
+- Include tests or a clear reason tests are not applicable.
+- Keep docs/config synchronized.
+- Preserve honest benchmark and production-readiness claims.
+- Avoid unrelated dependency churn or formatting-only diffs.

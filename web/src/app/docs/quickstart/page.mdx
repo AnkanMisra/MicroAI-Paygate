@@ -1,0 +1,70 @@
+# Quickstart
+
+Run the complete local stack, then submit one paid AI request through the browser. The quickstart is optimized for local and test wallets only.
+
+## Prerequisites
+
+- Bun.
+- Go.
+- Rust and Cargo.
+- An unfunded local or test EVM wallet.
+- Optional OpenRouter key when using the default OpenRouter AI provider.
+
+Never use a funded wallet, seed phrase, production key, or customer wallet in local examples.
+
+## Install
+
+```bash
+git clone https://github.com/AnkanMisra/MicroAI-Paygate.git
+cd MicroAI-Paygate
+
+bun install
+(cd web && bun install)
+(cd gateway && go mod download)
+(cd verifier && cargo build -q)
+```
+
+## Configure
+
+```bash
+cp .env.example .env
+```
+
+At minimum, review these values before starting the stack:
+
+- `OPENROUTER_API_KEY` when `AI_PROVIDER=openrouter`.
+- `SERVER_WALLET_PRIVATE_KEY` for receipt signing. Use an unfunded development key locally.
+- `RECIPIENT_ADDRESS` for payment contexts.
+- `CHAIN_ID` and `EXPECTED_CHAIN_ID`, which should match.
+
+## Run
+
+```bash
+bun run stack
+```
+
+Local services:
+
+- Gateway: `http://localhost:3000`
+- Gateway Swagger UI: `http://localhost:3000/docs`
+- Web: `http://localhost:3001`
+- Verifier health: `http://localhost:3002/health`
+
+The root stack command starts the gateway with memory receipt storage and response cache disabled unless you exported different values in the shell. That keeps the quickstart from requiring Redis.
+
+## First Request
+
+1. Open `http://localhost:3001`.
+2. Connect a local or test wallet.
+3. Paste text into the summarize form.
+4. Submit the request.
+5. Sign the EIP-712 payment context.
+6. Inspect the returned summary and signed receipt.
+
+The deployed demo may have a cold start because the backend services can sleep after inactivity. A first request after a quiet period may take longer while the gateway and verifier wake.
+
+## Where To Go Next
+
+- Use the SDK from a local app: [SDK](/docs/sdk).
+- Inspect the raw API contract: [API](/docs/api).
+- Understand the exact payment flow: [Protocol](/docs/protocol).

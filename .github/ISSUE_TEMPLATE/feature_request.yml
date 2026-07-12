@@ -1,0 +1,54 @@
+name: Feature request
+description: Propose a focused improvement
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep proposals focused. If the idea changes x402 payment flow, EIP-712 fields, receipts, chain IDs, Docker, deployment, or public API behavior, call that out explicitly.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - Gateway
+        - Verifier
+        - Web
+        - E2E tests
+        - Benchmarks
+        - Docker/Compose
+        - Deployment
+        - Documentation
+        - Cross-service
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What should become easier, safer, faster, or clearer?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the smallest useful version of the change.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: Impact checklist
+      options:
+        - label: This may affect x402 payment context, EIP-712 signatures, nonce/timestamp behavior, or receipts.
+        - label: This may affect environment variables, Docker/Compose, Fly/Vercel deployment, or CI.
+        - label: This may require README, service README, OpenAPI, or `.env.example` updates.
+        - label: I am willing to help test or review the change.

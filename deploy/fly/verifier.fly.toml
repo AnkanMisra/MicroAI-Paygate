@@ -1,0 +1,31 @@
+app = "<verifier-app>"
+# Demo default region is Mumbai. Change primary_region before deploy if another
+# Fly region is closer to the intended users.
+primary_region = "bom"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  EXPECTED_CHAIN_ID = "84532"
+  SIGNATURE_EXPIRY_SECONDS = "300"
+  SIGNATURE_CLOCK_SKEW_SECONDS = "60"
+  VERIFIER_NONCE_STORE = "redis"
+  REDIS_URL = "<your-redis-url>"
+  VERIFIER_NONCE_KEY_PREFIX = "microai:verifier:nonce:"
+  VERIFIER_REDIS_TIMEOUT_MS = "2000"
+
+[checks]
+  [checks.health]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    port = 3002
+    timeout = "5s"
+    type = "http"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "256mb"

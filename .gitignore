@@ -1,5 +1,8 @@
 # Dependencies
 node_modules/
+/gateway/coverage.out
+/web/coverage/
+/sdk/typescript/coverage/
 .bun/
 
 # Environment variables
@@ -41,8 +44,11 @@ Thumbs.db
 .rules
 .cursor 
 docs
+!web/src/app/docs/
+!web/src/app/docs/**
+!web/src/components/docs/
+!web/src/components/docs/**
 
 # Ignored Components
 agent/
 issues/
-
