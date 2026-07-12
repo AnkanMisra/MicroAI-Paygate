@@ -12,7 +12,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -123,58 +122,18 @@ func CacheMiddleware() gin.HandlerFunc {
 			}
 			cacheHits.WithLabelValues(routePath).Inc()
 
-			// Cache HIT! -> Verify Payment *BEFORE* serving
-			// verifyPayment creates its own timeout context, so pass request context directly
-			timestampStr := c.GetHeader("X-402-Timestamp")
-			if timestampStr == "" {
-				respondError(c, 400, "invalid_timestamp", fmt.Errorf("missing X-402-Timestamp header"))
+			payment, ok := verifyPaidRequest(c)
+			if !ok {
 				c.Abort()
 				return
 			}
-			timestamp, err := strconv.ParseUint(timestampStr, 10, 64)
-			if err != nil || timestamp == 0 {
-				respondError(c, 400, "invalid_timestamp", fmt.Errorf("invalid X-402-Timestamp header"))
-				c.Abort()
-				return
-			}
-			verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, timestamp)
-			if err != nil {
-
-				verificationTotal.WithLabelValues("error").Inc()
-				log.Printf("Verification error on cache hit: %v", err)
-
-				if errors.Is(err, context.DeadlineExceeded) {
-					respondError(c, 504, "verifier_timeout", err)
-				} else {
-					respondError(c, 502, "verification_unavailable", err)
-				}
-				c.Abort()
-				return
-			}
-
-			if !verifyResp.IsValid {
-				verificationTotal.WithLabelValues("invalid").Inc()
-				respondVerificationFailure(c, verifyResp)
-				c.Abort()
-				return
-			}
-			if verifyResp.RecoveredAddress == "" {
-				verificationTotal.WithLabelValues("error").Inc()
-				respondError(c, 502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
-				c.Abort()
-				return
-			}
-			verificationTotal.WithLabelValues("success").Inc()
-			// Payment Verified. Store verification for downstream if needed (though we abort)
-			c.Set("payment_verification", verifyResp)
-			c.Set("payment_context", paymentCtx)
 
 			// Generate Receipt and Respond
 			// We treat the cached result as the AI result
 			// Generate receipt for cache hit using current request and cached result.
 			// Note: request_hash matches current request, response is from cache,
 			// but both are cryptographically valid since cache key ensures identical text.
-			if err := generateAndSendReceipt(c, *paymentCtx, verifyResp.RecoveredAddress, requestBody, cached.Result); err != nil {
+			if err := sendPaidResult(c, payment, requestBody, cached.Result); err != nil {
 				log.Printf("Failed to send cached response receipt: %v", err)
 				// generateAndSendReceipt already sent an error response (500)
 			}
