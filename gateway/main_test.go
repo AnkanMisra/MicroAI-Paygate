@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -752,4 +753,208 @@ func TestHandleGetReceipt_ValidationAndLookupPaths(t *testing.T) {
 			require.Equal(t, tt.expectedBody, body)
 		})
 	}
+}
+
+func TestJSONLoggerMiddleware(t *testing.T) {
+	// Capturing stdout
+	oldStdout := os.Stdout
+	rPipe, wPipe, _ := os.Pipe()
+	os.Stdout = wPipe
+
+	defer func() {
+		os.Stdout = oldStdout
+	}()
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("correlation_id", "test-corr-123")
+		c.Set("payment_status", "success")
+		c.Set("payer", "0xPayerAddress")
+		c.Set("cache_status", "hit")
+		c.Next()
+	})
+	r.Use(JSONLoggerMiddleware())
+
+	r.GET("/test-json-log", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
+	req, _ := http.NewRequest("GET", "/test-json-log", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Close write pipe and read captured output
+	wPipe.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(rPipe)
+	output := buf.String()
+
+	require.NotEmpty(t, output)
+
+	// Parse JSON output
+	var logEntry JSONLogEntry
+	err := json.Unmarshal([]byte(output), &logEntry)
+	require.NoError(t, err)
+
+	require.Equal(t, 200, logEntry.Status)
+	require.Equal(t, "/test-json-log", logEntry.Path)
+	require.Equal(t, "GET", logEntry.Method)
+	require.Equal(t, "test-corr-123", logEntry.CorrelationID)
+	require.Equal(t, "success", logEntry.PaymentStatus)
+	require.Equal(t, "0xPayerAddress", logEntry.Payer)
+	require.Equal(t, "hit", logEntry.CacheStatus)
+	require.Equal(t, "info", logEntry.Level)
+	require.NotEmpty(t, logEntry.Timestamp)
+	require.True(t, logEntry.LatencyMs >= 0)
+
+	// Verify no sensitive fields (like private key or signature) are leaked
+	require.NotContains(t, output, "PRIVATE_KEY")
+	require.NotContains(t, output, "0x1234567890abcdef") // sample private key / sig values
+}
+func TestJSONLoggerMiddleware_Sanitization(t *testing.T) {
+	// Capturing stdout
+	oldStdout := os.Stdout
+	rPipe, wPipe, _ := os.Pipe()
+	os.Stdout = wPipe
+
+	defer func() {
+		os.Stdout = oldStdout
+	}()
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("correlation_id", "test-corr-123")
+		c.Set("payment_status", "failed")
+		// Seed sensitive private key hex string in internal error
+		c.Set("internal_error", "failed to connect: openrouter key sk-or-1234567890abcdef1234567890abcdef and wallet key 1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+		c.Next()
+	})
+	r.Use(JSONLoggerMiddleware())
+
+	r.GET("/test-json-log-sanitize", func(c *gin.Context) {
+		c.JSON(500, gin.H{"status": "error"})
+	})
+
+	req, _ := http.NewRequest("GET", "/test-json-log-sanitize", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Close write pipe and read captured output
+	wPipe.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(rPipe)
+	output := buf.String()
+
+	require.NotEmpty(t, output)
+
+	// Parse JSON output
+	var logEntry JSONLogEntry
+	err := json.Unmarshal([]byte(output), &logEntry)
+	require.NoError(t, err)
+
+	require.Equal(t, 500, logEntry.Status)
+	require.Equal(t, "test-corr-123", logEntry.CorrelationID)
+	require.Equal(t, "failed", logEntry.PaymentStatus)
+	require.Equal(t, "error", logEntry.Level)
+
+	// Assert that sensitive fields are redacted in the log entry's internal error field
+	require.NotContains(t, logEntry.InternalError, "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	require.NotContains(t, logEntry.InternalError, "sk-or-1234567890abcdef1234567890abcdef")
+	require.Contains(t, logEntry.InternalError, "[redacted_hex_64]")
+	require.Contains(t, logEntry.InternalError, "[redacted_api_key]")
+}
+
+func TestSanitizeErrorString_RealKeyFormats(t *testing.T) {
+	// 0x-prefixed private keys are the common real-world shape. The old
+	// \b-anchored regex failed to match these because there is no word
+	// boundary between "x" and the first hex digit.
+	hex := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	withPrefix := sanitizeErrorString("signing failed with key 0x" + hex)
+	require.NotContains(t, withPrefix, hex)
+	require.Contains(t, withPrefix, "[redacted_hex_64]")
+
+	bare := sanitizeErrorString("wallet key " + hex + " leaked")
+	require.NotContains(t, bare, hex)
+	require.Contains(t, bare, "[redacted_hex_64]")
+
+	// Versioned OpenRouter keys contain dashes; the secret after sk-or-v1-
+	// must be fully redacted, not just the prefix.
+	orKey := "sk-or-v1-abcdef0123456789abcdef0123456789"
+	redactedKey := sanitizeErrorString("openrouter rejected: " + orKey)
+	require.NotContains(t, redactedKey, "abcdef0123456789abcdef0123456789")
+	require.NotContains(t, redactedKey, orKey)
+	require.Contains(t, redactedKey, "[redacted_api_key]")
+}
+
+func TestRespondError_DoesNotOverwriteSuccessfulPayment(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// A receipt-stage failure after the payment was already verified must not
+	// flip payment_status from "success" to "failed".
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/", nil)
+	c.Set("payment_status", "success")
+
+	respondError(c, 500, "receipt_store_failed", errors.New("redis down"))
+
+	require.Equal(t, "success", c.GetString("payment_status"))
+	require.Equal(t, "receipt_store_failed", c.GetString("payment_error"))
+}
+
+func TestRespondError_MarksFailedWhenNoPriorStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/", nil)
+
+	respondError(c, 502, "verification_unavailable", errors.New("verifier offline"))
+
+	require.Equal(t, "failed", c.GetString("payment_status"))
+	require.Equal(t, "verification_unavailable", c.GetString("payment_error"))
+}
+
+func TestRedactingWriter_ScrubsX402Headers(t *testing.T) {
+	var buf bytes.Buffer
+	rw := redactingWriter{w: &buf}
+
+	// Mimic gin's recovery request dump where header lines are indented.
+	dump := "GET /api/ai/summarize HTTP/1.1\r\n" +
+		"Host: example.com\r\n" +
+		"X-402-Signature: 0xdeadbeefsignature\r\n" +
+		"X-402-Nonce: nonce-abc-123\r\n" +
+		"X-402-Timestamp: 1700000000\r\n" +
+		"Content-Type: application/json\r\n"
+
+	n, err := rw.Write([]byte(dump))
+	require.NoError(t, err)
+	require.Equal(t, len(dump), n, "must report original byte count to gin")
+
+	out := buf.String()
+	require.NotContains(t, out, "0xdeadbeefsignature")
+	require.NotContains(t, out, "nonce-abc-123")
+	require.NotContains(t, out, "1700000000")
+	require.Contains(t, out, "X-402-Signature: [redacted]")
+	require.Contains(t, out, "X-402-Nonce: [redacted]")
+	require.Contains(t, out, "X-402-Timestamp: [redacted]")
+	// Non-sensitive lines pass through untouched.
+	require.Contains(t, out, "Content-Type: application/json")
+	require.Contains(t, out, "Host: example.com")
+}
+
+func TestHandleSummarize_402SetsRequiredPaymentStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/api/ai/summarize", nil)
+
+	handleSummarize(c)
+
+	require.Equal(t, 402, w.Code)
+	require.Equal(t, "required", c.GetString("payment_status"))
 }

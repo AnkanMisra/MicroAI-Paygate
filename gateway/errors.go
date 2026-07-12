@@ -4,20 +4,55 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
+var (
+	// Match an optional 0x prefix so real private keys (which are usually
+	// 0x-prefixed) are caught — a leading \b fails between "x" and the first
+	// hex digit because both are word characters. The trailing \b avoids
+	// chopping into longer hex runs.
+	hex64Regex = regexp.MustCompile(`(?:0x)?[0-9a-fA-F]{64}\b`)
+	// Allow dashes so versioned keys like sk-or-v1-<secret> are redacted in
+	// full, not just the "sk-or-v1" prefix.
+	openRouterKeyRegex = regexp.MustCompile(`sk-or-[a-zA-Z0-9-]+`)
+)
+
+func sanitizeErrorString(s string) string {
+	// Redact API keys before hex so a key whose secret happens to contain a
+	// 64-hex run collapses to a single [redacted_api_key] token.
+	s = openRouterKeyRegex.ReplaceAllString(s, "[redacted_api_key]")
+	s = hex64Regex.ReplaceAllString(s, "[redacted_hex_64]")
+	return s
+}
+
 func respondError(c *gin.Context, code int, publicMsg string, internalErr error) {
-	correlationID := responseCorrelationID(c)
+	// Only mark the payment failed if an earlier stage hasn't already recorded
+	// an outcome. handleSummarize sets payment_status="success" once the
+	// verifier accepts the signature; a later receipt-generation error must not
+	// overwrite that and misreport a paid request as a payment failure.
+	if _, ok := c.Get("payment_status"); !ok {
+		c.Set("payment_status", "failed")
+	}
+	c.Set("payment_error", publicMsg)
+
+	var sanitizedErr string
 	if internalErr != nil {
+		sanitizedErr = sanitizeErrorString(internalErr.Error())
+		c.Set("internal_error", sanitizedErr)
+	}
+
+	correlationID := responseCorrelationID(c)
+	if internalErr != nil && !jsonLogging {
 		log.Printf(
-			"[ERROR] correlation_id=%s status=%d error=%s internal=%v",
+			"[ERROR] correlation_id=%s status=%d error=%s internal=%s",
 			correlationID,
 			code,
 			publicMsg,
-			internalErr,
+			sanitizedErr,
 		)
 	}
 

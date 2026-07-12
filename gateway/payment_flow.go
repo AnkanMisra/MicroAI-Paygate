@@ -20,6 +20,7 @@ func hasPaymentHeaders(c *gin.Context) bool {
 }
 
 func writePaymentChallenge(c *gin.Context) {
+	c.Set("payment_status", "required")
 	c.JSON(http.StatusPaymentRequired, gin.H{
 		"error":          "Payment Required",
 		"message":        "Please sign the payment context",
@@ -67,6 +68,8 @@ func verifyPaidRequest(c *gin.Context) (*verifiedPayment, bool) {
 	}
 
 	verificationTotal.WithLabelValues("success").Inc()
+	c.Set("payment_status", "success")
+	c.Set("payer", verifyResp.RecoveredAddress)
 
 	return &verifiedPayment{
 		PaymentContext:   *paymentCtx,

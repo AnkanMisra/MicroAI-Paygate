@@ -269,7 +269,23 @@ func main() {
 		fmt.Println("[WARN] CHAIN_ID not set, using default: 84532(Base Sepolia)")
 	}
 
-	r := gin.Default()
+	initLogFormat()
+
+	var r *gin.Engine
+	if jsonLogging {
+		gin.SetMode(gin.ReleaseMode)
+		r = gin.New()
+		// Register the JSON logger BEFORE recovery so a downstream panic still
+		// unwinds back through the logger's post-c.Next() block and produces a
+		// structured entry for the recovered 500. Recovery uses a custom writer
+		// that redacts x402 payment headers (signature/nonce/timestamp), which
+		// the default recovery dump would otherwise leak in plaintext — a nonce
+		// may stay replayable until it is consumed.
+		r.Use(JSONLoggerMiddleware())
+		r.Use(gin.RecoveryWithWriter(redactedRecoveryWriter()))
+	} else {
+		r = gin.Default()
+	}
 
 	// Restrict trusted proxies to prevent X-Forwarded-For spoofing.
 	// IP-based rate limiting relies on c.ClientIP(), which reads
@@ -491,7 +507,12 @@ func handleSummarize(c *gin.Context) {
 
 	// 4. Generate & Send Receipt
 	if err := sendPaidResult(c, payment, requestBody, summary); err != nil {
-		log.Printf("Failed to generate receipt: %v", err)
+		// generateAndSendReceipt already routes its failures through respondError
+		// (which records a sanitized internal_error), so this is just a
+		// human-readable echo for text-mode logs.
+		if !jsonLogging {
+			log.Printf("Failed to generate receipt: %v", err)
+		}
 		return
 	}
 }
@@ -896,7 +917,14 @@ func handleGetReceipt(c *gin.Context) {
 
 	receipt, exists, err := getReceiptWithContext(c.Request.Context(), id)
 	if err != nil {
-		log.Printf("Failed to retrieve receipt %s: %v", id, err)
+		if jsonLogging {
+			// The plaintext log is suppressed in JSON mode; record a sanitized
+			// internal_error on the context so the structured entry still
+			// explains the 500 (Redis / receipt-store outages stay diagnosable).
+			c.Set("internal_error", sanitizeErrorString(err.Error()))
+		} else {
+			log.Printf("Failed to retrieve receipt %s: %v", id, err)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "failed to retrieve receipt",
 		})

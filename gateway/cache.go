@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
 // CachedResponse represents the data stored in Redis
@@ -86,7 +87,9 @@ func CacheMiddleware() gin.HandlerFunc {
 		var req SummarizeRequest
 		if err := json.Unmarshal(requestBody, &req); err != nil {
 			// Invalid JSON - reject immediately to prevent cache bypass attacks
-			log.Printf("[DEBUG] Invalid JSON in request: %v", err)
+			if !jsonLogging {
+				log.Printf("[DEBUG] Invalid JSON in request: %v", err)
+			}
 			c.JSON(400, gin.H{"error": "Invalid request body", "message": "Request must be valid JSON"})
 			c.Abort()
 			return
@@ -113,8 +116,12 @@ func CacheMiddleware() gin.HandlerFunc {
 		cacheKey := getCacheKey(req.Text, model)
 
 		// Check Cache
-		if cached, err := getFromCache(c.Request.Context(), cacheKey); err == nil {
-			log.Printf("Cache HIT: %s", cacheKey)
+		cached, cacheErr := getFromCache(c.Request.Context(), cacheKey)
+		if cacheErr == nil {
+			if !jsonLogging {
+				log.Printf("Cache HIT: %s", cacheKey)
+			}
+			c.Set("cache_status", "hit")
 
 			routePath := c.FullPath()
 			if routePath == "" {
@@ -134,15 +141,30 @@ func CacheMiddleware() gin.HandlerFunc {
 			// Note: request_hash matches current request, response is from cache,
 			// but both are cryptographically valid since cache key ensures identical text.
 			if err := sendPaidResult(c, payment, requestBody, cached.Result); err != nil {
-				log.Printf("Failed to send cached response receipt: %v", err)
+				if !jsonLogging {
+					log.Printf("Failed to send cached response receipt: %v", sanitizeErrorString(err.Error()))
+				}
 				// generateAndSendReceipt already sent an error response (500)
 			}
 			c.Abort()
 			return
 		}
 
-		// Cache MISS
-		log.Printf("Cache MISS: %s", cacheKey)
+		// Cache MISS (or a backend failure we treat as a bypass). Distinguish a
+		// genuine absent key (redis.Nil) from connection errors / corrupt cached
+		// data so telemetry doesn't mask Redis outages as ordinary misses.
+		cacheStatus := "miss"
+		if !errors.Is(cacheErr, redis.Nil) {
+			cacheStatus = "error"
+		}
+		if !jsonLogging {
+			if cacheStatus == "error" {
+				log.Printf("Cache lookup error (treating as bypass): %s: %v", cacheKey, sanitizeErrorString(cacheErr.Error()))
+			} else {
+				log.Printf("Cache MISS: %s", cacheKey)
+			}
+		}
+		c.Set("cache_status", cacheStatus)
 
 		routePath := c.FullPath()
 		if routePath == "" {

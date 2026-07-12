@@ -4,11 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,6 +39,17 @@ func safeCorrelationID(id string) string {
 	return id
 }
 
+// jsonLogging is set once at startup from LOG_FORMAT and read on the request
+// hot paths instead of calling os.Getenv repeatedly. Centralizing it here
+// keeps the "json" comparison in one place so suppression stays consistent.
+var jsonLogging bool
+
+// initLogFormat resolves the LOG_FORMAT env var once. Call early in main()
+// before the router and handlers start serving traffic.
+func initLogFormat() {
+	jsonLogging = os.Getenv("LOG_FORMAT") == "json"
+}
+
 // CorrelationIDMiddleware checks for an existing X-Correlation-ID header
 // or generates a new one, ensuring requests can be traced across services.
 func CorrelationIDMiddleware() gin.HandlerFunc {
@@ -49,7 +64,9 @@ func CorrelationIDMiddleware() gin.HandlerFunc {
 		c.Request = c.Request.WithContext(ctx)
 
 		c.Header("X-Correlation-ID", id)
-		log.Printf("[CorrelationID: %s] %s %s", id, c.Request.Method, c.Request.URL.Path)
+		if !jsonLogging {
+			log.Printf("[CorrelationID: %s] %s %s", id, c.Request.Method, c.Request.URL.Path)
+		}
 		c.Next()
 	}
 }
@@ -315,4 +332,101 @@ func recordRequestMetrics(method, path string, statusCode int, start time.Time) 
 
 	requestsTotal.WithLabelValues(method, path, status).Inc()
 	requestsDuration.WithLabelValues(method, path).Observe(time.Since(start).Seconds())
+}
+
+type JSONLogEntry struct {
+	Timestamp     string  `json:"timestamp"`
+	Level         string  `json:"level"`
+	Status        int     `json:"status"`
+	Path          string  `json:"path"`
+	Method        string  `json:"method"`
+	LatencyMs     float64 `json:"latency_ms"`
+	ClientIP      string  `json:"client_ip"`
+	CorrelationID string  `json:"correlation_id"`
+	CacheStatus   string  `json:"cache_status,omitempty"`
+	PaymentStatus string  `json:"payment_status,omitempty"`
+	PaymentError  string  `json:"payment_error,omitempty"`
+	Payer         string  `json:"payer,omitempty"`
+	InternalError string  `json:"internal_error,omitempty"`
+}
+
+func JSONLoggerMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
+		latency := time.Since(start)
+
+		status := c.Writer.Status()
+		level := "info"
+		if status >= 500 {
+			level = "error"
+		} else if status >= 400 {
+			level = "warn"
+		}
+
+		correlationID, _ := c.Get("correlation_id")
+		corrStr, _ := correlationID.(string)
+
+		entry := JSONLogEntry{
+			Timestamp:     time.Now().UTC().Format(time.RFC3339),
+			Level:         level,
+			Status:        status,
+			Path:          c.Request.URL.Path,
+			Method:        c.Request.Method,
+			LatencyMs:     float64(latency.Nanoseconds()) / 1e6,
+			ClientIP:      c.ClientIP(),
+			CorrelationID: corrStr,
+			CacheStatus:   c.GetString("cache_status"),
+			PaymentStatus: c.GetString("payment_status"),
+			PaymentError:  c.GetString("payment_error"),
+			Payer:         c.GetString("payer"),
+			InternalError: sanitizeErrorString(c.GetString("internal_error")),
+		}
+
+		if data, err := json.Marshal(entry); err == nil {
+			fmt.Println(string(data))
+		}
+	}
+}
+
+// x402SensitiveHeaders are payment headers that must never reach the panic
+// recovery dump in plaintext. A leaked signature can stay replayable until its
+// nonce is consumed by the verifier.
+var x402SensitiveHeaders = []string{
+	"x-402-signature",
+	"x-402-nonce",
+	"x-402-timestamp",
+}
+
+// redactingWriter wraps an io.Writer and strips the values of x402 payment
+// headers out of anything written through it. gin's recovery dump only scrubs
+// Authorization, so we filter the rest here.
+type redactingWriter struct {
+	w io.Writer
+}
+
+func (rw redactingWriter) Write(p []byte) (int, error) {
+	lines := strings.Split(string(p), "\n")
+	for i, line := range lines {
+		lower := strings.ToLower(strings.TrimLeft(line, " \t"))
+		for _, h := range x402SensitiveHeaders {
+			if strings.HasPrefix(lower, h+":") {
+				if idx := strings.Index(line, ":"); idx >= 0 {
+					lines[i] = line[:idx+1] + " [redacted]"
+				}
+				break
+			}
+		}
+	}
+	if _, err := io.WriteString(rw.w, strings.Join(lines, "\n")); err != nil {
+		return 0, err
+	}
+	// Report the original length so gin sees a complete write.
+	return len(p), nil
+}
+
+// redactedRecoveryWriter returns the writer gin.RecoveryWithWriter uses for its
+// panic dump, with x402 payment headers redacted.
+func redactedRecoveryWriter() io.Writer {
+	return redactingWriter{w: os.Stderr}
 }
