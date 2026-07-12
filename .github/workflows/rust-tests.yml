@@ -4,11 +4,15 @@ on:
   pull_request:
     paths:
       - 'verifier/**'
+      - 'deploy/fly/verifier.fly.toml'
+      - 'docker-compose.yml'
       - '.github/workflows/rust-tests.yml'
   push:
     branches: [main]
     paths:
       - 'verifier/**'
+      - 'deploy/fly/verifier.fly.toml'
+      - 'docker-compose.yml'
       - '.github/workflows/rust-tests.yml'
 
 concurrency:

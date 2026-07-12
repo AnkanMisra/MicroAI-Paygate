@@ -1,0 +1,22 @@
+{
+  "receipt": {
+    "id": "rcpt_sdkfixture1",
+    "version": "1.0",
+    "timestamp": "2026-05-25T00:00:00Z",
+    "payment": {
+      "payer": "0x742d35Cc6634C0532925a3b844Bc9e7595f8fE21",
+      "recipient": "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219",
+      "amount": "0.001",
+      "token": "USDC",
+      "chainId": 84532,
+      "nonce": "sdk-fixture-nonce"
+    },
+    "service": {
+      "endpoint": "/api/ai/summarize",
+      "request_hash": "sha256:7d3a3f3ff2db0d78e8f02397b845fc2faaf01134544224af15d1fed2b834de40",
+      "response_hash": "sha256:8a90fd4352d6e287b3e908e62f802c99c4f5680c9644cb27fb64d638e3fbb9d4"
+    }
+  },
+  "signature": "0xc06258159f7df3a6ec8447a5ac4e016e541fa9feaa85cf337ed64fda0358e97b00d904eeea147c4916f630db5c065fa7068cbc28bb00c5e79d243a9bd663646000",
+  "server_public_key": "0x04f96f0eb0070322ef61fba98b6d289430668734b57a005a327111fc470bdbf9677b20c97fbeac68dd514d6792e21b02737636e30511449d5969722faa29ce7ed4"
+}

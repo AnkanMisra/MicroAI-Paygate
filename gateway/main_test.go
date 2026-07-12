@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,10 +10,37 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+type spyReceiptStore struct {
+	getCalls int
+	lastID   string
+	receipt  *SignedReceipt
+	exists   bool
+	err      error
+}
+
+func (s *spyReceiptStore) Store(ctx context.Context, receipt *SignedReceipt, ttl time.Duration) error {
+	return nil
+}
+
+func (s *spyReceiptStore) Get(ctx context.Context, id string) (*SignedReceipt, bool, error) {
+	s.getCalls++
+	s.lastID = id
+	return s.receipt, s.exists, s.err
+}
+
+func (s *spyReceiptStore) CleanupExpired(ctx context.Context) error {
+	return nil
+}
+
+func (s *spyReceiptStore) Close() error {
+	return nil
+}
 
 func TestHandleSummarize_NoHeaders(t *testing.T) {
 	// Setup
@@ -42,6 +70,14 @@ func TestHandleSummarize_NoHeaders(t *testing.T) {
 
 	if response["paymentContext"] == nil {
 		t.Error("Expected paymentContext to be present")
+	}
+}
+
+func TestGetChainIDDefaultBaseSepolia(t *testing.T) {
+	t.Setenv("CHAIN_ID", "")
+
+	if got := getChainID(); got != 84532 {
+		t.Fatalf("expected Base Sepolia default chain ID 84532, got %d", got)
 	}
 }
 
@@ -155,7 +191,7 @@ func TestRateLimitMiddleware_StandardUser(t *testing.T) {
 }
 
 func TestRateLimitMiddleware_DifferentKeys(t *testing.T) {
-	// Verify that different users have separate rate limit buckets
+	// Verify that different IPs have separate rate limit buckets
 	os.Setenv("RATE_LIMIT_ENABLED", "true")
 	os.Setenv("RATE_LIMIT_STANDARD_RPM", "60")
 	os.Setenv("RATE_LIMIT_STANDARD_BURST", "2")
@@ -178,7 +214,8 @@ func TestRateLimitMiddleware_DifferentKeys(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		req, _ := http.NewRequest("GET", "/test", nil)
 		req.Header.Set("X-402-Signature", "sig1")
-		req.Header.Set("X-402-Nonce", "user1-11111111") // Different first 8 chars
+		req.Header.Set("X-402-Nonce", "user1-11111111")
+		req.RemoteAddr = "192.168.1.1:12345" // Explicit IP for User 1
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		if w.Code != 200 {
@@ -190,6 +227,7 @@ func TestRateLimitMiddleware_DifferentKeys(t *testing.T) {
 	req1, _ := http.NewRequest("GET", "/test", nil)
 	req1.Header.Set("X-402-Signature", "sig1")
 	req1.Header.Set("X-402-Nonce", "user1-11111111")
+	req1.RemoteAddr = "192.168.1.1:12345" // Same IP as User 1
 	w1 := httptest.NewRecorder()
 	r.ServeHTTP(w1, req1)
 	if w1.Code != 429 {
@@ -199,7 +237,8 @@ func TestRateLimitMiddleware_DifferentKeys(t *testing.T) {
 	// User 2 should still be allowed (different bucket)
 	req2, _ := http.NewRequest("GET", "/test", nil)
 	req2.Header.Set("X-402-Signature", "sig2")
-	req2.Header.Set("X-402-Nonce", "user2-22222222") // Different first 8 chars
+	req2.Header.Set("X-402-Nonce", "user2-22222222")
+	req2.RemoteAddr = "192.168.1.2:12345" // Different IP for User 2
 	w2 := httptest.NewRecorder()
 	r.ServeHTTP(w2, req2)
 	if w2.Code != 200 {
@@ -246,10 +285,10 @@ func TestGetRateLimitKey(t *testing.T) {
 		nonce       string
 		expectedKey string
 	}{
-		{"With both signature and nonce", "sig123", "test-nonce", "nonce:"},
-		{"Only nonce (no signature)", "", "test-nonce", "ip:"},
-		{"Only signature (no nonce)", "sig123", "", "ip:"},
-		{"Neither", "", "", "ip:"},
+		{"IP-based rate limiting (with signature and nonce)", "sig123", "test-nonce", "ip:"},
+		{"IP-based rate limiting (with nonce only)", "", "test-nonce", "ip:"},
+		{"IP-based rate limiting (with signature only)", "sig123", "", "ip:"},
+		{"IP-based rate limiting (without auth headers)", "", "", "ip:"},
 	}
 
 	for _, tt := range tests {
@@ -258,18 +297,10 @@ func TestGetRateLimitKey(t *testing.T) {
 			r.GET("/test", func(c *gin.Context) {
 				key := getRateLimitKey(c)
 
-				if strings.HasPrefix(tt.expectedKey, "nonce:") {
-					if !strings.HasPrefix(key, "nonce:") {
-						t.Errorf("Expected nonce-based key, got '%s'", key)
-					}
-					hashPart := strings.TrimPrefix(key, "nonce:")
-					if len(hashPart) != 32 {
-						t.Errorf("Expected hash to be 32 chars, got %d", len(hashPart))
-					}
-				} else {
-					if !strings.HasPrefix(key, "ip:") {
-						t.Errorf("Expected IP-based key, got '%s'", key)
-					}
+				// After fix: All keys should be IP-based to prevent
+				// infinite bucket attacks from unique nonces
+				if !strings.HasPrefix(key, "ip:") {
+					t.Errorf("Expected IP-based key, got '%s'", key)
 				}
 				c.JSON(200, gin.H{"key": key})
 			})
@@ -380,6 +411,8 @@ func TestHandleHealthz(t *testing.T) {
 
 func TestHandleReadyz_Healthy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	t.Setenv("RECEIPT_STORE", "memory")
+	t.Setenv("CACHE_ENABLED", "false")
 
 	// save originals
 	origVerifier := checkVerifierHealth
@@ -420,8 +453,79 @@ func TestHandleReadyz_Healthy(t *testing.T) {
 	require.Contains(t, gatewayChecks, "memory_alloc_mb")
 	require.Contains(t, gatewayChecks, "memory_sys_mb")
 }
+
+func TestHandleReadyz_OllamaProviderUsesOllamaHealth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("AI_PROVIDER", "ollama")
+	t.Setenv("RECEIPT_STORE", "memory")
+	t.Setenv("CACHE_ENABLED", "false")
+
+	ollamaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tags" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"models":[]}`))
+	}))
+	defer ollamaServer.Close()
+	t.Setenv("OLLAMA_URL", ollamaServer.URL)
+
+	origVerifier := checkVerifierHealth
+	origOpenRouter := checkOpenRouterHealth
+	defer func() {
+		checkVerifierHealth = origVerifier
+		checkOpenRouterHealth = origOpenRouter
+	}()
+
+	checkVerifierHealth = func() string { return "ok" }
+	checkOpenRouterHealth = func() string { return "unconfigured" }
+
+	r := gin.Default()
+	r.GET("/readyz", handleReadyz)
+
+	req, _ := http.NewRequest(http.MethodGet, "/readyz", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	require.Equal(t, true, response["ready"])
+
+	checks := response["checks"].(map[string]interface{})
+	require.Equal(t, "ok", checks["ollama"])
+	require.NotContains(t, checks, "openrouter")
+
+	aiProvider := checks["ai_provider"].(map[string]interface{})
+	require.Equal(t, "ollama", aiProvider["provider"])
+	require.Equal(t, "ok", aiProvider["status"])
+}
+
+func TestCheckOpenRouterHealthAcceptsChatCompletionsURL(t *testing.T) {
+	openRouterServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/models" || r.Header.Get("Authorization") != "Bearer test-key" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer openRouterServer.Close()
+
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	t.Setenv("OPENROUTER_URL", openRouterServer.URL+"/api/v1/chat/completions")
+
+	require.Equal(t, "ok", checkOpenRouterHealth())
+}
+
 func TestHandleReadyz_UnHealthy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	t.Setenv("RECEIPT_STORE", "memory")
+	t.Setenv("CACHE_ENABLED", "false")
 
 	origVerifier := checkVerifierHealth
 	origOpenRouter := checkOpenRouterHealth
@@ -453,4 +557,199 @@ func TestHandleReadyz_UnHealthy(t *testing.T) {
 
 	checks := response["checks"].(map[string]interface{})
 	require.Equal(t, "unreachable", checks["verifier"])
+}
+
+func TestHandleReadyz_RedisDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("RECEIPT_STORE", "memory")
+
+	// Save originals
+	origVerifier := checkVerifierHealth
+	origOpenRouter := checkOpenRouterHealth
+	origCacheEnabled, cacheWasSet := os.LookupEnv("CACHE_ENABLED")
+	defer func() {
+		checkVerifierHealth = origVerifier
+		checkOpenRouterHealth = origOpenRouter
+		if cacheWasSet {
+			os.Setenv("CACHE_ENABLED", origCacheEnabled)
+		} else {
+			os.Unsetenv("CACHE_ENABLED")
+		}
+	}()
+
+	// Stub healthy services
+	checkVerifierHealth = func() string { return "ok" }
+	checkOpenRouterHealth = func() string { return "ok" }
+	os.Setenv("CACHE_ENABLED", "false")
+
+	r := gin.Default()
+	r.GET("/readyz", handleReadyz)
+
+	req, _ := http.NewRequest(http.MethodGet, "/readyz", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	require.Equal(t, true, response["ready"])
+	checks := response["checks"].(map[string]interface{})
+	require.Equal(t, "disabled", checks["redis"])
+}
+
+func TestHandleReadyz_RedisUnreachable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Save originals
+	origVerifier := checkVerifierHealth
+	origOpenRouter := checkOpenRouterHealth
+	origCacheEnabled, cacheWasSet := os.LookupEnv("CACHE_ENABLED")
+	origRedisClient := redisClient
+	defer func() {
+		checkVerifierHealth = origVerifier
+		checkOpenRouterHealth = origOpenRouter
+		if cacheWasSet {
+			os.Setenv("CACHE_ENABLED", origCacheEnabled)
+		} else {
+			os.Unsetenv("CACHE_ENABLED")
+		}
+		redisClient = origRedisClient
+	}()
+
+	// Stub healthy services but Redis is nil (unreachable)
+	checkVerifierHealth = func() string { return "ok" }
+	checkOpenRouterHealth = func() string { return "ok" }
+	os.Setenv("CACHE_ENABLED", "true")
+	redisClient = nil // Simulate Redis not initialized
+
+	r := gin.Default()
+	r.GET("/readyz", handleReadyz)
+
+	req, _ := http.NewRequest(http.MethodGet, "/readyz", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	require.Equal(t, false, response["ready"])
+	checks := response["checks"].(map[string]interface{})
+	require.Equal(t, "unreachable", checks["redis"])
+}
+func TestIsValidReceiptID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want bool
+	}{
+		{"valid", "rcpt_abc123def456", true},
+		{"empty", "", false},
+		{"prefix only", "rcpt_", false},
+		{"short", "rcpt_abc", false},
+		{"long", "rcpt_abc123def456789", false},
+		{"uppercase", "rcpt_ABC123DEF456", false},
+		{"non hex", "rcpt_zzzzzzzzzzzz", false},
+		{"wrong prefix", "foo", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isValidReceiptID(tt.id); got != tt.want {
+				t.Fatalf("isValidReceiptID(%q) = %v, want %v",
+					tt.id, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHandleGetReceipt_ValidationAndLookupPaths(t *testing.T) {
+	tests := []struct {
+		name             string
+		useRouter        bool
+		id               string
+		expectedStatus   int
+		expectedBody     map[string]string
+		expectedGetCalls int
+	}{
+		{
+			name:           "empty id",
+			id:             "",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody: map[string]string{
+				"error":   "invalid receipt id format",
+				"message": "receipt id must start with rcpt_ followed by exactly 12 lowercase hexadecimal characters",
+			},
+			expectedGetCalls: 0,
+		},
+		{
+			name:           "prefix only",
+			id:             "rcpt_",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody: map[string]string{
+				"error":   "invalid receipt id format",
+				"message": "receipt id must start with rcpt_ followed by exactly 12 lowercase hexadecimal characters",
+			},
+			expectedGetCalls: 0,
+		},
+		{
+			name:           "malformed id",
+			useRouter:      true,
+			id:             "foo",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody: map[string]string{
+				"error":   "invalid receipt id format",
+				"message": "receipt id must start with rcpt_ followed by exactly 12 lowercase hexadecimal characters",
+			},
+			expectedGetCalls: 0,
+		},
+		{
+			name:           "well formed but missing",
+			useRouter:      true,
+			id:             "rcpt_a1b2c3d4e5f6",
+			expectedStatus: http.StatusNotFound,
+			expectedBody: map[string]string{
+				"error":   "Receipt not found",
+				"message": "Receipt may have expired or never existed",
+			},
+			expectedGetCalls: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spy := &spyReceiptStore{}
+
+			oldStore := getActiveReceiptStore()
+			setActiveReceiptStore(spy)
+			defer setActiveReceiptStore(oldStore)
+
+			w := httptest.NewRecorder()
+
+			if tt.useRouter {
+				router := gin.New()
+				router.GET("/api/receipts/:id", handleGetReceipt)
+				req := httptest.NewRequest(http.MethodGet, "/api/receipts/"+tt.id, nil)
+				router.ServeHTTP(w, req)
+			} else {
+				c, _ := gin.CreateTestContext(w)
+				c.Params = gin.Params{gin.Param{Key: "id", Value: tt.id}}
+				handleGetReceipt(c)
+			}
+
+			require.Equal(t, tt.expectedStatus, w.Code)
+			require.Equal(t, tt.expectedGetCalls, spy.getCalls)
+
+			var body map[string]string
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			require.Equal(t, tt.expectedBody, body)
+		})
+	}
 }

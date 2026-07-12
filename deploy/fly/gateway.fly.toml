@@ -1,0 +1,47 @@
+app = "<gateway-app>"
+# Demo default region is Mumbai. Change primary_region before deploy if another
+# Fly region is closer to the intended users.
+primary_region = "bom"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+  VERIFIER_URL = "http://<verifier-app>.internal:3002"
+  OPENROUTER_MODEL = "z-ai/glm-4.5-air:free"
+  PAYMENT_AMOUNT = "0.001"
+  CHAIN_ID = "84532"
+  ALLOWED_ORIGINS = "https://<your-vercel-app>.vercel.app"
+  RECEIPT_STORE = "redis"
+  # Keep disabled unless Redis has enough capacity for both receipts and cache.
+  CACHE_ENABLED = "false"
+  # Before enabling RATE_LIMIT_ENABLED, set TRUSTED_PROXIES to the Fly proxy CIDRs.
+  REQUEST_TIMEOUT_SECONDS = "60"
+  AI_REQUEST_TIMEOUT_SECONDS = "30"
+  VERIFIER_TIMEOUT_SECONDS = "2"
+  HEALTH_CHECK_TIMEOUT_SECONDS = "2"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 75
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "5s"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "256mb"

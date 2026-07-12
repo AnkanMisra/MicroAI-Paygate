@@ -1,0 +1,38 @@
+# Architecture
+
+MicroAI Paygate is split into small services so each trust boundary is visible.
+
+## Service Map
+
+- `web/`: Next.js browser app on port `3001`.
+- `sdk/typescript/`: local TypeScript SDK for AI API builders.
+- `gateway/`: Go/Gin public API gateway on port `3000`.
+- `verifier/`: Rust/Axum EIP-712 verifier on port `3002`.
+- Redis: receipt storage by default and optional response cache.
+- AI provider: OpenRouter or Ollama depending on configuration.
+
+## Data Flow
+
+1. Browser or SDK sends an unsigned request to the gateway.
+2. Gateway returns a payment context.
+3. Browser wallet or SDK signer signs the context.
+4. Signed retry reaches the gateway.
+5. Gateway calls the verifier.
+6. Verifier recovers and validates the wallet signature.
+7. Gateway calls the AI provider.
+8. Gateway signs and stores the receipt.
+9. Browser or SDK verifies the receipt locally.
+
+## Boundaries
+
+The gateway owns orchestration, rate limiting, timeouts, AI provider calls, receipt signing, receipt storage, and public error mapping.
+
+The verifier owns EIP-712 parity, signer recovery, chain ID enforcement, timestamp freshness, and nonce replay protection for the verifier instance.
+
+The web app owns wallet UX, chain switching, user-facing errors, receipt display, and browser-local receipt history.
+
+The SDK owns programmatic client integration: challenge handling, EIP-712 signing, signed retry headers, receipt decoding, and receipt verification.
+
+## Deployment Shape
+
+The deployed demo uses Render for backend services, Vercel for the Next.js web app, and Upstash for Redis. Local development runs the same logical services on ports `3000`, `3001`, and `3002`.

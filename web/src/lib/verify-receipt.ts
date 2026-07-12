@@ -128,7 +128,7 @@ export function validateReceiptFormat(signedReceipt: SignedReceipt): boolean {
 /**
  * Fetches a receipt by ID from the gateway
  * 
- * @param receiptId - Receipt ID (e.g., "rcpt_abc123")
+ * @param receiptId - Receipt ID (e.g., "rcpt_a1b2c3d4e5f6")
  * @param gatewayUrl - Gateway base URL (default: http://localhost:3000)
  * @returns Promise<SignedReceipt | null>
  */

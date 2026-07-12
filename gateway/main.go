@@ -7,27 +7,34 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdsa"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gateway/internal/ai"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"os/signal"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-contrib/cors"
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type PaymentContext struct {
@@ -48,27 +55,162 @@ type VerifyResponse struct {
 	IsValid          bool   `json:"is_valid"`
 	RecoveredAddress string `json:"recovered_address"`
 	Error            string `json:"error"`
+	ErrorCode        string `json:"error_code"`
 }
 
 type SummarizeRequest struct {
 	Text string `json:"text"`
 }
 
+var receiptIDPattern = regexp.MustCompile(`^rcpt_[a-f0-9]{12}$`)
+
+// validateConfig validates all required environment variables at startup.
+// It checks for OPENROUTER_API_KEY, SERVER_WALLET_PRIVATE_KEY, and conditionally REDIS_URL.
+// Returns an error listing all missing variables if any are not set.
 func validateConfig() error {
 	required := []string{
-		"OPENROUTER_API_KEY",
+		"SERVER_WALLET_PRIVATE_KEY", // Critical for signing receipts
+		"VERIFIER_URL",              // Where the gateway calls /verify; loopback fallback would hide misconfig in prod
 	}
+
+	// Add provider-specific requirements
+	providerType := os.Getenv("AI_PROVIDER")
+	if providerType == "" || providerType == "openrouter" {
+		required = append(required, "OPENROUTER_API_KEY")
+	}
+
+	if err := validateReceiptStoreMode(); err != nil {
+		return err
+	}
+
+	// Add REDIS_URL to required if caching or Redis-backed receipts are enabled.
+	if isRedisRequired() {
+		required = append(required, "REDIS_URL")
+	}
+
+	// Iterate and collect all missing vars, returning a comprehensive error
 	var missing []string
 	for _, key := range required {
 		if os.Getenv(key) == "" {
 			missing = append(missing, key)
 		}
 	}
+
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required environment variables: %v", missing)
 	}
+
+	// Validate SERVER_WALLET_PRIVATE_KEY format early (before server starts accepting traffic)
+	if err := validateServerPrivateKey(); err != nil {
+		return fmt.Errorf("SERVER_WALLET_PRIVATE_KEY validation failed: %w", err)
+	}
+
+	// Validate REDIS_URL format if Redis is required.
+	if isRedisRequired() {
+		if err := validateRedisURL(); err != nil {
+			return fmt.Errorf("REDIS_URL validation failed: %w", err)
+		}
+	}
+
+	// Normalize RECIPIENT_ADDRESS to EIP-55 canonical so wallet libraries
+	// don't reject it during EIP-712 signing.
+	if err := normalizeRecipientAddress(); err != nil {
+		return fmt.Errorf("RECIPIENT_ADDRESS validation failed: %w", err)
+	}
+
 	return nil
 }
+
+// normalizeRecipientAddress reads RECIPIENT_ADDRESS, rejects it if it isn't a
+// valid 20-byte hex address, and rewrites the env var to the EIP-55 canonical
+// form so paymentContext.recipient is always checksummed correctly. A
+// non-canonical case slipping through silently caused the
+// `bad address checksum` rejection at the wallet during the first live deploy.
+// An unset RECIPIENT_ADDRESS is allowed: getRecipientAddress() falls back to a
+// hardcoded canonical default that is already EIP-55-correct.
+func normalizeRecipientAddress() error {
+	raw := os.Getenv("RECIPIENT_ADDRESS")
+	if raw == "" {
+		return nil
+	}
+	if !common.IsHexAddress(raw) {
+		return fmt.Errorf("RECIPIENT_ADDRESS is not a valid hex address: %s", raw)
+	}
+	canonical := common.HexToAddress(raw).Hex()
+	if canonical != raw {
+		log.Printf("[INFO] normalized RECIPIENT_ADDRESS to EIP-55 canonical: %s -> %s", raw, canonical)
+		if err := os.Setenv("RECIPIENT_ADDRESS", canonical); err != nil {
+			return fmt.Errorf("failed to rewrite RECIPIENT_ADDRESS: %w", err)
+		}
+	}
+	return nil
+}
+
+// validateServerPrivateKey validates the private key format without loading it into memory.
+// It checks that the key is valid hex, has proper length (31-32 bytes), and handles 0x prefix.
+// This prevents runtime failures when the server tries to sign receipts.
+func validateServerPrivateKey() error {
+	keyHex := os.Getenv("SERVER_WALLET_PRIVATE_KEY")
+	if keyHex == "" {
+		return fmt.Errorf("SERVER_WALLET_PRIVATE_KEY not set")
+	}
+
+	// Remove 0x prefix if present
+	keyHex = strings.TrimPrefix(keyHex, "0x")
+
+	keyBytes, err := hex.DecodeString(keyHex)
+	if err != nil {
+		return fmt.Errorf("invalid private key format: %w", err)
+	}
+
+	// Validate key length (same validation as getServerPrivateKey)
+	if len(keyBytes) < 31 {
+		return fmt.Errorf("private key too short: got %d bytes, expected at least 31 bytes", len(keyBytes))
+	}
+
+	if len(keyBytes) > 32 {
+		return fmt.Errorf("private key must be at most 32 bytes, got %d bytes", len(keyBytes))
+	}
+
+	return nil
+}
+
+// validateRedisURL validates the Redis URL format without connecting.
+// It supports both redis:// URLs and host:port format.
+// Only called when CACHE_ENABLED=true to ensure Redis is properly configured.
+func validateRedisURL() error {
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		return fmt.Errorf("REDIS_URL not set but Redis is required")
+	}
+
+	// Handle redis:// or rediss:// schemes
+	if strings.HasPrefix(redisURL, "redis://") || strings.HasPrefix(redisURL, "rediss://") {
+		// Parse the URL to extract the host:port
+		u, err := url.Parse(redisURL)
+		if err != nil || u.Host == "" {
+			return fmt.Errorf("invalid REDIS_URL format")
+		}
+		// Verify host:port format
+		parts := strings.Split(u.Host, ":")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return fmt.Errorf("invalid REDIS_URL format")
+		}
+		return nil
+	}
+
+	// Handle plain host:port format
+	parts := strings.Split(redisURL, ":")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return fmt.Errorf("REDIS_URL must be in format 'host:port'")
+	}
+
+	return nil
+}
+
+// Global AI provider instance
+var aiProvider ai.Provider
+
 func main() {
 	// Try loading .env from current directory first, then fallback to parent
 	err := godotenv.Load(".env")
@@ -88,11 +230,28 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("[OK] Configuration validated")
+
+	// Initialize AI provider
+	aiProvider, err = ai.NewProvider()
+	if err != nil {
+		fmt.Printf("[Error] Failed to initialize AI provider: %v\n", err)
+		os.Exit(1)
+	}
+	providerType := os.Getenv("AI_PROVIDER")
+	if providerType == "" {
+		providerType = "openrouter"
+	}
+	fmt.Printf("[OK] AI Provider initialized: %s\n", providerType)
+
 	if port := os.Getenv("PORT"); port != "" {
 		fmt.Printf("    - Port: %s\n", port)
 	}
-	if model := os.Getenv("MODEL"); model != "" {
-		fmt.Printf("    - Model: %s\n", model)
+	modelKey := "OPENROUTER_MODEL"
+	if providerType == "ollama" {
+		modelKey = "OLLAMA_MODEL"
+	}
+	if model := os.Getenv(modelKey); model != "" {
+		fmt.Printf("    - %s: %s\n", modelKey, model)
 	}
 	if verifier := os.Getenv("VERIFIER_URL"); verifier != "" {
 		fmt.Printf("    - Verifier: %s\n", verifier)
@@ -103,51 +262,65 @@ func main() {
 	if os.Getenv("PORT") == "" {
 		fmt.Println("[WARN] PORT not set, using default: 3000")
 	}
-	if os.Getenv("MODEL") == "" {
-		fmt.Println("[WARN] MODEL not set, using default model")
-	}
-	if os.Getenv("VERIFIER_URL") == "" {
-		fmt.Println("[WARN] VERIFIER_URL not set, using default verifier")
+	if os.Getenv(modelKey) == "" {
+		fmt.Printf("[WARN] %s not set, using provider default model\n", modelKey)
 	}
 	if os.Getenv("CHAIN_ID") == "" {
-		fmt.Println("[WARN] CHAIN_ID not set, using default: 8453(base)")
+		fmt.Println("[WARN] CHAIN_ID not set, using default: 84532(Base Sepolia)")
 	}
 
 	r := gin.Default()
 
-	// VIBE FIX: Register the Correlation ID Middleware immediately
-	// This ensures every single request gets an ID before anything else happens.
+	// Restrict trusted proxies to prevent X-Forwarded-For spoofing.
+	// IP-based rate limiting relies on c.ClientIP(), which reads
+	// X-Forwarded-For only from proxies in this list. An empty list
+	// means only the direct remote address is trusted.
+	// Set TRUSTED_PROXIES env var (comma-separated CIDRs) for production.
+	if trustedProxies := getTrustedProxies(); len(trustedProxies) > 0 {
+		if err := r.SetTrustedProxies(trustedProxies); err != nil {
+			_ = r.SetTrustedProxies(nil)
+			log.Printf("[WARN] invalid TRUSTED_PROXIES value, falling back to no trusted proxies: %v", err)
+		}
+	} else {
+		// Trust no proxies: always use direct RemoteAddr for ClientIP.
+		_ = r.SetTrustedProxies(nil)
+	}
+
+	// Register the Correlation ID middleware first so every request,
+	// including those rejected by later middleware, carries an ID for tracing.
 	r.Use(CorrelationIDMiddleware())
+
+	metricsPath := getMetricsPath()
+
+	if getMetricsEnabled() {
+		if err := validateMetricsPath(metricsPath); err != nil {
+			log.Fatalf("Invalid metrics configuration: %v", err)
+		}
+		r.Use(MetricsMiddleware())
+		r.GET(metricsPath, gin.WrapH(promhttp.Handler()))
+	}
+
+	// Configure GZIP compression for API responses
+	// - Uses DefaultCompression for balance between speed and size
+	// - Excludes /metrics endpoint (if added in future)
+	// - Compression is transparent to receipt verification (hashes uncompressed body)
+	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{metricsPath})))
+
 	// Initialize Redis early to fail-fast if Redis required but unavailable
-	initRedis()
+	if err := initRedis(); err != nil {
+		log.Fatalf("Redis initialization failed: %v", err)
+	}
+	if err := initReceiptStore(); err != nil {
+		log.Fatalf("Receipt store initialization failed: %v", err)
+	}
 
-	r.StaticFile("/openapi.yaml", "openapi.yaml")
-
-	r.GET("/docs", func(c *gin.Context) {
-		c.Header("Content-Type", "text/html")
-		c.String(200, `
-<!DOCTYPE html>
-<html>
-<head>
-  <title>MicroAI Paygate Docs</title>
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css" />
-</head>
-<body>
-  <div id="swagger-ui"></div>
-  <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js"></script>
-  <script>
-    SwaggerUIBundle({
-      url: '/openapi.yaml',
-      dom_id: '#swagger-ui'
-    });
-  </script>
-</body>
-</html>
-`)
-	})
+	// Documentation routes are registered before CORS / rate-limit / timeout
+	// middleware so the Swagger UI and raw spec are served without those
+	// constraints.
+	registerDocRoutes(r)
 
 	r.Use(cors.New(cors.Config{
-		AllowOrigins: []string{"http://localhost:3001"},
+		AllowOrigins: getAllowedOrigins(),
 		AllowMethods: []string{"GET", "POST", "OPTIONS"},
 		AllowHeaders: []string{
 			"Origin",
@@ -182,32 +355,19 @@ func main() {
 	// deadline when nested timeouts are present to avoid surprising behavior.
 	r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
 
-	//health check if server is up
-	r.GET("/healthz", handleHealthz)
-
-	//readiness check
-	r.GET("/readyz", handleReadyz)
-
-	// AI endpoints with AI-specific timeout (30s)
-	aiGroup := r.Group("/api/ai")
-	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
-	if getCacheEnabled() {
-		aiGroup.POST("/summarize", CacheMiddleware(), handleSummarize)
-	} else {
-		aiGroup.POST("/summarize", handleSummarize)
-	}
-
-	// Receipt lookup endpoint
-	// Note: Rate limiting applies only if enabled globally via RATE_LIMIT_ENABLED=true
-	// Random 12-char receipt IDs (2^48 space) make brute-force enumeration impractical
-	r.GET("/api/receipts/:id", handleGetReceipt)
+	// Public API routes. Kept in registerAPIRoutes so the OpenAPI coverage
+	// test in openapi_test.go can introspect them without booting middleware.
+	// Rate limiting (if enabled) applies via the global r.Use above; random
+	// 12-char receipt IDs (2^48 space) make /api/receipts/:id brute-force
+	// enumeration impractical.
+	registerAPIRoutes(r)
 
 	// Initialize receipt cleanup goroutine
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	defer func() {
 		cleanupCancel()
 		// Perform final cleanup on shutdown to prevent receipt leak
-		cleanupExpiredReceipts()
+		cleanupExpiredReceipts(context.Background())
 		log.Println("Final receipt cleanup completed on shutdown")
 		// Close Redis connection if active
 		if redisClient != nil {
@@ -223,8 +383,42 @@ func main() {
 		port = "3000"
 	}
 
-	log.Printf("Go Gateway running on port %s", port)
-	r.Run(":" + port)
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: r,
+	}
+
+	startupErrCh := make(chan error, 1)
+	go func() {
+		log.Printf("Go Gateway listening on port %s", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			startupErrCh <- err
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case sig := <-quit:
+		log.Printf("Signal %s received, shutting down (max 30s)...", sig)
+	case err := <-startupErrCh:
+		log.Printf("Server failed to start: %v", err)
+		return
+	}
+
+	signal.Stop(quit)
+
+	cleanupCancel()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server forced to shutdown: %v", err)
+	} else {
+		log.Println("Server stopped gracefully")
+	}
 }
 
 // handleSummarize handles POST /api/ai/summarize requests. It validates
@@ -253,13 +447,13 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	if timestampHeader == "" {
-		c.JSON(400, gin.H{"error": "Invalid timestamp", "details": "Missing X-402-Timestamp header"})
+		respondError(c, 400, "invalid_timestamp", fmt.Errorf("missing X-402-Timestamp header"))
 		return
 	}
 
 	timestampValue, err := strconv.ParseUint(timestampHeader, 10, 64)
 	if err != nil || timestampValue == 0 {
-		c.JSON(400, gin.H{"error": "Invalid timestamp", "details": "Invalid X-402-Timestamp header"})
+		respondError(c, 400, "invalid_timestamp", fmt.Errorf("invalid X-402-Timestamp header"))
 		return
 	}
 
@@ -280,7 +474,7 @@ func handleSummarize(c *gin.Context) {
 			if errors.As(err, &maxBytesErr) {
 				c.JSON(413, gin.H{"error": "Payload too large", "max_size": "10MB"})
 			} else {
-				c.JSON(500, gin.H{"error": "Failed to read request body"})
+				respondError(c, 500, "request_body_read_failed", err)
 			}
 			return
 		}
@@ -289,26 +483,29 @@ func handleSummarize(c *gin.Context) {
 	// Verify
 	verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, uint64(timestampValue))
 	if err != nil {
-		log.Printf("Verification error: %v", err)
+		verificationTotal.WithLabelValues("error").Inc()
+
 		if errors.Is(err, context.DeadlineExceeded) {
-			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "Verifier request timed out"})
+			respondError(c, 504, "verifier_timeout", err)
 		} else {
-			c.JSON(500, gin.H{"error": "Verification Service Failed", "message": "An internal error occurred"})
+			respondError(c, 502, "verification_unavailable", err)
 		}
 		return
 	}
 
 	if !verifyResp.IsValid {
-		// Check for timestamp-related errors (E007, E008, E009)
-		if strings.HasPrefix(verifyResp.Error, "E007") ||
-			strings.HasPrefix(verifyResp.Error, "E008") ||
-			strings.HasPrefix(verifyResp.Error, "E009") {
-			c.JSON(400, gin.H{"error": "Invalid timestamp", "details": verifyResp.Error})
-		} else {
-			c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
-		}
+		verificationTotal.WithLabelValues("invalid").Inc()
+
+		respondVerificationFailure(c, verifyResp)
 		return
 	}
+	if verifyResp.RecoveredAddress == "" {
+		verificationTotal.WithLabelValues("error").Inc()
+		respondError(c, 502, "verification_unavailable", fmt.Errorf("verifier success missing recovered_address"))
+		return
+	}
+
+	verificationTotal.WithLabelValues("success").Inc()
 
 	// 2. Parse Request
 	var req SummarizeRequest
@@ -324,13 +521,13 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	// 3. Call AI Service
-	summary, err := callOpenRouter(c.Request.Context(), req.Text)
+	summary, err := aiProvider.Generate(c.Request.Context(), req.Text)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || c.Request.Context().Err() == context.DeadlineExceeded {
-			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "AI request timed out"})
-			return
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(c.Request.Context().Err(), context.DeadlineExceeded) {
+			respondError(c, 504, "upstream_timeout", err)
+		} else {
+			respondError(c, 502, "upstream_unavailable", err)
 		}
-		c.JSON(500, gin.H{"error": "AI Service Failed", "details": err.Error()})
 		return
 	}
 
@@ -366,10 +563,9 @@ func verifyPayment(ctx context.Context, signature, nonce string, timestamp uint6
 		return nil, nil, fmt.Errorf("marshal verification request: %w", err)
 	}
 
+	// VERIFIER_URL is guaranteed non-empty here: validateConfig() exits at
+	// startup if it's unset, so no loopback fallback is needed.
 	verifierURL := os.Getenv("VERIFIER_URL")
-	if verifierURL == "" {
-		verifierURL = "http://127.0.0.1:3002"
-	}
 
 	// Use a separate context for verifier timeout to avoid hanging
 	verifierCtx, verifierCancel := context.WithTimeout(ctx, getVerifierTimeout())
@@ -381,9 +577,7 @@ func verifyPayment(ctx context.Context, signature, nonce string, timestamp uint6
 	}
 	vreq.Header.Set("Content-Type", "application/json")
 
-	// VIBE FIX: Pass Correlation ID to the Verifier Service
-	// CORRECT: Use the constant 'correlationIDKey' to retrieve the value
-	if cid, ok := ctx.Value(correlationIDKey).(string); ok {
+	if cid, ok := ctx.Value(CorrelationIDKey).(string); ok {
 		vreq.Header.Set("X-Correlation-ID", cid)
 	}
 
@@ -394,8 +588,17 @@ func verifyPayment(ctx context.Context, signature, nonce string, timestamp uint6
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		return nil, nil, fmt.Errorf("verifier returned status %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		bodyText := strings.TrimSpace(string(body))
+		var verifyResp VerifyResponse
+		if bodyText != "" && json.Unmarshal(body, &verifyResp) == nil && isVerifierBusinessRejection(&verifyResp) {
+			return &verifyResp, &paymentCtx, nil
+		}
+		if bodyText == "" {
+			return nil, nil, fmt.Errorf("verifier returned status %d", resp.StatusCode)
+		}
+		return nil, nil, fmt.Errorf("verifier returned status %d: %s", resp.StatusCode, bodyText)
 	}
 
 	var verifyResp VerifyResponse
@@ -416,25 +619,25 @@ func generateAndSendReceipt(c *gin.Context, paymentCtx PaymentContext, recovered
 	}
 	responseBody, err := json.Marshal(responseMap)
 	if err != nil {
-		c.JSON(500, gin.H{"error": "Failed to encode response"})
+		respondError(c, 500, "response_encoding_failed", err)
 		return err
 	}
 
 	// Generate receipt with the actual response body hash
 	receipt, err := GenerateReceipt(paymentCtx, recoveredAddr, c.Request.URL.Path, requestBody, responseBody)
 	if err != nil {
-		c.JSON(500, gin.H{"error": "Failed to generate receipt", "details": err.Error()})
+		respondError(c, 500, "receipt_generation_failed", err)
 		return err
 	}
 
-	if err := storeReceipt(receipt, getReceiptTTL()); err != nil {
-		c.JSON(500, gin.H{"error": "Failed to store receipt"})
+	if err := storeReceiptWithContext(c.Request.Context(), receipt, getReceiptTTL()); err != nil {
+		respondError(c, 500, "receipt_store_failed", err)
 		return err
 	}
 
 	receiptJSON, err := json.Marshal(receipt)
 	if err != nil {
-		c.JSON(500, gin.H{"error": "Failed to encode receipt"})
+		respondError(c, 500, "receipt_encoding_failed", err)
 		return err
 	}
 	receiptBase64 := base64.StdEncoding.EncodeToString(receiptJSON)
@@ -445,7 +648,7 @@ func generateAndSendReceipt(c *gin.Context, paymentCtx PaymentContext, recovered
 	return nil
 }
 
-// createPaymentContext constructs a PaymentContext prefilled with the recipient address (from RECIPIENT_ADDRESS or a fallback), the USDC token, amount "0.001", a newly generated UUID nonce, and chain ID 8453.
+// createPaymentContext constructs a PaymentContext prefilled with the recipient address (from RECIPIENT_ADDRESS or a fallback), the USDC token, amount "0.001", a newly generated UUID nonce, and the configured chain ID.
 func createPaymentContext() PaymentContext {
 	return PaymentContext{
 		Recipient: getRecipientAddress(),
@@ -479,94 +682,18 @@ func getPaymentAmount() string {
 }
 
 // getChainID returns the blockchain chain ID from the CHAIN_ID environment variable.
-// If unset or invalid, it defaults to 8453 (Base).
+// If unset or invalid, it defaults to 84532 (Base Sepolia).
 func getChainID() int {
 	chainIDStr := os.Getenv("CHAIN_ID")
 	if chainIDStr == "" {
-		return 8453
+		return 84532
 	}
 	chainID, err := strconv.Atoi(chainIDStr)
 	if err != nil {
-		log.Printf("Warning: Invalid CHAIN_ID '%s', using default 8453", chainIDStr)
-		return 8453
+		log.Printf("Warning: Invalid CHAIN_ID '%s', using default 84532", chainIDStr)
+		return 84532
 	}
 	return chainID
-}
-
-// callOpenRouter sends the given text to the OpenRouter chat completions API
-// requesting a two-sentence summary and returns the generated summary.
-// It reads OPENROUTER_API_KEY for authorization and OPENROUTER_MODEL to select
-// the model (defaults to "z-ai/glm-4.5-air:free" if unset).
-func callOpenRouter(ctx context.Context, text string) (string, error) {
-	apiKey := os.Getenv("OPENROUTER_API_KEY")
-	model := os.Getenv("OPENROUTER_MODEL")
-	if model == "" {
-		model = "z-ai/glm-4.5-air:free"
-	}
-
-	prompt := fmt.Sprintf("Summarize this text in 2 sentences: %s", text)
-
-	reqBody, _ := json.Marshal(map[string]interface{}{
-		"model": model,
-		"messages": []map[string]string{
-			{"role": "user", "content": prompt},
-		},
-	})
-
-	openRouterURL := os.Getenv("OPENROUTER_URL")
-	if openRouterURL == "" {
-		openRouterURL = "https://openrouter.ai/api/v1/chat/completions"
-	}
-	req, err := http.NewRequestWithContext(ctx, "POST", openRouterURL, bytes.NewBuffer(reqBody))
-	if err != nil {
-		return "", fmt.Errorf("failed to create OpenRouter request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	// VIBE FIX: Pass Correlation ID to AI Service
-	// (Assuming the context has it, though OpenRouter might not use it, it's good practice)
-	if cid, ok := ctx.Value(correlationIDKey).(string); ok { // Changed to use correlationIDKey
-		req.Header.Set("X-Correlation-ID", cid)
-	}
-
-	// Use http.DefaultClient and rely on ctx for cancellation/timeouts.
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
-			return "", context.DeadlineExceeded
-		}
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode AI response: %w", err)
-	}
-
-	choices, ok := result["choices"].([]interface{})
-	if !ok || len(choices) == 0 {
-		log.Printf("OpenRouter response: %+v", result)
-		return "", fmt.Errorf("invalid response from AI provider: no choices")
-	}
-
-	choice, ok := choices[0].(map[string]interface{})
-	if !ok {
-		return "", fmt.Errorf("invalid response from AI provider: malformed choice")
-	}
-
-	message, ok := choice["message"].(map[string]interface{})
-	if !ok {
-		return "", fmt.Errorf("invalid response from AI provider: malformed message")
-	}
-
-	content, ok := message["content"].(string)
-	if !ok {
-		return "", fmt.Errorf("invalid response from AI provider: missing content")
-	}
-
-	return content, nil
 }
 
 // Rate Limiting Functions
@@ -606,6 +733,13 @@ func RateLimitMiddleware(limiters map[string]RateLimiter) gin.HandlerFunc {
 		// Check if request is allowed
 		if !limiter.Allow(key) {
 			retryAfter := calculateRetryAfter(limiter, key)
+
+			routePath := c.FullPath()
+			if routePath == "" {
+				routePath = "unknown"
+			}
+			rateLimitHits.WithLabelValues(routePath).Inc()
+
 			c.Header("Retry-After", strconv.Itoa(retryAfter))
 			c.Header("X-RateLimit-Limit", strconv.Itoa(getLimitForTier(tier)))
 			c.Header("X-RateLimit-Remaining", "0")
@@ -628,19 +762,12 @@ func RateLimitMiddleware(limiters map[string]RateLimiter) gin.HandlerFunc {
 	}
 }
 
-// getRateLimitKey determines the key for rate limiting (nonce/wallet > IP)
+// getRateLimitKey determines the key for rate limiting (always uses IP)
 func getRateLimitKey(c *gin.Context) string {
-	signature := c.GetHeader("X-402-Signature")
-	nonce := c.GetHeader("X-402-Nonce")
-
-	// Only use nonce-based key if BOTH signature and nonce are present
-	// This prevents attackers from bypassing IP rate limits with fake nonces
-	if signature != "" && nonce != "" {
-		hash := sha256.Sum256([]byte(nonce))
-		// Use 32 hex chars (128 bits) for better collision resistance
-		return "nonce:" + hex.EncodeToString(hash[:])[:32]
-	}
-
+	// REMOVED: Nonce-based keying
+	// Nonces must be unique per request (replay attack prevention),
+	// which creates infinite buckets and memory leaks.
+	// ALWAYS use IP for now to prevent infinite-bucket attacks
 	return "ip:" + c.ClientIP()
 }
 
@@ -691,6 +818,24 @@ func getRateLimitEnabled() bool {
 	return enabled == "true" || enabled == "1"
 }
 
+// getTrustedProxies returns the list of trusted proxy CIDRs/IPs from the
+// TRUSTED_PROXIES environment variable (comma-separated). Returns nil when
+// the variable is unset so the caller can disable proxy trust entirely.
+func getTrustedProxies() []string {
+	raw := strings.TrimSpace(os.Getenv("TRUSTED_PROXIES"))
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	trusted := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			trusted = append(trusted, trimmed)
+		}
+	}
+	return trusted
+}
+
 // getEnvAsInt retrieves an environment variable as an integer with a default value
 func getEnvAsInt(key string, defaultValue int) int {
 	valStr := os.Getenv(key)
@@ -705,75 +850,6 @@ func getEnvAsInt(key string, defaultValue int) int {
 	return val
 }
 
-// Receipt Management Functions
-
-var (
-	receiptStoreMu         sync.RWMutex
-	receiptStore           = make(map[string]*receiptEntry)
-	receiptCleanupInterval = 5 * time.Minute
-)
-
-type receiptEntry struct {
-	receipt   *SignedReceipt
-	expiresAt time.Time
-}
-
-// startReceiptCleanup runs periodic cleanup in a single goroutine
-// This prevents goroutine leaks by using a single background worker
-// instead of spawning one goroutine per receipt
-func startReceiptCleanup(ctx context.Context) {
-	ticker := time.NewTicker(receiptCleanupInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("Receipt cleanup goroutine stopped")
-			return
-		case <-ticker.C:
-			cleanupExpiredReceipts()
-		}
-	}
-}
-
-// cleanupExpiredReceipts removes expired receipts from the store
-func cleanupExpiredReceipts() {
-	now := time.Now()
-	receiptStoreMu.Lock()
-	defer receiptStoreMu.Unlock()
-
-	count := 0
-	for id, entry := range receiptStore {
-		if now.After(entry.expiresAt) {
-			delete(receiptStore, id)
-			count++
-		}
-	}
-
-	if count > 0 {
-		log.Printf("Cleaned up %d expired receipts", count)
-	}
-}
-
-// storeReceipt stores a receipt with TTL
-// Returns error for future extensibility (Redis/Postgres implementations)
-func storeReceipt(receipt *SignedReceipt, ttl time.Duration) error {
-	// Validate receipt format before storage
-	if err := validateReceipt(receipt); err != nil {
-		return fmt.Errorf("invalid receipt format: %w", err)
-	}
-
-	receiptStoreMu.Lock()
-	defer receiptStoreMu.Unlock()
-
-	receiptStore[receipt.Receipt.ID] = &receiptEntry{
-		receipt:   receipt,
-		expiresAt: time.Now().Add(ttl),
-	}
-
-	return nil
-}
-
 // validateReceipt validates that a receipt has all required fields
 func validateReceipt(receipt *SignedReceipt) error {
 	if receipt == nil {
@@ -781,11 +857,8 @@ func validateReceipt(receipt *SignedReceipt) error {
 	}
 
 	// Validate receipt fields
-	if receipt.Receipt.ID == "" {
-		return fmt.Errorf("receipt ID is empty")
-	}
-	if !strings.HasPrefix(receipt.Receipt.ID, "rcpt_") {
-		return fmt.Errorf("receipt ID must start with 'rcpt_'")
+	if !isValidReceiptID(receipt.Receipt.ID) {
+		return fmt.Errorf("invalid receipt ID format")
 	}
 	if receipt.Receipt.Version == "" {
 		return fmt.Errorf("receipt version is empty")
@@ -841,44 +914,49 @@ func validateReceipt(receipt *SignedReceipt) error {
 	return nil
 }
 
-// getReceipt retrieves a receipt by ID
-func getReceipt(id string) (*SignedReceipt, bool) {
-	receiptStoreMu.RLock()
-	defer receiptStoreMu.RUnlock()
-
-	entry, exists := receiptStore[id]
-	if !exists {
-		return nil, false
-	}
-
-	// Check if expired
-	if time.Now().After(entry.expiresAt) {
-		return nil, false
-	}
-
-	return entry.receipt, true
-}
-
 // getReceiptTTL returns configured TTL or default 24h
 func getReceiptTTL() time.Duration {
 	ttlSeconds := getEnvAsInt("RECEIPT_TTL", 86400)
+	if ttlSeconds <= 0 {
+		ttlSeconds = 86400
+	}
 	return time.Duration(ttlSeconds) * time.Second
+}
+func isValidReceiptID(id string) bool {
+	return receiptIDPattern.MatchString(id)
 }
 
 // handleGetReceipt handles GET /api/receipts/:id
 func handleGetReceipt(c *gin.Context) {
 	id := c.Param("id")
 
-	receipt, exists := getReceipt(id)
+	// Reject malformed IDs early (no store hit)
+	if !isValidReceiptID(id) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "invalid receipt id format",
+			"message": "receipt id must start with rcpt_ followed by exactly 12 lowercase hexadecimal characters",
+		})
+		return
+	}
+
+	receipt, exists, err := getReceiptWithContext(c.Request.Context(), id)
+	if err != nil {
+		log.Printf("Failed to retrieve receipt %s: %v", id, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "failed to retrieve receipt",
+		})
+		return
+	}
+
 	if !exists {
-		c.JSON(404, gin.H{
+		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "Receipt not found",
 			"message": "Receipt may have expired or never existed",
 		})
 		return
 	}
 
-	c.JSON(200, gin.H{
+	c.JSON(http.StatusOK, gin.H{
 		"receipt":           receipt.Receipt,
 		"signature":         receipt.Signature,
 		"server_public_key": receipt.ServerPublicKey,
@@ -953,8 +1031,9 @@ func handleHealthz(c *gin.Context) {
 // handleReadyz implements the readiness probe for the gateway service.
 // It performs a comprehensive health check by verifying:
 // 1. Connectivity to the Verifier service
-// 2. Availability of the OpenRouter API
-// 3. Self-health metrics (goroutine count, memory usage)
+// 2. Availability of the active AI provider
+// 3. Redis connectivity (if caching or Redis-backed receipts are enabled)
+// 4. Self-health metrics (goroutine count, memory usage)
 // Returns 200 OK if all dependencies are healthy, otherwise 503 Service Unavailable.
 func handleReadyz(c *gin.Context) {
 	checks := make(map[string]interface{})
@@ -963,11 +1042,42 @@ func handleReadyz(c *gin.Context) {
 	verifierStatus := checkVerifierHealth()
 	checks["verifier"] = verifierStatus
 
-	//2. Check OpenRouter availability
-	openRouterStatus := checkOpenRouterHealth()
-	checks["openrouter"] = openRouterStatus
+	//2. Check active AI provider availability
+	providerType := os.Getenv("AI_PROVIDER")
+	if providerType == "" {
+		providerType = "openrouter"
+	}
+	aiStatus := "unsupported"
+	switch providerType {
+	case "openrouter":
+		aiStatus = checkOpenRouterHealth()
+		checks["openrouter"] = aiStatus
+	case "ollama":
+		aiStatus = checkOllamaHealth()
+		checks["ollama"] = aiStatus
+	}
+	checks["ai_provider"] = gin.H{
+		"provider": providerType,
+		"status":   aiStatus,
+	}
 
-	//3. Self-health metrics
+	//3. Check Redis connectivity (if caching or Redis-backed receipts are enabled)
+	redisStatus := "disabled"
+	if isRedisRequired() {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		if redisClient == nil {
+			redisStatus = "unreachable"
+		} else if err := redisClient.Ping(ctx).Err(); err != nil {
+			redisStatus = "unreachable"
+		} else {
+			redisStatus = "ok"
+		}
+	}
+	checks["redis"] = redisStatus
+
+	//4. Self-health metrics
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 	checks["gateway"] = gin.H{
@@ -976,8 +1086,12 @@ func handleReadyz(c *gin.Context) {
 		"memory_sys_mb":   memStats.Sys / 1024 / 1024,
 		"status":          "ok",
 	}
-	//Overall status logic
-	ready := verifierStatus == "ok" && openRouterStatus == "ok"
+
+	//Overall status logic - include Redis if caching or Redis-backed receipts are enabled
+	ready := verifierStatus == "ok" && aiStatus == "ok"
+	if isRedisRequired() {
+		ready = ready && redisStatus == "ok"
+	}
 
 	statusCode := http.StatusOK
 	if !ready {
@@ -987,17 +1101,16 @@ func handleReadyz(c *gin.Context) {
 }
 
 // checkVerifierHealth pings the Verifier service's health endpoint.
-// It uses a 2-second timeout to prevent hanging.
+// It uses HEALTH_CHECK_TIMEOUT_SECONDS to prevent hanging.
 // Returns:
 // - "ok": Verifier is healthy (200 OK)
 // - "degraded": Verifier is reachable but returned non-200 status
 // - "unreachable": Verifier could not be contacted
 var checkVerifierHealth = func() string {
+	// VERIFIER_URL is guaranteed non-empty: validateConfig() exits at
+	// startup if it's unset.
 	verifierURL := os.Getenv("VERIFIER_URL")
-	if verifierURL == "" {
-		verifierURL = "http://127.0.0.1:3002"
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), getHealthCheckTimeout())
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", verifierURL+"/health", nil)
@@ -1018,8 +1131,57 @@ var checkVerifierHealth = func() string {
 	return "ok"
 }
 
+// checkOllamaHealth checks the availability of the configured Ollama API.
+// It attempts to fetch the local model list with HEALTH_CHECK_TIMEOUT_SECONDS.
+// Returns:
+// - "ok": API is reachable (200 OK)
+// - "degraded": API is reachable but returned non-200 status
+// - "unreachable": API could not be contacted
+var checkOllamaHealth = func() string {
+	ollamaURL := os.Getenv("OLLAMA_URL")
+	if ollamaURL == "" {
+		ollamaURL = "http://localhost:11434"
+	}
+	healthURL := strings.TrimSuffix(ollamaURL, "/") + "/api/tags"
+
+	ctx, cancel := context.WithTimeout(context.Background(), getHealthCheckTimeout())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, nil)
+	if err != nil {
+		return "unreachable"
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "unreachable"
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "degraded"
+	}
+	return "ok"
+}
+
+func getOpenRouterModelsURL() string {
+	openRouterURL := strings.TrimRight(os.Getenv("OPENROUTER_URL"), "/")
+	if openRouterURL == "" {
+		return "https://openrouter.ai/api/v1/models"
+	}
+	if strings.HasSuffix(openRouterURL, "/chat/completions") {
+		return strings.TrimSuffix(openRouterURL, "/chat/completions") + "/models"
+	}
+	if strings.HasSuffix(openRouterURL, "/api/v1") {
+		return openRouterURL + "/models"
+	}
+	if strings.HasSuffix(openRouterURL, "/models") {
+		return openRouterURL
+	}
+	return openRouterURL + "/api/v1/models"
+}
+
 // checkOpenRouterHealth checks the availability of the OpenRouter API.
-// It attempts to fetch the list of models with a 2-second timeout.
+// It attempts to fetch the list of models with HEALTH_CHECK_TIMEOUT_SECONDS.
 // Returns:
 // - "ok": API is reachable (200 OK)
 // - "unconfigured": OPENROUTER_API_KEY is not set
@@ -1030,13 +1192,9 @@ var checkOpenRouterHealth = func() string {
 	if apiKey == "" {
 		return "unconfigured"
 	}
-	baseURL := os.Getenv("OPENROUTER_URL")
-	if baseURL == "" {
-		baseURL = "https://openrouter.ai"
-	}
-	healthURL := strings.TrimSuffix(baseURL, "/") + "/api/v1/models"
+	healthURL := getOpenRouterModelsURL()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), getHealthCheckTimeout())
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, nil)

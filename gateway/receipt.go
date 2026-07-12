@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha256"
@@ -43,6 +44,13 @@ type SignedReceipt struct {
 	Receipt         Receipt `json:"receipt"`
 	Signature       string  `json:"signature"`
 	ServerPublicKey string  `json:"server_public_key"`
+}
+
+type ReceiptStore interface {
+	Store(ctx context.Context, receipt *SignedReceipt, ttl time.Duration) error
+	Get(ctx context.Context, id string) (*SignedReceipt, bool, error)
+	CleanupExpired(ctx context.Context) error
+	Close() error
 }
 
 // GenerateReceipt creates a new receipt for a successful payment

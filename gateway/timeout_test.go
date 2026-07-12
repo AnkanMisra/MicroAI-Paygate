@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"gateway/internal/ai"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -50,15 +51,21 @@ func TestCallOpenRouter_RespectsContextTimeout(t *testing.T) {
 	}))
 	defer slow.Close()
 
+	t.Setenv("AI_PROVIDER", "openrouter")
 	t.Setenv("OPENROUTER_URL", slow.URL)
 	t.Setenv("OPENROUTER_API_KEY", "test")
+
+	provider, err := ai.NewProvider()
+	if err != nil {
+		t.Fatalf("Failed to create provider: %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	_, err := callOpenRouter(ctx, "hello")
+	_, err = provider.Generate(ctx, "hello")
 	if err == nil {
-		t.Fatalf("Expected timeout error from callOpenRouter, got nil")
+		t.Fatalf("Expected timeout error from provider, got nil")
 	}
 
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -83,10 +90,18 @@ func TestHandleSummarize_AIRequestTimeoutReturns504(t *testing.T) {
 	defer slowAI.Close()
 
 	// Environment
+	t.Setenv("AI_PROVIDER", "openrouter")
 	t.Setenv("OPENROUTER_URL", slowAI.URL)
 	t.Setenv("OPENROUTER_API_KEY", "test")
 	t.Setenv("VERIFIER_URL", verifier.URL)
 	t.Setenv("AI_REQUEST_TIMEOUT_SECONDS", "1")
+
+	// Initialize AI provider for this test
+	var err error
+	aiProvider, err = ai.NewProvider()
+	if err != nil {
+		t.Fatalf("Failed to initialize AI provider: %v", err)
+	}
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

@@ -1,83 +1,158 @@
 openapi: 3.1.0
 
 info:
-  title: MicroAI Paygate API
+  title: MicroAI Paygate Gateway API
   version: "1.0.0"
-  description: API documentation for MicroAI Paygate
+  description: Public API contract for the Go gateway. Internal verifier endpoints are documented in verifier/README.md.
+
+servers:
+  - url: http://localhost:3000
+    description: Local gateway
 
 paths:
   /healthz:
     get:
-      summary: Health check
-      description: Returns gateway health status
+      summary: Gateway liveness
+      description: Returns process liveness for load balancers and health checks.
       responses:
         "200":
-          description: Gateway is healthy
+          description: Gateway process is alive.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  service:
-                    type: string
-                    example: gateway
-                  status:
-                    type: string
-                    example: ok
+                $ref: "#/components/schemas/HealthzResponse"
+
+  /readyz:
+    get:
+      summary: Gateway readiness
+      description: Checks verifier reachability, the active AI provider, Redis when required, and gateway self metrics.
+      responses:
+        "200":
+          description: Gateway dependencies are ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyzResponse"
+        "503":
+          description: One or more dependencies are unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyzResponse"
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      description: Exposes Prometheus text-format gateway metrics when METRICS_ENABLED is not false. The default path is /metrics and can be changed with METRICS_PATH.
+      responses:
+        "200":
+          description: Prometheus exposition text containing gateway request, latency, cache, verification, rate-limit, and in-flight metrics.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # HELP gateway_requests_total Total number of HTTP requests
+                  # TYPE gateway_requests_total counter
+                  gateway_requests_total{method="GET",path="/healthz",status="200"} 1
 
   /api/ai/summarize:
     post:
-      summary: Summarize text
-      description: Proxies a text summarization request and enforces x402 payment
+      summary: Summarize text with x402 payment enforcement
+      description: |
+        Unsigned requests return HTTP 402 with a payment context. Clients sign that context with EIP-712 typed data and retry with X-402-Signature, X-402-Nonce, and X-402-Timestamp.
       parameters:
         - name: X-402-Signature
           in: header
           required: false
-          description: EIP-712 signature authorizing payment
+          description: EIP-712 wallet signature authorizing the payment context.
           schema:
             type: string
-
+            example: "0x..."
         - name: X-402-Nonce
           in: header
           required: false
-          description: Nonce from 402 response
+          description: Nonce from the original 402 paymentContext.
           schema:
             type: string
-
+            example: "550e8400-e29b-41d4-a716-446655440000"
         - name: X-402-Timestamp
           in: header
           required: false
-          description: Unix timestamp (in seconds) from the original 402 paymentContext, used in the EIP-712 payment message
+          description: Unix timestamp in seconds from the original 402 paymentContext.
           schema:
             type: string
-
+            example: "1700000000"
+        - name: X-Correlation-ID
+          in: header
+          required: false
+          description: Optional caller-supplied correlation ID. The gateway sanitizes and echoes a correlation ID in error responses and headers.
+          schema:
+            type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - text
-              properties:
-                text:
-                  type: string
-                  example: "Artificial intelligence is transforming software development."
-
+              $ref: "#/components/schemas/SummarizeRequest"
       responses:
         "200":
-          description: Summary generated
+          description: Summary generated and receipt returned in the X-402-Receipt header.
+          headers:
+            X-402-Receipt:
+              description: Base64-encoded SignedReceipt JSON.
+              schema:
+                type: string
+            X-Correlation-ID:
+              description: Correlation ID for tracing.
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  result:
-                    type: string
-                    example: "AI is changing how software is built."
-
+                $ref: "#/components/schemas/SummarizeResponse"
+        "400":
+          description: Invalid timestamp, chain mismatch, or invalid request body.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/PublicError"
+                  - $ref: "#/components/schemas/ValidationError"
+              examples:
+                invalidTimestamp:
+                  value:
+                    error: invalid_timestamp
+                    correlation_id: "550e8400-e29b-41d4-a716-446655440000"
+                invalidBody:
+                  value:
+                    error: Invalid request body
         "402":
-          description: Payment required
+          description: Payment required. Sign the returned paymentContext and retry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentRequiredResponse"
+        "403":
+          description: Invalid signature.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicError"
+              example:
+                error: invalid_signature
+                correlation_id: "550e8400-e29b-41d4-a716-446655440000"
+        "409":
+          description: Nonce already used.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicError"
+              example:
+                error: nonce_already_used
+                correlation_id: "550e8400-e29b-41d4-a716-446655440000"
+        "413":
+          description: Request body exceeded the gateway limit.
           content:
             application/json:
               schema:
@@ -85,40 +160,102 @@ paths:
                 properties:
                   error:
                     type: string
-                    example: "Payment Required"
+                    example: Payload too large
+                  max_size:
+                    type: string
+                    example: 10MB
+        "429":
+          description: Rate limit exceeded when rate limiting is enabled.
+          headers:
+            Retry-After:
+              schema:
+                type: string
+            X-RateLimit-Limit:
+              schema:
+                type: string
+            X-RateLimit-Remaining:
+              schema:
+                type: string
+            X-RateLimit-Reset:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RateLimitError"
+        "502":
+          description: Verification service or upstream AI provider unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicError"
+              examples:
+                verificationUnavailable:
+                  value:
+                    error: verification_unavailable
+                    correlation_id: "550e8400-e29b-41d4-a716-446655440000"
+                upstreamUnavailable:
+                  value:
+                    error: upstream_unavailable
+                    correlation_id: "550e8400-e29b-41d4-a716-446655440000"
+        "504":
+          description: Verifier or upstream AI timeout.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicError"
+              examples:
+                verifierTimeout:
+                  value:
+                    error: verifier_timeout
+                    correlation_id: "550e8400-e29b-41d4-a716-446655440000"
+                upstreamTimeout:
+                  value:
+                    error: upstream_timeout
+                    correlation_id: "550e8400-e29b-41d4-a716-446655440000"
+        "500":
+          description: Sanitized internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicError"
+
+  /api/receipts/{id}:
+    get:
+      summary: Fetch a signed receipt
+      description: Retrieves a stored signed receipt until its receipt TTL expires.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Receipt ID returned inside the decoded X-402-Receipt header.
+          schema:
+            type: string
+            pattern: "^rcpt_[a-f0-9]{12}$"
+            example: rcpt_a1b2c3d4e5f6
+      responses:
+        "200":
+          description: Receipt found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptLookupResponse"
+        "400":
+          description: Invalid receipt ID format.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error, message]
+                properties:
+                  error:
+                    type: string
+                    example: invalid receipt id format
                   message:
                     type: string
-                    example: "Please sign the payment context"
-                  paymentContext:
-                    type: object
-                    properties:
-                      recipient:
-                        type: string
-                        description: Ethereum address of payment recipient
-                        example: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219"
-                      token:
-                        type: string
-                        description: Token symbol for payment
-                        example: "USDC"
-                      amount:
-                        type: string
-                        description: Payment amount in token units
-                        example: "0.001"
-                      nonce:
-                        type: string
-                        description: Unique payment nonce (UUID)
-                        example: "550e8400-e29b-41d4-a716-446655440000"
-                      chainId:
-                        type: integer
-                        description: Blockchain network ID
-                        example: 8453
-                      timestamp:
-                        type: integer
-                        description: Unix timestamp in seconds used in EIP-712 payment message
-                        example: 1700000000
-
-        "403":
-          description: Invalid signature
+                    example: receipt id must start with rcpt_ followed by exactly 12 lowercase hexadecimal characters
+        "404":
+          description: Receipt expired or never existed.
           content:
             application/json:
               schema:
@@ -126,11 +263,12 @@ paths:
                 properties:
                   error:
                     type: string
-                  details:
+                    example: Receipt not found
+                  message:
                     type: string
-
+                    example: Receipt may have expired or never existed
         "500":
-          description: Server error
+          description: Receipt store failure.
           content:
             application/json:
               schema:
@@ -138,5 +276,216 @@ paths:
                 properties:
                   error:
                     type: string
-                  details:
-                    type: string
+                    example: failed to retrieve receipt
+
+components:
+  schemas:
+    HealthzResponse:
+      type: object
+      required: [status, service, timestamp]
+      properties:
+        status:
+          type: string
+          example: ok
+        service:
+          type: string
+          example: gateway
+        timestamp:
+          type: integer
+          format: int64
+          example: 1700000000
+
+    ReadyzResponse:
+      type: object
+      required: [ready, timestamp, checks]
+      properties:
+        ready:
+          type: boolean
+        timestamp:
+          type: integer
+          format: int64
+        checks:
+          type: object
+          additionalProperties: true
+          example:
+            verifier: ok
+            ai_provider:
+              provider: openrouter
+              status: ok
+            openrouter: ok
+            redis: ok
+            gateway:
+              status: ok
+              goroutines: 12
+              memory_alloc_mb: 4
+              memory_sys_mb: 18
+
+    SummarizeRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          example: Artificial intelligence is transforming software development.
+
+    SummarizeResponse:
+      type: object
+      required: [result]
+      properties:
+        result:
+          type: string
+          example: AI is changing how software is built.
+
+    PaymentRequiredResponse:
+      type: object
+      required: [error, message, paymentContext]
+      properties:
+        error:
+          type: string
+          example: Payment Required
+        message:
+          type: string
+          example: Please sign the payment context
+        paymentContext:
+          $ref: "#/components/schemas/PaymentContext"
+
+    PaymentContext:
+      type: object
+      required: [recipient, token, amount, nonce, chainId, timestamp]
+      properties:
+        recipient:
+          type: string
+          description: Ethereum address of payment recipient.
+          example: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219"
+        token:
+          type: string
+          example: USDC
+        amount:
+          type: string
+          example: "0.001"
+        nonce:
+          type: string
+          description: Unique payment nonce.
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        chainId:
+          type: integer
+          example: 84532
+        timestamp:
+          type: integer
+          format: uint64
+          description: Unix timestamp in seconds used in the EIP-712 message.
+          example: 1700000000
+
+    PublicError:
+      type: object
+      required: [error, correlation_id]
+      properties:
+        error:
+          type: string
+          enum:
+            - invalid_signature
+            - invalid_timestamp
+            - chain_id_mismatch
+            - nonce_already_used
+            - verification_unavailable
+            - verifier_timeout
+            - upstream_unavailable
+            - upstream_timeout
+            - request_body_read_failed
+            - response_encoding_failed
+            - receipt_generation_failed
+            - receipt_store_failed
+            - receipt_encoding_failed
+        correlation_id:
+          type: string
+          example: "550e8400-e29b-41d4-a716-446655440000"
+
+    ValidationError:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Invalid request
+        message:
+          type: string
+          example: text field cannot be empty
+
+    RateLimitError:
+      type: object
+      required: [error, message, retry_after]
+      properties:
+        error:
+          type: string
+          example: Too Many Requests
+        message:
+          type: string
+          example: Rate limit exceeded. Please retry later.
+        retry_after:
+          type: integer
+          example: 12
+
+    ReceiptLookupResponse:
+      type: object
+      required: [receipt, signature, server_public_key, status]
+      properties:
+        receipt:
+          $ref: "#/components/schemas/Receipt"
+        signature:
+          type: string
+          example: "0x..."
+        server_public_key:
+          type: string
+          example: "0x04..."
+        status:
+          type: string
+          example: valid
+
+    Receipt:
+      type: object
+      required: [id, version, timestamp, payment, service]
+      properties:
+        id:
+          type: string
+          example: rcpt_a1b2c3d4e5f6
+        version:
+          type: string
+          example: "1.0"
+        timestamp:
+          type: string
+          format: date-time
+        payment:
+          type: object
+          required: [payer, recipient, amount, token, chainId, nonce]
+          properties:
+            payer:
+              type: string
+              example: "0x..."
+            recipient:
+              type: string
+              example: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219"
+            amount:
+              type: string
+              example: "0.001"
+            token:
+              type: string
+              example: USDC
+            chainId:
+              type: integer
+              example: 84532
+            nonce:
+              type: string
+              example: "550e8400-e29b-41d4-a716-446655440000"
+        service:
+          type: object
+          required: [endpoint, request_hash, response_hash]
+          properties:
+            endpoint:
+              type: string
+              example: /api/ai/summarize
+            request_hash:
+              type: string
+              example: sha256:...
+            response_hash:
+              type: string
+              example: sha256:...

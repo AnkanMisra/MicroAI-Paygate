@@ -1,0 +1,71 @@
+# Gateway API
+
+The gateway is the public HTTP surface. In local development it runs at `http://localhost:3000`.
+
+The gateway also serves OpenAPI at `GET /openapi.yaml` and Swagger UI at `GET /docs`.
+
+## Endpoints
+
+### `POST /api/ai/summarize`
+
+Summarizes text after payment authorization. The first unsigned request receives a `402 Payment Required` response with a `paymentContext`. The signed retry includes the EIP-712 signature headers.
+
+### `GET /api/receipts/{id}`
+
+Fetches a stored signed receipt until the configured receipt TTL expires.
+
+### `GET /healthz`
+
+Liveness check for the gateway process.
+
+### `GET /readyz`
+
+Readiness check for verifier reachability, the active AI provider, Redis when required, and the gateway's own metrics.
+
+## Request Headers
+
+Unsigned first request:
+
+```http
+POST /api/ai/summarize HTTP/1.1
+Content-Type: application/json
+```
+
+Signed retry:
+
+```http
+POST /api/ai/summarize HTTP/1.1
+Content-Type: application/json
+X-402-Signature: 0x...
+X-402-Nonce: ...
+X-402-Timestamp: 1766611200
+```
+
+## Response Headers
+
+Successful paid responses include:
+
+```http
+X-402-Receipt: <base64 SignedReceipt JSON>
+```
+
+The receipt is intentionally returned in a header so the response body hash can match the body the client receives.
+
+## Error Categories
+
+- Missing or malformed payment challenge.
+- Invalid signature.
+- Chain ID mismatch.
+- Expired or future timestamp.
+- Replayed nonce.
+- Verifier timeout or unavailable.
+- AI provider timeout or unavailable.
+- Receipt generation, encoding, or storage failure.
+
+## OpenAPI
+
+The canonical API contract is available in the repo and from a running gateway:
+
+- [gateway/openapi.yaml](https://github.com/AnkanMisra/MicroAI-Paygate/blob/main/gateway/openapi.yaml)
+- `http://localhost:3000/openapi.yaml`
+- `http://localhost:3000/docs`

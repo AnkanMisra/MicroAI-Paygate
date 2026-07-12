@@ -68,6 +68,29 @@ func TestCorrelationIDMiddleware_PreservesExistingID(t *testing.T) {
 	}
 }
 
+func TestCorrelationIDMiddleware_ReplacesUnsafeID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(CorrelationIDMiddleware())
+	r.GET("/test", func(c *gin.Context) {
+		c.JSON(200, gin.H{"ok": true})
+	})
+
+	unsafeID := strings.Repeat("a", 65)
+	req, _ := http.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-Correlation-ID", unsafeID)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	responseID := w.Header().Get("X-Correlation-ID")
+	if responseID == unsafeID {
+		t.Fatal("expected unsafe correlation ID to be replaced")
+	}
+	if len(responseID) > 64 {
+		t.Fatalf("replacement correlation ID should be capped, got %q", responseID)
+	}
+}
+
 // TestCorrelationIDMiddleware_SetsInGinContext verifies that the correlation ID
 // is stored in Gin's context for handler access.
 func TestCorrelationIDMiddleware_SetsInGinContext(t *testing.T) {
@@ -105,7 +128,7 @@ func TestCorrelationIDMiddleware_SetsInRequestContext(t *testing.T) {
 	var capturedID string
 	r.GET("/test", func(c *gin.Context) {
 		// Get from Go standard context using the typed key
-		if id, ok := c.Request.Context().Value(correlationIDKey).(string); ok {
+		if id, ok := c.Request.Context().Value(CorrelationIDKey).(string); ok {
 			capturedID = id
 		}
 		c.JSON(200, gin.H{"ok": true})
@@ -133,7 +156,7 @@ func TestCorrelationIDMiddleware_PropagationToDownstream(t *testing.T) {
 	r.GET("/test", func(c *gin.Context) {
 		// Simulate what verifyPayment and callOpenRouter do
 		ctx := c.Request.Context()
-		if cid, ok := ctx.Value(correlationIDKey).(string); ok {
+		if cid, ok := ctx.Value(CorrelationIDKey).(string); ok {
 			capturedFromContext = cid
 		}
 		c.JSON(200, gin.H{"ok": true})
@@ -189,13 +212,13 @@ func TestCorrelationIDKey_TypeSafety(t *testing.T) {
 	ctx := context.Background()
 
 	// Set with typed key
-	ctx = context.WithValue(ctx, correlationIDKey, "typed-value")
+	ctx = context.WithValue(ctx, CorrelationIDKey, "typed-value")
 
 	// Set with plain string key (should not collide)
 	ctx = context.WithValue(ctx, "correlation_id", "string-value")
 
 	// Retrieve with typed key - should get typed value
-	typedValue, ok := ctx.Value(correlationIDKey).(string)
+	typedValue, ok := ctx.Value(CorrelationIDKey).(string)
 	if !ok || typedValue != "typed-value" {
 		t.Errorf("Expected typed key to return 'typed-value', got '%s'", typedValue)
 	}
