@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -164,6 +165,164 @@ func TestReceiptJSONSerialization(t *testing.T) {
 		if _, exists := decoded[field]; !exists {
 			t.Errorf("Missing field in JSON: %s", field)
 		}
+	}
+}
+
+func TestInMemoryReceiptStore_StoreGetAndExpiry(t *testing.T) {
+	store := NewInMemoryReceiptStore()
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("failed to close receipt store: %v", err)
+		}
+	})
+
+	receipt := &SignedReceipt{
+		Receipt: Receipt{
+			ID:        "rcpt_123456789abc",
+			Version:   "1.0",
+			Timestamp: time.Now().UTC(),
+			Payment: PaymentDetails{
+				Payer:     "0x742d35Cc6634C0532925a3b844Bc9e7595f8fE21",
+				Recipient: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219",
+				Amount:    "0.001",
+				Token:     "USDC",
+				ChainID:   8453,
+				Nonce:     "test-nonce",
+			},
+			Service: ServiceDetails{
+				Endpoint:     "/api/ai/summarize",
+				RequestHash:  "sha256:test",
+				ResponseHash: "sha256:response",
+			},
+		},
+		Signature:       "0x1234567890abcdef",
+		ServerPublicKey: "0xabcdef1234567890",
+	}
+
+	ctx := context.Background()
+	if err := store.Store(ctx, receipt, 20*time.Millisecond); err != nil {
+		t.Fatalf("store receipt: %v", err)
+	}
+
+	got, exists, err := store.Get(ctx, receipt.Receipt.ID)
+	if err != nil {
+		t.Fatalf("get receipt: %v", err)
+	}
+	if !exists {
+		t.Fatal("receipt not found after storing")
+	}
+	if got.Signature != receipt.Signature {
+		t.Fatalf("signature mismatch: got %q, want %q", got.Signature, receipt.Signature)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if err := store.CleanupExpired(ctx); err != nil {
+			t.Fatalf("cleanup expired receipts: %v", err)
+		}
+
+		_, exists, err = store.Get(ctx, receipt.Receipt.ID)
+		if err != nil {
+			t.Fatalf("get expired receipt: %v", err)
+		}
+		if !exists {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expired receipt should not exist")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestInMemoryReceiptStoreCopiesReceipts(t *testing.T) {
+	store := NewInMemoryReceiptStore()
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("failed to close receipt store: %v", err)
+		}
+	})
+
+	receipt := validTestReceipt("rcpt_abcdef123456")
+	originalSignature := receipt.Signature
+	originalNonce := receipt.Receipt.Payment.Nonce
+
+	ctx := context.Background()
+	if err := store.Store(ctx, receipt, time.Hour); err != nil {
+		t.Fatalf("store receipt: %v", err)
+	}
+
+	receipt.Signature = "0xmutated-after-store"
+	receipt.Receipt.Payment.Nonce = "mutated-after-store"
+
+	got, exists, err := store.Get(ctx, "rcpt_abcdef123456")
+	if err != nil {
+		t.Fatalf("get receipt: %v", err)
+	}
+	if !exists {
+		t.Fatal("receipt not found after storing")
+	}
+	if got.Signature != originalSignature {
+		t.Fatalf("stored receipt changed after caller mutation: got %q, want %q", got.Signature, originalSignature)
+	}
+	if got.Receipt.Payment.Nonce != originalNonce {
+		t.Fatalf("stored nonce changed after caller mutation: got %q, want %q", got.Receipt.Payment.Nonce, originalNonce)
+	}
+
+	got.Signature = "0xmutated-after-get"
+	got.Receipt.Payment.Nonce = "mutated-after-get"
+
+	gotAgain, exists, err := store.Get(ctx, "rcpt_abcdef123456")
+	if err != nil {
+		t.Fatalf("get receipt again: %v", err)
+	}
+	if !exists {
+		t.Fatal("receipt not found after mutating returned value")
+	}
+	if gotAgain.Signature != originalSignature {
+		t.Fatalf("stored receipt changed after returned pointer mutation: got %q, want %q", gotAgain.Signature, originalSignature)
+	}
+	if gotAgain.Receipt.Payment.Nonce != originalNonce {
+		t.Fatalf("stored nonce changed after returned pointer mutation: got %q, want %q", gotAgain.Receipt.Payment.Nonce, originalNonce)
+	}
+}
+
+type recordingCleanupStore struct {
+	cleanupErr error
+}
+
+func (s *recordingCleanupStore) Store(context.Context, *SignedReceipt, time.Duration) error {
+	return nil
+}
+
+func (s *recordingCleanupStore) Get(context.Context, string) (*SignedReceipt, bool, error) {
+	return nil, false, nil
+}
+
+func (s *recordingCleanupStore) CleanupExpired(ctx context.Context) error {
+	s.cleanupErr = ctx.Err()
+	return nil
+}
+
+func (s *recordingCleanupStore) Close() error {
+	return nil
+}
+
+func TestCleanupExpiredReceiptsUsesProvidedContext(t *testing.T) {
+	originalStore := getActiveReceiptStore()
+	store := &recordingCleanupStore{}
+	setActiveReceiptStore(store)
+	t.Cleanup(func() {
+		setActiveReceiptStore(originalStore)
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	cleanupExpiredReceipts(ctx)
+
+	if store.cleanupErr != context.Canceled {
+		t.Fatalf("cleanup used wrong context: got %v, want %v", store.cleanupErr, context.Canceled)
 	}
 }
 

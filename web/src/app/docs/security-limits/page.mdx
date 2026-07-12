@@ -1,0 +1,41 @@
+# Security & Limits
+
+MicroAI Paygate is useful because it keeps the payment authorization boundary explicit. It is also intentionally honest about what is not production-grade yet.
+
+## Security Model
+
+- Wallets sign EIP-712 typed payment contexts.
+- The verifier recovers the signer and checks chain ID, timestamp, and nonce.
+- The gateway only calls the AI provider after signature verification.
+- The gateway signs receipts over request and response hashes.
+- Clients should verify receipts with a trusted gateway public key.
+
+## Current Limits
+
+Replay protection is in memory for one verifier instance. Multi-replica production needs a shared nonce store before claiming horizontally scalable replay protection.
+
+A valid signature proves wallet authorization for a payment context. It does not prove USDC moved on-chain.
+
+The current protocol is x402-style, not official x402-compatible. It uses custom `X-402-*` headers and no official facilitator settlement path.
+
+A signed receipt proves what the gateway signed, assuming the client trusts the gateway receipt signing public key. The public key embedded in the receipt is not enough by itself.
+
+## Secrets Guidance
+
+- Never commit private keys.
+- Never use funded wallets in examples or live tests.
+- Keep OpenRouter keys in `.env` or deployment secret stores.
+- Rotate server receipt keys if a private key is exposed.
+- Treat logs as public unless they are explicitly protected.
+
+## Roadmap Boundaries
+
+Planned hardening work should land before stronger production claims:
+
+- Deterministic mock AI provider for demos and CI.
+- Web dogfooding of the local SDK.
+- Structured JSON logs and correlation IDs.
+- Redis-backed verifier nonce storage.
+- Prometheus metrics.
+- Official x402 adapter and facilitator semantics.
+- Optional on-chain USDC settlement.

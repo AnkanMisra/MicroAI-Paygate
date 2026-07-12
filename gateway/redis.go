@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -12,18 +13,26 @@ import (
 
 var redisClient *redis.Client
 
-func initRedis() {
-	if !getCacheEnabled() {
-		return
+func initRedis() error {
+	if !isRedisRequired() {
+		if redisClient != nil {
+			_ = redisClient.Close()
+			redisClient = nil
+		}
+		return nil
 	}
 
 	// Close existing client if any
 	if redisClient != nil {
-		redisClient.Close()
+		_ = redisClient.Close()
+		redisClient = nil
 	}
 
 	// Parse Redis connection options
-	redisURL := getEnv("REDIS_URL", "localhost:6379")
+	redisURL := getEnv("REDIS_URL", "")
+	if redisURL == "" {
+		return fmt.Errorf("REDIS_URL not set")
+	}
 	var opts *redis.Options
 
 	if strings.HasPrefix(redisURL, "redis://") || strings.HasPrefix(redisURL, "rediss://") {
@@ -31,10 +40,7 @@ func initRedis() {
 		var err error
 		opts, err = redis.ParseURL(redisURL)
 		if err != nil {
-			log.Printf("WARNING: Invalid REDIS_URL format: %v", err)
-			log.Println("Continuing with caching disabled. Set CACHE_ENABLED=false to suppress this warning.")
-			redisClient = nil
-			return
+			return fmt.Errorf("invalid REDIS_URL format: %w", err)
 		}
 	} else {
 		// Treat as host:port and build options manually
@@ -51,13 +57,12 @@ func initRedis() {
 	defer cancel()
 
 	if err := redisClient.Ping(ctx).Err(); err != nil {
-		log.Printf("WARNING: Redis connection failed when CACHE_ENABLED=true: %v", err)
-		log.Println("Continuing with caching disabled. Set CACHE_ENABLED=false to suppress this warning.")
-		redisClient.Close()
+		_ = redisClient.Close()
 		redisClient = nil
-		return
+		return fmt.Errorf("redis connection failed: %w", err)
 	}
 	log.Println("Redis connected successfully")
+	return nil
 }
 
 func getCacheEnabled() bool {

@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - 'web/**'
+      - 'docker-compose.yml'
       - '.github/workflows/web-lint-build.yml'
   push:
     branches: [main]
     paths:
       - 'web/**'
+      - 'docker-compose.yml'
       - '.github/workflows/web-lint-build.yml'
 
 concurrency:
@@ -18,6 +20,9 @@ concurrency:
 jobs:
   web-lint-build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -25,7 +30,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 'latest'
+          bun-version: '1.3.13'
 
       - name: Install deps
         working-directory: web
@@ -34,6 +39,22 @@ jobs:
       - name: Lint (eslint)
         working-directory: web
         run: bun run lint
+
+      - name: Typecheck (tsc)
+        working-directory: web
+        run: bun run typecheck
+
+      - name: Unit tests (Bun)
+        working-directory: web
+        run: bun run test:unit --coverage --coverage-reporter=lcov
+
+      - name: Upload web coverage
+        uses: codecov/codecov-action@04b047e8bb82a0c002c8312c1c880fbc6a999d45 # v5
+        with:
+          use_oidc: true
+          files: web/coverage/lcov.info
+          flags: web
+          fail_ci_if_error: false
 
       - name: Build (Next.js)
         working-directory: web

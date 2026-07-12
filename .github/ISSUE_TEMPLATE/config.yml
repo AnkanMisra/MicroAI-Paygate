@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/AnkanMisra/MicroAI-Paygate/security/policy
+    about: Do not open public issues for vulnerabilities. Read SECURITY.md first.
+  - name: Contributor guide
+    url: https://github.com/AnkanMisra/MicroAI-Paygate/blob/main/CONTRIBUTING.md
+    about: Read setup, validation, and pull request expectations before contributing.

@@ -4,11 +4,15 @@ on:
   pull_request:
     paths:
       - 'gateway/**'
+      - 'deploy/fly/gateway.fly.toml'
+      - 'docker-compose.yml'
       - '.github/workflows/go-lint.yml'
   push:
     branches: [main]
     paths:
       - 'gateway/**'
+      - 'deploy/fly/gateway.fly.toml'
+      - 'docker-compose.yml'
       - '.github/workflows/go-lint.yml'
 
 concurrency:

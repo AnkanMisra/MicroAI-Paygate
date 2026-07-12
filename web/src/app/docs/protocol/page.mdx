@@ -1,0 +1,64 @@
+# Protocol
+
+MicroAI Paygate currently implements a custom x402-style protocol. It uses HTTP `402 Payment Required`, EIP-712 typed data, custom `X-402-*` retry headers, and gateway-signed receipts.
+
+It is not official x402-compatible yet because it does not use the official header contract or facilitator-backed settlement path.
+
+## Flow
+
+1. Client sends an unsigned request to the gateway.
+2. Gateway returns `402 Payment Required` with a `paymentContext`.
+3. Client signs the payment context with EIP-712.
+4. Client retries with `X-402-Signature`, `X-402-Nonce`, and `X-402-Timestamp`.
+5. Gateway sends the signed payload to the Rust verifier.
+6. Verifier recovers the wallet, checks chain ID, timestamp, and nonce.
+7. Gateway calls the configured AI provider.
+8. Gateway signs a receipt over the request and response hashes.
+9. Client decodes and verifies the receipt.
+
+## EIP-712 Domain
+
+```ts
+const domain = {
+  name: "MicroAI Paygate",
+  version: "1",
+  chainId: paymentContext.chainId,
+  verifyingContract: ethers.ZeroAddress,
+};
+```
+
+## Payment Type
+
+```ts
+const types = {
+  Payment: [
+    { name: "recipient", type: "address" },
+    { name: "token", type: "string" },
+    { name: "amount", type: "string" },
+    { name: "nonce", type: "string" },
+    { name: "timestamp", type: "uint256" },
+  ],
+};
+```
+
+## Payment Context Fields
+
+- `recipient`: recipient wallet address.
+- `token`: display token symbol, currently `USDC`.
+- `amount`: requested payment amount as a string.
+- `nonce`: one-time replay protection value.
+- `chainId`: EIP-712 chain ID.
+- `timestamp`: signature freshness timestamp.
+
+## Receipt Fields
+
+Receipts include:
+
+- payment payer, recipient, amount, token, chain ID, and nonce.
+- service endpoint.
+- `request_hash`.
+- `response_hash`.
+- gateway signature.
+- gateway server public key.
+
+Receipt verification must use a trusted gateway public key distributed out of band. A client must not treat a public key embedded in the receipt as the trust anchor by itself.

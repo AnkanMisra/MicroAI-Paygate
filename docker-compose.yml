@@ -9,20 +9,32 @@ services:
       - PORT=3000
       - VERIFIER_URL=http://verifier:3002
       - REDIS_URL=redis:6379
-      - CACHE_ENABLED=true
+      - CACHE_ENABLED=${CACHE_ENABLED:-false}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3001}
+      - RECEIPT_STORE=${RECEIPT_STORE:-redis}
+      - CHAIN_ID=${CHAIN_ID:-84532}
+      - METRICS_ENABLED=${METRICS_ENABLED:-true}
+      - METRICS_PATH=${METRICS_PATH:-/metrics}
       # Pass through from .env file
       - OPENROUTER_API_KEY
       - OPENROUTER_MODEL
       - SERVER_WALLET_PRIVATE_KEY
       - RECIPIENT_ADDRESS
-      - CHAIN_ID
       - PAYMENT_AMOUNT
       - REDIS_PASSWORD
       - REDIS_DB
       - CACHE_TTL_SECONDS
     depends_on:
-      - verifier
-      - redis
+      verifier:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/healthz >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
     networks:
       - microai-net
 
@@ -30,8 +42,28 @@ services:
     build: ./verifier
     ports:
       - "3002:3002"
+    environment:
+      - EXPECTED_CHAIN_ID=${EXPECTED_CHAIN_ID:-${CHAIN_ID:-84532}}
+      - SIGNATURE_EXPIRY_SECONDS=${SIGNATURE_EXPIRY_SECONDS:-300}
+      - SIGNATURE_CLOCK_SKEW_SECONDS=${SIGNATURE_CLOCK_SKEW_SECONDS:-60}
+      - MAX_REQUEST_BODY_BYTES=${MAX_REQUEST_BODY_BYTES:-1048576}
+      - VERIFIER_NONCE_STORE=${VERIFIER_NONCE_STORE:-redis}
+      - VERIFIER_NONCE_KEY_PREFIX=${VERIFIER_NONCE_KEY_PREFIX:-microai:verifier:nonce:}
+      - VERIFIER_REDIS_TIMEOUT_MS=${VERIFIER_REDIS_TIMEOUT_MS:-2000}
+      - REDIS_URL=${REDIS_URL:-redis:6379}
+      - REDIS_PASSWORD
+      - REDIS_DB
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3002/health >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
     networks:
       - microai-net
+    depends_on:
+      redis:
+        condition: service_healthy
 
   redis:
     image: redis:7-alpine
@@ -41,20 +73,49 @@ services:
       - microai-net
     volumes:
       - redis-data:/data
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
     deploy:
       resources:
         limits:
           memory: 512M
 
   web:
-    build: ./web
+    build:
+      context: ./web
+      args:
+        # Inlined into the Next.js bundle at build time. The cascade lets a
+        # deployer override NEXT_PUBLIC_* directly (UI-only swap, useful for
+        # testing) and otherwise mirrors the gateway's CHAIN_ID / PAYMENT_AMOUNT
+        # so the widget and stat bar stay in sync with the actual payment
+        # context the gateway issues.
+        #
+        # NOTE on chain name: when you override CHAIN_ID (e.g. CHAIN_ID=8453
+        # for Base mainnet), you MUST also set NEXT_PUBLIC_EXPECTED_CHAIN_NAME
+        # (e.g. "Base") or the bundle will ship the Sepolia name with the
+        # mainnet chain id and the wallet widget + stat bar will contradict
+        # each other.
+        NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-http://localhost:3000}
+        NEXT_PUBLIC_VERIFIER_URL: ${NEXT_PUBLIC_VERIFIER_URL:-}
+        NEXT_PUBLIC_EXPECTED_CHAIN_ID: ${NEXT_PUBLIC_EXPECTED_CHAIN_ID:-${CHAIN_ID:-84532}}
+        NEXT_PUBLIC_EXPECTED_CHAIN_NAME: ${NEXT_PUBLIC_EXPECTED_CHAIN_NAME:-Base Sepolia}
+        NEXT_PUBLIC_PAYMENT_AMOUNT: ${NEXT_PUBLIC_PAYMENT_AMOUNT:-${PAYMENT_AMOUNT:-0.001}}
+        NEXT_PUBLIC_PAYMENT_TOKEN: ${NEXT_PUBLIC_PAYMENT_TOKEN:-USDC}
+        NEXT_PUBLIC_POSTHOG_ENABLED: ${NEXT_PUBLIC_POSTHOG_ENABLED:-false}
+        NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}
+        NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-https://us.i.posthog.com}
     ports:
       - "3001:3001"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:3000
+      - PORT=3001
     depends_on:
-      - gateway
+      gateway:
+        condition: service_healthy
     networks:
       - microai-net
 

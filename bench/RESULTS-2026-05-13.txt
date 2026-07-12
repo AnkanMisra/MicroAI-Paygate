@@ -1,0 +1,34 @@
+# MicroAI Paygate verifier wrk benchmark
+date_utc=2026-05-13T17:46:46Z
+os=Darwin
+arch=arm64
+cpu=Apple M2
+hw_ncpu=8
+hw_memsize_bytes=8589934592
+wrk=wrk 4.2.0 [kqueue] Copyright (C) 2012 Will Glozer
+target=http://127.0.0.1:3002/verify
+threads=2
+connections=32
+duration=30s
+duration_seconds=30
+payload_count=1000
+signature_expiry_seconds=300
+expiry_safety_seconds=15
+payload_timestamp=1778694405
+payload_age_before_run_seconds=1
+
+Running 30s test @ http://127.0.0.1:3002/verify
+  2 threads and 32 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    22.24ms   14.59ms 259.20ms   87.59%
+    Req/Sec   767.55    177.54     1.05k    82.78%
+  Latency Distribution
+     50%   19.95ms
+     75%   25.86ms
+     90%   33.50ms
+     99%   85.45ms
+  45961 requests in 30.10s, 10.08MB read
+Requests/sec:   1526.94
+Transfer/sec:    342.96KB
+validity_check_invalid_responses=0
+validity_check_non_200_responses=0

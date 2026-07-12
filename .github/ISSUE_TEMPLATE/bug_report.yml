@@ -1,0 +1,84 @@
+name: Bug report
+description: Report a reproducible problem in MicroAI Paygate
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not include secrets, private keys, seed phrases, API keys, Redis URLs, or full `.env` files.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - Gateway
+        - Verifier
+        - Web
+        - E2E tests
+        - Benchmarks
+        - Docker/Compose
+        - Deployment
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include exact commands, requests, or UI steps.
+      placeholder: |
+        1. Run ...
+        2. Send ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Bun, Go, Rust, browser/wallet, Docker, and relevant service versions.
+      placeholder: |
+        OS:
+        Bun:
+        Go:
+        Rust:
+        Browser/wallet:
+        Docker:
+    validations:
+      required: false
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation already run
+      description: Paste commands and sanitized output.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Security check
+      options:
+        - label: This report does not include a vulnerability, leaked secret, private key, or exploit detail. I will use SECURITY.md for security-sensitive reports.
+          required: true

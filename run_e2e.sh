@@ -22,11 +22,16 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 echo "Starting Verifier..."
-cargo run --quiet &
+PORT=3002 cargo run --quiet &
 VERIFIER_PID=$!
 
 echo "Starting Gateway..."
 cd "$SCRIPT_DIR/gateway"
+export RECEIPT_STORE="${RECEIPT_STORE:-memory}"
+export CACHE_ENABLED="${CACHE_ENABLED:-false}"
+# The gateway now requires VERIFIER_URL at startup; point it at the verifier
+# we just spawned on localhost above. Honors any caller-supplied override.
+export VERIFIER_URL="${VERIFIER_URL:-http://127.0.0.1:3002}"
 go run . &
 GATEWAY_PID=$!
 
