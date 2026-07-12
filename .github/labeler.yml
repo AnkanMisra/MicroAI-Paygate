@@ -1,17 +1,17 @@
 go:
   - changed-files:
-      - AnyGlobToAnyFile:
+      - any-glob-to-any-file:
           - "gateway/**"
           - "deploy/fly/gateway.fly.toml"
 
 rust:
   - changed-files:
-      - AnyGlobToAnyFile:
+      - any-glob-to-any-file:
           - "verifier/**"
 
 TypeScript:
   - changed-files:
-      - AnyGlobToAnyFile:
+      - any-glob-to-any-file:
           - "web/**"
           - "sdk/typescript/**"
           - "tests/**/*.ts"
@@ -22,7 +22,7 @@ TypeScript:
 
 documentation:
   - changed-files:
-      - AnyGlobToAnyFile:
+      - any-glob-to-any-file:
           - "**/*.md"
           - "gateway/openapi.yaml"
           - ".env.example"
@@ -32,7 +32,7 @@ documentation:
 
 github_actions:
   - changed-files:
-      - AnyGlobToAnyFile:
+      - any-glob-to-any-file:
           - ".github/workflows/**"
           - ".github/ISSUE_TEMPLATE/**"
           - ".github/dependabot.yml"
@@ -40,7 +40,7 @@ github_actions:
 
 type:docs:
   - changed-files:
-      - AnyGlobToAnyFile:
+      - any-glob-to-any-file:
           - "**/*.md"
           - "gateway/openapi.yaml"
           - ".env.example"
@@ -50,7 +50,7 @@ type:docs:
 
 type:devops:
   - changed-files:
-      - AnyGlobToAnyFile:
+      - any-glob-to-any-file:
           - "deploy/**"
           - "docker-compose.yml"
           - ".env.production.example"
@@ -59,7 +59,7 @@ type:devops:
 
 type:testing:
   - changed-files:
-      - AnyGlobToAnyFile:
+      - any-glob-to-any-file:
           - "tests/**"
           - "run_e2e.sh"
           - "gateway/**/*_test.go"

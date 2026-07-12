@@ -14,10 +14,10 @@
     "test:all": "./run_e2e.sh"
   },
   "dependencies": {
-    "ethers": "^6.10.0"
+    "ethers": "^6.17.0"
   },
   "devDependencies": {
     "bun-types": "latest",
-    "concurrently": "^9.2.1"
+    "concurrently": "^10.0.3"
   }
 }

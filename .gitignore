@@ -1,5 +1,8 @@
 # Dependencies
 node_modules/
+/gateway/coverage.out
+/web/coverage/
+/sdk/typescript/coverage/
 .bun/
 
 # Environment variables

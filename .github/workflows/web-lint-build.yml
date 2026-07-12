@@ -20,9 +20,12 @@ concurrency:
 jobs:
   web-lint-build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -43,7 +46,15 @@ jobs:
 
       - name: Unit tests (Bun)
         working-directory: web
-        run: bun run test:unit
+        run: bun run test:unit --coverage --coverage-reporter=lcov
+
+      - name: Upload web coverage
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
+        with:
+          use_oidc: true
+          files: web/coverage/lcov.info
+          flags: web
+          fail_ci_if_error: false
 
       - name: Build (Next.js)
         working-directory: web
