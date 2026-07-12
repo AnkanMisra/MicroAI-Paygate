@@ -164,7 +164,6 @@ func RequestTimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 			// Zero/negative timeout means no timeout — use the existing context
 			// without wrapping it, so requests don't cancel immediately.
 			ctx = c.Request.Context()
-			cancel = func() {} // no-op to avoid nil cancel panic in defer
 		} else {
 			if d, ok := c.Request.Context().Deadline(); ok {
 				desired := time.Now().Add(timeout)
@@ -172,7 +171,6 @@ func RequestTimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 				// a new deadline at the desired point.
 				if d.Before(desired) {
 					ctx = c.Request.Context()
-					cancel = func() {} // no-op to avoid nil cancel panic in defer
 				} else {
 					ctx, cancel = context.WithDeadline(c.Request.Context(), desired)
 				}
@@ -180,7 +178,9 @@ func RequestTimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 				ctx, cancel = context.WithTimeout(c.Request.Context(), timeout)
 			}
 		}
-		defer cancel()
+		if cancel != nil {
+			defer cancel()
+		}
 		c.Request = c.Request.WithContext(ctx)
 
 		origWriter := c.Writer

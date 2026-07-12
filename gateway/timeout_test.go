@@ -42,6 +42,52 @@ func TestRequestTimeoutMiddleware_AbortsOnTimeout(t *testing.T) {
 	}
 }
 
+func TestRequestTimeoutMiddleware_NonPositiveTimeoutPreservesRequest(t *testing.T) {
+	for _, timeout := range []time.Duration{0, -time.Second} {
+		t.Run(timeout.String(), func(t *testing.T) {
+			router := gin.New()
+			router.Use(RequestTimeoutMiddleware(timeout))
+			router.GET("/ok", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{"ok": true})
+			})
+
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/ok", nil))
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("expected 200 for timeout %s, got %d: %s", timeout, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRequestTimeoutMiddleware_PreservesEarlierParentDeadline(t *testing.T) {
+	router := gin.New()
+	router.Use(RequestTimeoutMiddleware(time.Minute))
+	router.GET("/deadline", func(c *gin.Context) {
+		deadline, ok := c.Request.Context().Deadline()
+		if !ok {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		if time.Until(deadline) > time.Second {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		c.Status(http.StatusNoContent)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	request := httptest.NewRequest(http.MethodGet, "/deadline", nil).WithContext(ctx)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected earlier parent deadline to be preserved, got %d", recorder.Code)
+	}
+}
+
 func TestCallOpenRouter_RespectsContextTimeout(t *testing.T) {
 	// Mock server that responds slowly
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
