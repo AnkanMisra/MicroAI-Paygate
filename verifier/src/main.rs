@@ -227,16 +227,20 @@ fn verifier_redis_connection_info(
     let redis_url = normalize_redis_url(raw_url);
     let has_database = redis_url_has_database(&redis_url);
     let mut connection_info: redis::ConnectionInfo = redis_url.as_str().parse()?;
+    let mut redis_settings = connection_info.redis_settings().clone();
 
-    if connection_info.redis.password.is_none() {
-        connection_info.redis.password = get_non_empty_env("REDIS_PASSWORD");
+    if redis_settings.password().is_none() {
+        if let Some(password) = get_non_empty_env("REDIS_PASSWORD") {
+            redis_settings = redis_settings.set_password(password);
+        }
     }
     if !has_database {
         if let Some(db) = get_non_empty_env("REDIS_DB").and_then(|value| value.parse::<i64>().ok())
         {
-            connection_info.redis.db = db;
+            redis_settings = redis_settings.set_db(db);
         }
     }
+    connection_info = connection_info.set_redis_settings(redis_settings);
 
     Ok(connection_info)
 }
@@ -1004,8 +1008,8 @@ mod tests {
         with_redis_auth_env(Some("secret"), Some("2"), || {
             let connection_info = verifier_redis_connection_info("redis:6379").unwrap();
 
-            assert_eq!(connection_info.redis.password.as_deref(), Some("secret"));
-            assert_eq!(connection_info.redis.db, 2);
+            assert_eq!(connection_info.redis_settings().password(), Some("secret"));
+            assert_eq!(connection_info.redis_settings().db(), 2);
         });
     }
 
@@ -1015,12 +1019,12 @@ mod tests {
             let connection_info =
                 verifier_redis_connection_info("redis://user:url-secret@redis:6379/4").unwrap();
 
-            assert_eq!(connection_info.redis.username.as_deref(), Some("user"));
+            assert_eq!(connection_info.redis_settings().username(), Some("user"));
             assert_eq!(
-                connection_info.redis.password.as_deref(),
+                connection_info.redis_settings().password(),
                 Some("url-secret")
             );
-            assert_eq!(connection_info.redis.db, 4);
+            assert_eq!(connection_info.redis_settings().db(), 4);
         });
     }
 
