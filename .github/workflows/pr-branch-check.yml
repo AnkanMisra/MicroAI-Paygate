@@ -15,7 +15,7 @@ jobs:
       BASE_REF: ${{ github.event.pull_request.base.ref }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
@@ -54,7 +54,7 @@ jobs:
       
       - name: Add PR comment
         if: ${{ failure() }}
-        uses: actions/github-script@v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BRANCH_STATUS_BEHIND: ${{ steps.check.outputs.behind }}
           BRANCH_STATUS_AHEAD: ${{ steps.check.outputs.ahead }}
