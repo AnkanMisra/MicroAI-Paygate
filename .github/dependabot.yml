@@ -16,9 +16,9 @@ updates:
         versions: ["v1.2.6"]
       - dependency-name: "github.com/gin-gonic/gin"
         versions: ["v1.12.0"]
-      # v1.17.4 pins x/crypto v0.48; fixed x/crypto releases require Go 1.25.
+      # v1.17.3-v1.17.4 pin vulnerable x/crypto releases; fixes require Go 1.25.
       - dependency-name: "github.com/ethereum/go-ethereum"
-        versions: ["v1.17.4"]
+        versions: ["v1.17.3", "v1.17.4"]
     groups:
       go-patch:
         update-types: ["patch"]
