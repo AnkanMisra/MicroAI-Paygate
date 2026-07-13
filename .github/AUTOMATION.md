@@ -35,6 +35,15 @@ After the ruleset is active, enable automatic head-branch updates, automatic del
 - Automation Validation runs the issue-triage unit tests and `actionlint` for workflow changes.
 - Dependabot groups minor/patch updates, limits update noise, and includes the TypeScript SDK workspace.
 
+## First-time contributor welcome
+
+- `.github/workflows/welcome-contributor.yml` runs only when a pull request is opened and uses GitHub's `FIRST_TIMER` and `FIRST_TIME_CONTRIBUTOR` associations.
+- Bots, maintainers, members, and returning contributors are not greeted.
+- The message prioritizes contribution guidance. The repository star link is optional and secondary.
+- A hidden marker prevents duplicate comments when a workflow run is retried.
+- The workflow checks out only the trusted default branch and never executes code from the contributor's pull request.
+- To roll it back without affecting other automation, disable the `Welcome First-Time Contributors` workflow or revert its workflow and script files.
+
 ## External setup
 
 - Connect the repository to Codecov and authorize OIDC uploads. Upload failures are informational during onboarding; change `fail_ci_if_error` to `true` only after a successful default-branch upload.
