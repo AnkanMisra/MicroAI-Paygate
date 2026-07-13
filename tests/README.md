@@ -19,18 +19,21 @@ The `tests/` directory contains Bun end-to-end coverage for the gateway and veri
 - Ports `3000` and `3002` free
 - `OPENROUTER_API_KEY` for the default OpenRouter gateway startup path
 
-The helper defaults to:
+When these variables are unset, the helper defaults the gateway to:
 
 - `RECEIPT_STORE=memory`
 - `CACHE_ENABLED=false`
 
-Redis is not required unless you override those variables.
+The verifier still honors `VERIFIER_NONCE_STORE` from the environment. If you copied `.env.example`, override its Redis mode when running E2E without Redis.
 
 ## Run
 
 From the repository root:
 
 ```bash
+RECEIPT_STORE=memory \
+VERIFIER_NONCE_STORE=memory \
+CACHE_ENABLED=false \
 bun run test:e2e
 ```
 
@@ -47,7 +50,7 @@ Do not use plain `bun test` as a replacement unless you have already started the
 In one shell:
 
 ```bash
-bun run stack
+RECEIPT_STORE=memory VERIFIER_NONCE_STORE=memory CACHE_ENABLED=false bun run stack
 ```
 
 In another shell:

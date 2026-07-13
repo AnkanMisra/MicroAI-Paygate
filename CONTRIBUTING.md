@@ -25,7 +25,7 @@ flowchart LR
 | Component | Path | Main responsibility |
 | --- | --- | --- |
 | Gateway | `gateway/` | Go/Gin HTTP gateway, x402 challenge creation, verifier orchestration, AI provider calls, CORS, gzip, rate limits, Redis cache, receipts, health/readiness. |
-| Verifier | `verifier/` | Rust/Axum EIP-712 signature verification, expected chain enforcement, timestamp freshness, in-memory nonce replay protection. |
+| Verifier | `verifier/` | Rust/Axum EIP-712 signature verification, expected chain enforcement, timestamp freshness, and memory- or Redis-backed nonce replay protection. |
 | Web | `web/` | Next.js frontend, wallet detection, configured-chain switching, EIP-712 signing, signed retry, result display. |
 | SDK | `sdk/typescript/` | Private TypeScript SDK for the current x402-style protocol, including challenge handling, EIP-712 signing, signed retry headers, receipt decoding, and trusted-key receipt verification. |
 | E2E | `tests/`, `run_e2e.sh` | Bun tests for unsigned challenge, signed retry, upstream behavior, and replay rejection. |
@@ -39,7 +39,7 @@ Install:
 - Bun `1.3.13+`
 - Go `1.24.x`
 - Rust stable
-- Docker and Redis only when using Docker Compose or Redis-backed local receipts/cache
+- Docker and Redis only when using Compose or Redis-backed nonce, receipt, or cache modes
 
 Then run:
 
@@ -60,6 +60,9 @@ Edit `.env` with development values. Use an unfunded local server wallet key. Ne
 Start the local stack:
 
 ```bash
+RECEIPT_STORE=memory \
+VERIFIER_NONCE_STORE=memory \
+CACHE_ENABLED=false \
 bun run stack
 ```
 
@@ -69,7 +72,7 @@ This starts:
 - Web: `http://localhost:3001`
 - Verifier: `http://localhost:3002`
 
-The root stack command defaults to memory receipts and cache disabled unless those values are exported in your shell, so Redis is not required for the normal quick start.
+The copied `.env` selects Redis-backed stores. The command above explicitly overrides both stores for a no-Redis quick start; shell values take precedence over Bun's automatic `.env` loading.
 
 ## Docker Compose Setup
 
@@ -124,7 +127,7 @@ Run the checks for the area you touched. When a change crosses services, run eve
 | `verifier/**` | `cd verifier && cargo fmt -- --check && cargo clippy -- -D warnings && cargo test` |
 | `web/**` | `cd web && bun run lint && bun run typecheck && bun run test:unit && bun run build` |
 | `sdk/typescript/**` | `cd sdk/typescript && bun run typecheck && bun run test` |
-| `tests/**` or x402 flow | `bun run test:e2e` when `OPENROUTER_API_KEY` is available |
+| `tests/**` or x402 flow | `RECEIPT_STORE=memory VERIFIER_NONCE_STORE=memory CACHE_ENABLED=false bun run test:e2e` when `OPENROUTER_API_KEY` is available |
 | `gateway/openapi.yaml` | YAML parse plus compare against gateway routes |
 | `.github/workflows/**` | YAML parse and explain which paths trigger checks |
 | Docker/Compose/deploy docs | Validate YAML/TOML where practical and do not run real deploy commands unless maintainers explicitly approve |
@@ -188,10 +191,12 @@ If you change a public gateway endpoint, update `gateway/openapi.yaml` in the sa
 
 ## E2E Behavior
 
-`bun run test:e2e` uses `run_e2e.sh` to build and start the verifier and gateway before running Bun tests. The helper defaults to:
+`bun run test:e2e` uses `run_e2e.sh` to build and start the verifier and gateway before running Bun tests. When the variables are unset, the helper defaults the gateway to:
 
 - `RECEIPT_STORE=memory`
 - `CACHE_ENABLED=false`
+
+If you copied `.env.example`, explicitly override `RECEIPT_STORE` and `VERIFIER_NONCE_STORE` to `memory` when testing without Redis.
 
 The default OpenRouter path still requires `OPENROUTER_API_KEY` for gateway startup. If a signed request returns `502 upstream_unavailable` or `504 upstream_timeout`, payment verification may have succeeded and only the upstream model call failed. Read the test output before assuming the x402 flow broke.
 

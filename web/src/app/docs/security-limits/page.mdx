@@ -12,7 +12,7 @@ MicroAI Paygate is useful because it keeps the payment authorization boundary ex
 
 ## Current Limits
 
-Replay protection is in memory for one verifier instance. Multi-replica production needs a shared nonce store before claiming horizontally scalable replay protection.
+Replay protection supports process-local memory and shared Redis. Multi-replica deployments must use `VERIFIER_NONCE_STORE=redis`; memory mode protects only one verifier process.
 
 A valid signature proves wallet authorization for a payment context. It does not prove USDC moved on-chain.
 
@@ -34,8 +34,6 @@ Planned hardening work should land before stronger production claims:
 
 - Deterministic mock AI provider for demos and CI.
 - Web dogfooding of the local SDK.
-- Structured JSON logs and correlation IDs.
-- Redis-backed verifier nonce storage.
-- Prometheus metrics.
+- Structured JSON logs. Correlation IDs are already propagated across the web, gateway, and verifier request path.
 - Official x402 adapter and facilitator semantics.
 - Optional on-chain USDC settlement.

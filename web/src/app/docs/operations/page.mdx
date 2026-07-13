@@ -13,8 +13,9 @@ This page collects the knobs and checks needed to run MicroAI Paygate locally or
 - `CHAIN_ID`: gateway EIP-712 chain ID.
 - `EXPECTED_CHAIN_ID`: verifier chain ID. Falls back to `CHAIN_ID` if unset.
 - `VERIFIER_URL`: where the gateway calls `/verify`.
+- `VERIFIER_NONCE_STORE`: `memory` for one verifier process or `redis` for shared replay protection.
 - `RECEIPT_STORE`: `redis` by default, `memory` for tests and quick local runs.
-- `REDIS_URL`: required when Redis receipts or cache are enabled.
+- `REDIS_URL`: required when verifier nonces, receipts, or response caching use Redis.
 - `CACHE_ENABLED`: optional response cache. Payment verification still runs on cache hits.
 
 ## Provider Modes
@@ -35,11 +36,11 @@ cd verifier && cargo fmt -- --check
 cd verifier && cargo clippy -- -D warnings
 cd web && bun run lint && bun run typecheck && bun run test:unit && bun run build
 cd sdk/typescript && bun run typecheck && bun run test
-bun run test:e2e
+RECEIPT_STORE=memory VERIFIER_NONCE_STORE=memory CACHE_ENABLED=false bun run test:e2e
 bun run test:unit
 ```
 
-`bun run test:e2e` starts gateway and verifier. With the default OpenRouter path, it requires `OPENROUTER_API_KEY`.
+`bun run test:e2e` starts gateway and verifier. The command above overrides the Redis-backed `.env.example` store modes for a no-Redis run. With the default OpenRouter path, it also requires `OPENROUTER_API_KEY`.
 
 ## Troubleshooting
 
