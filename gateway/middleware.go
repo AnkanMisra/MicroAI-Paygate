@@ -161,8 +161,9 @@ func RequestTimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 		var cancel context.CancelFunc
 		var ctx context.Context
 		if timeout <= 0 {
-			// Preserve the existing behavior for zero/negative values.
-			ctx, cancel = context.WithTimeout(c.Request.Context(), timeout)
+			// Zero/negative timeout means no timeout — use the existing context
+			// without wrapping it, so requests don't cancel immediately.
+			ctx = c.Request.Context()
 		} else {
 			if d, ok := c.Request.Context().Deadline(); ok {
 				desired := time.Now().Add(timeout)
