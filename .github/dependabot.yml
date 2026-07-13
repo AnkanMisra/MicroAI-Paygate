@@ -8,8 +8,8 @@ updates:
     open-pull-requests-limit: 5
     labels: ["dependencies", "go"]
     groups:
-      go-minor-and-patch:
-        update-types: ["minor", "patch"]
+      go-patch:
+        update-types: ["patch"]
 
   # Rust dependencies
   - package-ecosystem: "cargo"
