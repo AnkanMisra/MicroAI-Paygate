@@ -169,7 +169,7 @@ docker compose up --build
 | `GET /api/receipts/{id}` | Fetch a stored signed receipt before its TTL expires. |
 | `GET /healthz` | Gateway liveness. |
 | `GET /readyz` | Verifier, provider, Redis-when-required, and gateway readiness. |
-| `GET /metrics` | Prometheus metrics; configurable with `METRICS_PATH`. |
+| `GET /metrics` | Prometheus metrics when `METRICS_ENABLED` is enabled; configurable with `METRICS_PATH`. |
 | `GET /openapi.yaml` | Raw OpenAPI contract. |
 | `GET /docs` | Swagger UI. |
 
@@ -192,6 +192,13 @@ cd sdk/typescript
 bun install
 bun run typecheck
 bun run test
+```
+
+Install the unpublished package in another local app before importing it:
+
+```bash
+cd /path/to/your-app
+bun add /path/to/MicroAI-Paygate/sdk/typescript
 ```
 
 ```ts
