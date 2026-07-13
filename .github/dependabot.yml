@@ -7,6 +7,18 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     labels: ["dependencies", "go"]
+    # Hold releases that cannot pass the documented Go 1.24 CI/security policy.
+    # Reassess each exact version when the project moves to Go 1.25.
+    ignore:
+      - dependency-name: "github.com/gin-contrib/cors"
+        versions: ["1.7.7"]
+      - dependency-name: "github.com/gin-contrib/gzip"
+        versions: ["1.2.6"]
+      - dependency-name: "github.com/gin-gonic/gin"
+        versions: ["1.12.0"]
+      # v1.17.4 pins x/crypto v0.48; fixed x/crypto releases require Go 1.25.
+      - dependency-name: "github.com/ethereum/go-ethereum"
+        versions: ["1.17.4"]
     groups:
       go-patch:
         update-types: ["patch"]
