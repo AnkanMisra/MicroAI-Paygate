@@ -40,6 +40,9 @@ At minimum, review these values before starting the stack:
 ## Run
 
 ```bash
+RECEIPT_STORE=memory \
+VERIFIER_NONCE_STORE=memory \
+CACHE_ENABLED=false \
 bun run stack
 ```
 
@@ -50,7 +53,7 @@ Local services:
 - Web: `http://localhost:3001`
 - Verifier health: `http://localhost:3002/health`
 
-The root stack command starts the gateway with memory receipt storage and response cache disabled unless you exported different values in the shell. That keeps the quickstart from requiring Redis.
+The copied `.env` selects Redis-backed stores. These shell overrides take precedence over Bun's automatic `.env` loading and keep the quickstart from requiring Redis.
 
 ## First Request
 
