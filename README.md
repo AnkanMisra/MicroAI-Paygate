@@ -220,6 +220,8 @@ flowchart LR
 
 ### Install
 
+> **Note:** Ensure Bun is installed before running the installation commands, as it is required for dependency installation and project scripts.
+
 ```bash
 git clone https://github.com/AnkanMisra/MicroAI-Paygate.git
 cd MicroAI-Paygate
