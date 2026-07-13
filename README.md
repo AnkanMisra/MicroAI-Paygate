@@ -34,7 +34,7 @@ This is a demo and contributor-friendly reference implementation. A valid signat
 | Goal | Read |
 | --- | --- |
 | Run locally | [Getting Started](#getting-started-local) |
-| Build an API client | [Use The SDK](#use-the-sdk) |
+| Build an API client | [Use the SDK](#use-the-sdk) |
 | Read website docs | Run `cd web && bun run dev`, then open `/docs` |
 | Understand the architecture | [Architecture](#architecture) |
 | Contribute code or docs | [CONTRIBUTING.md](CONTRIBUTING.md) |
@@ -229,6 +229,8 @@ bun install
 (cd gateway && go mod download)
 (cd verifier && cargo build -q)
 ```
+
+> **Note:** Ensure Bun is installed before running the installation commands, as it is required for dependency installation and project scripts.
 
 ### Configure
 
