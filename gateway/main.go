@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"gateway/internal/ai"
-	"gateway/routes"
 	"io"
 	"log"
 	"net/http"
@@ -318,7 +317,7 @@ func main() {
 	// Documentation routes are registered before CORS / rate-limit / timeout
 	// middleware so the Swagger UI and raw spec are served without those
 	// constraints.
-	registerDocRoutes(r)
+	routes.RegisterDocRoutes(r)
 
 	r.Use(cors.New(cors.Config{
 		AllowOrigins: getAllowedOrigins(),
@@ -361,7 +360,7 @@ func main() {
 	// Rate limiting (if enabled) applies via the global r.Use above; random
 	// 12-char receipt IDs (2^48 space) make /api/receipts/:id brute-force
 	// enumeration impractical.
-	registerAPIRoutes(r)
+	routes.RegisterAPIRoutes(r)
 
 	// Initialize receipt cleanup goroutine
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())

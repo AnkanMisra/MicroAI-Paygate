@@ -195,3 +195,4 @@ func validateOllamaModelExists(modelID string) error {
 	}
 	return fmt.Errorf("model not found")
 }
+// Issue #302 - Model management endpoints
