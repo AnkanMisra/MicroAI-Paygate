@@ -14,10 +14,6 @@ concurrency:
 
 jobs:
   welcome:
-    if: >-
-      github.event.pull_request.user.type != 'Bot' &&
-      (github.event.pull_request.author_association == 'FIRST_TIMER' ||
-      github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout trusted automation
