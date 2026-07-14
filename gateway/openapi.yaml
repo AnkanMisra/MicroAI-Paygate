@@ -489,3 +489,72 @@ components:
             response_hash:
               type: string
               example: sha256:...
+
+  /api/models:
+    get:
+      summary: List available AI models for the configured provider
+      description: |
+        For `AI_PROVIDER=ollama`: queries the local Ollama daemon and returns all
+        locally installed models with size info and which one is currently active.
+        For `AI_PROVIDER=openrouter`: returns the currently configured model only.
+      tags:
+        - Models
+      responses:
+        '200':
+          description: Model list retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  provider:
+                    type: string
+                    example: ollama
+                  currentModel:
+                    type: string
+                    example: llama3:8b
+                  models:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        provider:
+                          type: string
+                        sizeGB:
+                          type: string
+                          example: "4.7GB"
+                        isActive:
+                          type: boolean
+        '503':
+          description: Ollama daemon is not reachable
+
+  /api/models/switch:
+    post:
+      summary: Switch the active AI model for the current session
+      description: |
+        Updates the in-process active model without restarting the gateway.
+        **This change is session-only** and does not persist across restarts.
+        Update `OLLAMA_MODEL` in `.env` to make the switch permanent.
+      tags:
+        - Models
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - modelId
+              properties:
+                modelId:
+                  type: string
+                  example: mistral:7b
+      responses:
+        '200':
+          description: Model switched successfully
+        '400':
+          description: modelId missing or model not installed in Ollama

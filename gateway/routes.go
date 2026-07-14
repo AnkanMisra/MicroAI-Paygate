@@ -1,6 +1,8 @@
 package main
 
 import (
+	"gateway/routes" // Import the routes package for model handlers
+	
 	"github.com/gin-gonic/gin"
 )
 
@@ -43,6 +45,11 @@ func registerDocRoutes(r *gin.Engine) {
 func registerAPIRoutes(r *gin.Engine) {
 	r.GET("/healthz", handleHealthz)
 	r.GET("/readyz", handleReadyz)
+
+	// ── Model routes ──────────────────────────────────────────────────────────
+	// These must be registered BEFORE the /api/ai group to avoid path conflicts
+	r.GET("/api/models", routes.GetAvailableModels)
+	r.POST("/api/models/switch", routes.SwitchModel)
 
 	aiGroup := r.Group("/api/ai")
 	aiGroup.Use(RequestTimeoutMiddleware(getAITimeout()))
