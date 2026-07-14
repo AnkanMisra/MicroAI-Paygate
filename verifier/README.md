@@ -12,7 +12,9 @@ The verifier is a Rust/Axum service on port `3002`. It validates EIP-712 payment
 - Reject reused nonce hashes inside the configured signature window.
 - Return structured `error_code` values that the gateway maps to sanitized public errors.
 
-## EIP-712 Domain
+## EIP-712 Domains
+
+Legacy authorizations use this domain:
 
 | Field | Value |
 | --- | --- |
@@ -30,6 +32,24 @@ Payment(
   string amount,
   string nonce,
   uint256 timestamp
+)
+```
+
+Request-bound v2 authorizations use the same domain fields with `version` set to `2` and this type:
+
+```text
+PaymentAuthorization(
+  address payer,
+  address recipient,
+  string token,
+  string amount,
+  string nonce,
+  uint256 timestamp,
+  string audience,
+  string method,
+  string resource,
+  string contentType,
+  bytes32 requestHash
 )
 ```
 

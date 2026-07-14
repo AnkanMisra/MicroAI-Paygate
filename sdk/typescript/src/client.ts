@@ -1,6 +1,9 @@
 import { ethers } from "ethers";
 import { PaygateSdkError } from "./errors";
-import { MicroAIPaygateProtocol } from "./protocol/microai";
+import {
+  MicroAIPaygateProtocol,
+  validatePaymentContextForRequest,
+} from "./protocol/microai";
 import type {
   FetchLike,
   PaygateProtocolAdapter,
@@ -63,12 +66,14 @@ export class PaygateClient {
     }
 
     const paymentContext = await this.protocol.readPaymentContext(firstResponse);
-    this.protocol.validatePaymentContext(paymentContext, {
+    const requestBinding = {
       url,
       method: request.method,
       contentType: this.requestContentType(firstInit),
       bodyText: requestBodyText,
-    });
+    };
+    validatePaymentContextForRequest(paymentContext, requestBinding);
+    this.protocol.validatePaymentContext(paymentContext, requestBinding);
     let signature: string;
     let payer: string | undefined;
     try {

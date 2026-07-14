@@ -58,7 +58,7 @@ export function getGatewayUrl(): string {
 }
 
 export function getSummarizeUrl(): string {
-  return new URL("/api/ai/summarize", getGatewayUrl()).toString();
+  return `${getGatewayUrl().replace(/\/+$/, "")}/api/ai/summarize`;
 }
 
 export function serializeSummarizeRequest(text: string): string {

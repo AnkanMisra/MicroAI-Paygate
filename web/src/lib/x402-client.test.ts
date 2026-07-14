@@ -4,12 +4,27 @@ import authorizationV2Fixture from "../../../tests/fixtures/payment-authorizatio
 import type { PaymentContextV2 } from "./types";
 import {
   buildPaymentTypedData,
+  getSummarizeUrl,
   readPaymentChallenge,
   serializeSummarizeRequest,
   validatePaymentContextForRequest,
 } from "./x402-client";
 
 describe("request-bound payment authorization", () => {
+  it("preserves a configured gateway path prefix", () => {
+    const originalGatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL;
+    process.env.NEXT_PUBLIC_GATEWAY_URL = "https://gateway.example/paygate/";
+    try {
+      expect(getSummarizeUrl()).toBe("https://gateway.example/paygate/api/ai/summarize");
+    } finally {
+      if (originalGatewayUrl === undefined) {
+        delete process.env.NEXT_PUBLIC_GATEWAY_URL;
+      } else {
+        process.env.NEXT_PUBLIC_GATEWAY_URL = originalGatewayUrl;
+      }
+    }
+  });
+
   it("matches the shared v2 typed-data fixture", () => {
     const typedData = buildPaymentTypedData(
       authorizationV2Fixture.context as PaymentContextV2,

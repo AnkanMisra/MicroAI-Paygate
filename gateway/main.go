@@ -328,6 +328,7 @@ func main() {
 			"X-402-Signature",
 			"X-402-Nonce",
 			"X-402-Timestamp",
+			"X-402-Payer",
 			"X-Correlation-ID",
 		},
 		ExposeHeaders: []string{

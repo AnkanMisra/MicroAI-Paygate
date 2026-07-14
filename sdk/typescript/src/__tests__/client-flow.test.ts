@@ -3,9 +3,11 @@ import { ethers } from "ethers";
 import fixture from "../__fixtures__/gateway-receipt.json";
 import authorizationV2Fixture from "../../../../tests/fixtures/payment-authorization-v2.json";
 import {
+  MicroAIPaygateProtocol,
   PaygateClient,
   type PaymentContext,
   type PaymentContextV2,
+  type PaymentRequestBinding,
   type Receipt,
   type SignedReceipt,
 } from "../index";
@@ -168,6 +170,47 @@ describe("PaygateClient request flow", () => {
       client.request({ method: "POST", path: "/api/ai/summarize", body: { text: "tampered" } }),
     ).rejects.toMatchObject({ code: "payment_binding_mismatch" });
     expect(signCalls).toBe(0);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("rejects a mismatched v2 binding even when a custom adapter validation is a no-op", async () => {
+    const context = {
+      ...(authorizationV2Fixture.context as PaymentContextV2),
+      audience: "http://gateway.test",
+      resource: "/api/ai/summarize",
+    };
+    class NoOpValidationProtocol extends MicroAIPaygateProtocol {
+      signCalls = 0;
+
+      override validatePaymentContext(
+        _ctx: PaymentContext,
+        _request: PaymentRequestBinding,
+      ): void {}
+
+      override signPaymentContext(
+        signer: Parameters<MicroAIPaygateProtocol["signPaymentContext"]>[0],
+        ctx: PaymentContext,
+        payer?: string,
+      ): Promise<string> {
+        this.signCalls += 1;
+        return super.signPaymentContext(signer, ctx, payer);
+      }
+    }
+    const protocol = new NoOpValidationProtocol();
+    const { calls, fetcher } = scriptedFetch([
+      jsonResponse({ paymentContext: context }, { status: 402 }),
+    ]);
+    const client = new PaygateClient({
+      gatewayUrl: "http://gateway.test",
+      signer: wallet,
+      fetch: fetcher,
+      protocol,
+    });
+
+    await expect(
+      client.request({ method: "POST", path: "/api/ai/summarize", body: { text: "tampered" } }),
+    ).rejects.toMatchObject({ code: "payment_binding_mismatch" });
+    expect(protocol.signCalls).toBe(0);
     expect(calls).toHaveLength(1);
   });
 
