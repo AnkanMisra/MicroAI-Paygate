@@ -75,6 +75,8 @@ Request shape:
 }
 ```
 
+The verifier also accepts the staged `authorizationVersion: 2` context, which adds `audience`, `method`, `resource`, `contentType`, and `requestHash`. V2 requests must include a top-level `payer` address that is also covered by the typed-data signature; the verifier rejects the request unless the recovered signer matches it. Legacy requests omit both fields until the gateway cutover.
+
 Successful response:
 
 ```json
@@ -101,6 +103,8 @@ Important error codes:
 | Code | Meaning |
 | --- | --- |
 | `invalid_signature` | Signature recovery failed or signer did not match the context. |
+| `invalid_authorization_context` | The v2 version, binding fields, or payer are missing or malformed. |
+| `signer_mismatch` | The v2 signature does not recover to the claimed payer. |
 | `chain_id_mismatch` | Payment context chain does not match verifier expectation. |
 | `timestamp_expired` | Timestamp is older than `SIGNATURE_EXPIRY_SECONDS`. |
 | `timestamp_future` | Timestamp is beyond allowed future skew. |

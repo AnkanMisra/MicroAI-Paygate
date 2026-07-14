@@ -63,16 +63,24 @@ export class PaygateClient {
     }
 
     const paymentContext = await this.protocol.readPaymentContext(firstResponse);
+    this.protocol.validatePaymentContext?.(paymentContext, {
+      url,
+      method: request.method,
+      contentType: this.requestContentType(firstInit),
+      bodyText: requestBodyText,
+    });
     let signature: string;
+    let payer: string | undefined;
     try {
-      signature = await this.protocol.signPaymentContext(this.signer, paymentContext);
+      payer = await this.protocol.getPayer?.(this.signer, paymentContext);
+      signature = await this.protocol.signPaymentContext(this.signer, paymentContext, payer);
     } catch (error) {
       throw new PaygateSdkError("payment_signature_failed", "Failed to sign payment context", {
         cause: error,
       });
     }
 
-    const signedHeaders = this.protocol.buildSignedHeaders(paymentContext, signature);
+    const signedHeaders = this.protocol.buildSignedHeaders(paymentContext, signature, payer);
     const retryResponse = await this.fetchOrThrow(
       url,
       this.buildRequestInit(request, signedHeaders, requestBodyText),
@@ -131,6 +139,11 @@ export class PaygateClient {
       headers,
       body: requestBodyText,
     };
+  }
+
+  private requestContentType(init: RequestInit): string {
+    const headers = new Headers(init.headers);
+    return headers.get("Content-Type") ?? "";
   }
 
   private async fetchOrThrow(input: RequestInfo | URL, init: RequestInit): Promise<Response> {

@@ -1,6 +1,7 @@
 import type { SignedReceipt } from "./verify-receipt";
 
-export type PaymentContext = {
+export type PaymentContextV1 = {
+  authorizationVersion?: never;
   recipient: string;
   token: string;
   amount: string;
@@ -8,6 +9,23 @@ export type PaymentContext = {
   chainId: number;
   timestamp: number;
 };
+
+export type PaymentContextV2 = {
+  authorizationVersion: 2;
+  recipient: string;
+  token: string;
+  amount: string;
+  nonce: string;
+  chainId: number;
+  timestamp: number;
+  audience: string;
+  method: string;
+  resource: string;
+  contentType: string;
+  requestHash: string;
+};
+
+export type PaymentContext = PaymentContextV1 | PaymentContextV2;
 
 export type X402Step =
   | "idle"

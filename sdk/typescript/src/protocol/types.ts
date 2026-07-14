@@ -1,6 +1,7 @@
 import type { TypedDataDomain, TypedDataField } from "ethers";
 
-export type PaymentContext = {
+export type PaymentContextV1 = {
+  authorizationVersion?: never;
   recipient: string;
   token: string;
   amount: string;
@@ -9,7 +10,32 @@ export type PaymentContext = {
   timestamp: number;
 };
 
+export type PaymentContextV2 = {
+  authorizationVersion: 2;
+  recipient: string;
+  token: string;
+  amount: string;
+  nonce: string;
+  chainId: number;
+  timestamp: number;
+  audience: string;
+  method: string;
+  resource: string;
+  contentType: string;
+  requestHash: string;
+};
+
+export type PaymentContext = PaymentContextV1 | PaymentContextV2;
+
+export type PaymentRequestBinding = {
+  url: string;
+  method: string;
+  contentType: string;
+  bodyText?: string;
+};
+
 export type PaymentSigner = {
+  getAddress?(): Promise<string>;
   signTypedData(
     domain: TypedDataDomain,
     types: Record<string, Array<TypedDataField>>,
@@ -64,7 +90,17 @@ export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promis
 
 export type PaygateProtocolAdapter = {
   readPaymentContext(response: Response): Promise<PaymentContext>;
-  signPaymentContext(signer: PaymentSigner, ctx: PaymentContext): Promise<string>;
-  buildSignedHeaders(ctx: PaymentContext, signature: string): Record<string, string>;
+  validatePaymentContext?(ctx: PaymentContext, request: PaymentRequestBinding): void;
+  getPayer?(signer: PaymentSigner, ctx: PaymentContext): Promise<string | undefined>;
+  signPaymentContext(
+    signer: PaymentSigner,
+    ctx: PaymentContext,
+    payer?: string,
+  ): Promise<string>;
+  buildSignedHeaders(
+    ctx: PaymentContext,
+    signature: string,
+    payer?: string,
+  ): Record<string, string>;
   readReceipt(response: Response): SignedReceipt | null;
 };

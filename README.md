@@ -73,6 +73,8 @@ sequenceDiagram
 
 The signed context binds the recipient, token, amount, nonce, timestamp, and chain ID. The verifier rejects malformed signatures, wrong chains, stale or future timestamps, and replayed nonces before the gateway calls the AI provider.
 
+Request-bound authorization v2 is being rolled out in stages. The verifier, browser, and TypeScript SDK can already validate the v2 audience, method, encoded resource, content type, exact serialized body hash, and claimed payer; the public gateway continues issuing v1 contexts until the cutover is deployed.
+
 ## Architecture
 
 ```mermaid
@@ -229,6 +231,7 @@ The full local template is [`.env.example`](.env.example); production placeholde
 | `RECIPIENT_ADDRESS`, `PAYMENT_AMOUNT` | Values embedded in payment contexts. |
 | `CHAIN_ID`, `EXPECTED_CHAIN_ID` | Gateway and verifier chain IDs; these must match. |
 | `VERIFIER_URL` | Verifier base URL used by the gateway; required at startup. |
+| `PAYGATE_AUDIENCE` | Public gateway origin reserved for request-bound authorization v2; configure it before the gateway cutover. |
 | `VERIFIER_NONCE_STORE` | `memory` locally or `redis` for shared replay protection. |
 | `RECEIPT_STORE` | `memory` locally or `redis` for restart-safe receipts. |
 | `REDIS_URL` | Required by Redis nonce, receipt, or response-cache modes. |

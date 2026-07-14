@@ -8,7 +8,7 @@ use axum::{
 };
 use dashmap::{mapref::entry::Entry, DashMap};
 use ethers::types::transaction::eip712::TypedData;
-use ethers::types::Signature;
+use ethers::types::{Address, Signature};
 
 use ethers::utils::keccak256;
 
@@ -361,6 +361,7 @@ async fn health(headers: HeaderMap) -> (HeaderMap, Json<HealthResponse>) {
 struct VerifyRequest {
     context: PaymentContext,
     signature: String,
+    payer: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -372,6 +373,46 @@ struct PaymentContext {
     #[serde(rename = "chainId")]
     chain_id: u64,
     timestamp: Option<u64>,
+    #[serde(flatten)]
+    authorization: AuthorizationBinding,
+}
+
+#[derive(Deserialize, Debug, Clone, Default)]
+struct AuthorizationBinding {
+    #[serde(
+        rename = "authorizationVersion",
+        default,
+        deserialize_with = "deserialize_authorization_version"
+    )]
+    version: AuthorizationVersion,
+    audience: Option<String>,
+    method: Option<String>,
+    resource: Option<String>,
+    #[serde(rename = "contentType")]
+    content_type: Option<String>,
+    #[serde(rename = "requestHash")]
+    request_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum AuthorizationVersion {
+    #[default]
+    Legacy,
+    V2,
+    Unsupported(u8),
+}
+
+fn deserialize_authorization_version<'de, D>(
+    deserializer: D,
+) -> Result<AuthorizationVersion, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let version = u8::deserialize(deserializer)?;
+    Ok(match version {
+        2 => AuthorizationVersion::V2,
+        version => AuthorizationVersion::Unsupported(version),
+    })
 }
 
 #[derive(Serialize)]
@@ -554,6 +595,126 @@ async fn claim_nonce(state: &AppState, nonce: &str, now: Instant) -> Result<bool
    Signature Verification
 ======================= */
 
+#[derive(Debug)]
+enum AuthorizationContextError {
+    MissingVersion,
+    UnsupportedVersion(u8),
+    MissingField(&'static str),
+}
+
+impl std::fmt::Display for AuthorizationContextError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingVersion => write!(
+                formatter,
+                "authorizationVersion is required when request-binding fields are present"
+            ),
+            Self::UnsupportedVersion(version) => {
+                write!(formatter, "unsupported authorizationVersion {version}")
+            }
+            Self::MissingField(field) => write!(formatter, "v2 context is missing {field}"),
+        }
+    }
+}
+
+fn required_binding_field<'a>(
+    value: &'a Option<String>,
+    name: &'static str,
+) -> Result<&'a str, AuthorizationContextError> {
+    value
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or(AuthorizationContextError::MissingField(name))
+}
+
+fn build_payment_typed_data(
+    context: &PaymentContext,
+    payer: Option<&str>,
+) -> Result<TypedData, AuthorizationContextError> {
+    let typed_data_json = match context.authorization.version {
+        AuthorizationVersion::Legacy => {
+            if context.authorization.audience.is_some()
+                || context.authorization.method.is_some()
+                || context.authorization.resource.is_some()
+                || context.authorization.content_type.is_some()
+                || context.authorization.request_hash.is_some()
+            {
+                return Err(AuthorizationContextError::MissingVersion);
+            }
+            serde_json::json!({
+                "domain": {
+                    "name": "MicroAI Paygate",
+                    "version": "1",
+                    "chainId": context.chain_id,
+                    "verifyingContract": "0x0000000000000000000000000000000000000000"
+                },
+                "types": {
+                    "Payment": [
+                        { "name": "recipient", "type": "address" },
+                        { "name": "token", "type": "string" },
+                        { "name": "amount", "type": "string" },
+                        { "name": "nonce", "type": "string" },
+                        { "name": "timestamp", "type": "uint256" }
+                    ]
+                },
+                "primaryType": "Payment",
+                "message": {
+                    "recipient": context.recipient,
+                    "token": context.token,
+                    "amount": context.amount,
+                    "nonce": context.nonce,
+                    "timestamp": context.timestamp
+                }
+            })
+        }
+        AuthorizationVersion::V2 => serde_json::json!({
+            "domain": {
+                "name": "MicroAI Paygate",
+                "version": "2",
+                "chainId": context.chain_id,
+                "verifyingContract": "0x0000000000000000000000000000000000000000"
+            },
+            "types": {
+                "PaymentAuthorization": [
+                    { "name": "payer", "type": "address" },
+                    { "name": "recipient", "type": "address" },
+                    { "name": "token", "type": "string" },
+                    { "name": "amount", "type": "string" },
+                    { "name": "nonce", "type": "string" },
+                    { "name": "timestamp", "type": "uint256" },
+                    { "name": "audience", "type": "string" },
+                    { "name": "method", "type": "string" },
+                    { "name": "resource", "type": "string" },
+                    { "name": "contentType", "type": "string" },
+                    { "name": "requestHash", "type": "bytes32" }
+                ]
+            },
+            "primaryType": "PaymentAuthorization",
+            "message": {
+                "payer": payer
+                    .filter(|value| !value.is_empty())
+                    .ok_or(AuthorizationContextError::MissingField("payer"))?,
+                "recipient": context.recipient,
+                "token": context.token,
+                "amount": context.amount,
+                "nonce": context.nonce,
+                "timestamp": context.timestamp,
+                "audience": required_binding_field(&context.authorization.audience, "audience")?,
+                "method": required_binding_field(&context.authorization.method, "method")?,
+                "resource": required_binding_field(&context.authorization.resource, "resource")?,
+                "contentType": required_binding_field(&context.authorization.content_type, "contentType")?,
+                "requestHash": required_binding_field(&context.authorization.request_hash, "requestHash")?
+            }
+        }),
+        AuthorizationVersion::Unsupported(version) => {
+            return Err(AuthorizationContextError::UnsupportedVersion(version));
+        }
+    };
+
+    serde_json::from_value(typed_data_json)
+        .map_err(|_| AuthorizationContextError::MissingField("valid EIP-712 fields"))
+}
+
 async fn verify_signature(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -659,47 +820,58 @@ async fn verify_signature(
         );
     }
 
-    let typed_data_json = serde_json::json!({
-        "domain": {
-            "name": "MicroAI Paygate",
-            "version": "1",
-            "chainId": payload.context.chain_id,
-            "verifyingContract": "0x0000000000000000000000000000000000000000"
-        },
-        "types": {
-            "Payment": [
-                { "name": "recipient", "type": "address" },
-                { "name": "token", "type": "string" },
-                { "name": "amount", "type": "string" },
-                { "name": "nonce", "type": "string" },
-                { "name": "timestamp", "type": "uint256" }
-            ]
-        },
-        "primaryType": "Payment",
-        "message": {
-            "recipient": payload.context.recipient,
-            "token": payload.context.token,
-            "amount": payload.context.amount,
-            "nonce": payload.context.nonce,
-            "timestamp": payload.context.timestamp
-        }
-    });
-
-    let typed_data: TypedData = match serde_json::from_value(typed_data_json) {
+    let typed_data = match build_payment_typed_data(&payload.context, payload.payer.as_deref()) {
         Ok(td) => td,
         Err(e) => {
-            record_verification_failure(&request_start, "typed_data_error");
+            record_verification_failure(&request_start, "invalid_authorization_context");
             return (
                 StatusCode::BAD_REQUEST,
                 res_headers,
                 Json(VerifyResponse {
                     is_valid: false,
                     recovered_address: None,
-                    error: Some(format!("typed data error: {}", e)),
-                    error_code: None,
+                    error: Some(e.to_string()),
+                    error_code: Some("invalid_authorization_context".to_string()),
                 }),
             );
         }
+    };
+
+    let expected_payer = if payload.context.authorization.version == AuthorizationVersion::V2 {
+        let payer = match payload.payer.as_deref() {
+            Some(payer) => payer,
+            None => {
+                record_verification_failure(&request_start, "invalid_authorization_context");
+                return (
+                    StatusCode::BAD_REQUEST,
+                    res_headers,
+                    Json(VerifyResponse {
+                        is_valid: false,
+                        recovered_address: None,
+                        error: Some("v2 verification request is missing payer".to_string()),
+                        error_code: Some("invalid_authorization_context".to_string()),
+                    }),
+                );
+            }
+        };
+        match Address::from_str(payer) {
+            Ok(address) => Some(address),
+            Err(_) => {
+                record_verification_failure(&request_start, "invalid_authorization_context");
+                return (
+                    StatusCode::BAD_REQUEST,
+                    res_headers,
+                    Json(VerifyResponse {
+                        is_valid: false,
+                        recovered_address: None,
+                        error: Some("v2 verification request has invalid payer".to_string()),
+                        error_code: Some("invalid_authorization_context".to_string()),
+                    }),
+                );
+            }
+        }
+    } else {
+        None
     };
 
     let sig = match Signature::from_str(&payload.signature) {
@@ -726,6 +898,19 @@ async fn verify_signature(
 
     match result {
         Ok(addr) => {
+            if expected_payer.is_some_and(|expected| expected != addr) {
+                metrics::record_verification(false, duration, Some("signer_mismatch"));
+                return (
+                    StatusCode::OK,
+                    res_headers,
+                    Json(VerifyResponse {
+                        is_valid: false,
+                        recovered_address: Some(format!("{:?}", addr)),
+                        error: Some("signature does not match payer".to_string()),
+                        error_code: Some("signer_mismatch".to_string()),
+                    }),
+                );
+            }
             match claim_nonce(&state, &payload.context.nonce, Instant::now()).await {
                 Ok(true) => {}
                 Ok(false) => {
@@ -795,7 +980,7 @@ fn record_verification_failure(request_start: &Instant, reason: &'static str) {
 mod tests {
     use super::*;
     use ethers::signers::{LocalWallet, Signer};
-    use ethers::types::transaction::eip712::TypedData;
+    use ethers::types::transaction::eip712::{Eip712, TypedData};
     use std::sync::Arc;
 
     const BASE_SEPOLIA_CHAIN_ID: u64 = 84532;
@@ -1123,9 +1308,129 @@ mod tests {
                 nonce: nonce.into(),
                 chain_id,
                 timestamp: Some(timestamp),
+                authorization: AuthorizationBinding::default(),
             },
             signature: format!("0x{}", hex::encode(sig.to_vec())),
+            payer: None,
         }
+    }
+
+    #[test]
+    fn test_v2_typed_data_matches_shared_request_binding_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/payment-authorization-v2.json"
+        ))
+        .unwrap();
+        let context: PaymentContext = serde_json::from_value(fixture["context"].clone()).unwrap();
+        let typed_data =
+            build_payment_typed_data(&context, Some(fixture["payer"].as_str().unwrap())).unwrap();
+
+        assert_eq!(
+            format!("0x{}", hex::encode(typed_data.encode_eip712().unwrap())),
+            fixture["expectedTypedDataDigest"].as_str().unwrap()
+        );
+
+        let signature =
+            Signature::from_str(fixture["expectedSignature"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            signature.recover_typed_data(&typed_data).unwrap(),
+            Address::from_str(fixture["expectedSigner"].as_str().unwrap()).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_v2_context_rejects_missing_binding_fields_and_unknown_versions() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/payment-authorization-v2.json"
+        ))
+        .unwrap();
+        let mut missing_hash = fixture["context"].clone();
+        missing_hash.as_object_mut().unwrap().remove("requestHash");
+        let context: PaymentContext = serde_json::from_value(missing_hash).unwrap();
+        assert!(build_payment_typed_data(
+            &context,
+            Some("0x14791697260E4c9A71f18484C9f997B308e59325")
+        )
+        .is_err());
+
+        let mut unknown_version = fixture["context"].clone();
+        unknown_version["authorizationVersion"] = serde_json::json!(3);
+        let context: PaymentContext = serde_json::from_value(unknown_version).unwrap();
+        assert!(build_payment_typed_data(
+            &context,
+            Some("0x14791697260E4c9A71f18484C9f997B308e59325")
+        )
+        .is_err());
+    }
+
+    async fn signed_v2_request(nonce: &str) -> VerifyRequest {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/payment-authorization-v2.json"
+        ))
+        .unwrap();
+        let mut context: PaymentContext =
+            serde_json::from_value(fixture["context"].clone()).unwrap();
+        context.nonce = nonce.to_string();
+        context.timestamp = Some(now());
+
+        let wallet: LocalWallet =
+            "0123456789012345678901234567890123456789012345678901234567890123"
+                .parse()
+                .unwrap();
+        let payer = format!("{:?}", wallet.address());
+        let signature = wallet
+            .sign_typed_data(&build_payment_typed_data(&context, Some(&payer)).unwrap())
+            .await
+            .unwrap();
+
+        VerifyRequest {
+            context,
+            signature: format!("0x{}", hex::encode(signature.to_vec())),
+            payer: Some(payer),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_verify_signature_accepts_v2_request_binding() {
+        let request = signed_v2_request("v2-valid").await;
+        let (status, _, Json(response)) =
+            verify_signature(State(app_state()), HeaderMap::new(), Ok(Json(request))).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(response.is_valid);
+        assert_eq!(
+            response.recovered_address.as_deref(),
+            Some("0x14791697260e4c9a71f18484c9f997b308e59325")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verify_signature_rejects_tampered_v2_binding_for_claimed_payer() {
+        let mut request = signed_v2_request("v2-tampered").await;
+        request.context.authorization.request_hash = Some(format!("0x{}", "00".repeat(32)));
+
+        let (status, _, Json(response)) =
+            verify_signature(State(app_state()), HeaderMap::new(), Ok(Json(request))).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(!response.is_valid);
+        assert_eq!(response.error_code.as_deref(), Some("signer_mismatch"));
+    }
+
+    #[tokio::test]
+    async fn test_verify_signature_rejects_v2_request_without_payer() {
+        let mut request = signed_v2_request("v2-missing-payer").await;
+        request.payer = None;
+
+        let (status, _, Json(response)) =
+            verify_signature(State(app_state()), HeaderMap::new(), Ok(Json(request))).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(!response.is_valid);
+        assert_eq!(
+            response.error_code.as_deref(),
+            Some("invalid_authorization_context")
+        );
     }
 
     #[test]
@@ -1290,8 +1595,10 @@ mod tests {
                 nonce: "nonce-1".into(),
                 chain_id: BASE_SEPOLIA_CHAIN_ID,
                 timestamp: Some(ts),
+                authorization: AuthorizationBinding::default(),
             },
             signature: format!("0x{}", hex::encode(sig.to_vec())),
+            payer: None,
         };
 
         let (status, _, Json(resp)) =
@@ -1348,8 +1655,10 @@ mod tests {
                 nonce: "wrong-chain-nonce".into(),
                 chain_id: 1,
                 timestamp: Some(ts),
+                authorization: AuthorizationBinding::default(),
             },
             signature: format!("0x{}", hex::encode(sig.to_vec())),
+            payer: None,
         };
 
         let (status, _, Json(resp)) =
@@ -1380,8 +1689,10 @@ mod tests {
                     nonce: format!("timestamp-{expected_code}"),
                     chain_id: BASE_SEPOLIA_CHAIN_ID,
                     timestamp,
+                    authorization: AuthorizationBinding::default(),
                 },
                 signature: "0x1234567890".to_string(),
+                payer: None,
             };
 
             let (status, _, Json(resp)) =
@@ -1570,8 +1881,10 @@ mod tests {
                 nonce: "nonce".to_string(),
                 chain_id: BASE_SEPOLIA_CHAIN_ID,
                 timestamp: Some(ts),
+                authorization: AuthorizationBinding::default(),
             },
             signature: "0x1234567890".to_string(),
+            payer: None,
         };
 
         let (status, _headers, Json(_response)) =
@@ -1596,8 +1909,10 @@ mod tests {
                 nonce: "nonce".to_string(),
                 chain_id: BASE_SEPOLIA_CHAIN_ID,
                 timestamp: Some(ts),
+                authorization: AuthorizationBinding::default(),
             },
             signature: "0x1234567890".to_string(),
+            payer: None,
         };
 
         let (_status, response_headers, _json) =
@@ -1628,8 +1943,10 @@ mod tests {
                 nonce: "nonce".to_string(),
                 chain_id: BASE_SEPOLIA_CHAIN_ID,
                 timestamp: Some(ts),
+                authorization: AuthorizationBinding::default(),
             },
             signature: "0x1234567890".to_string(),
+            payer: None,
         };
 
         let (_status, response_headers, _json) =
@@ -1700,8 +2017,10 @@ mod tests {
                 nonce: "correlation-test-nonce".to_string(),
                 chain_id: BASE_SEPOLIA_CHAIN_ID,
                 timestamp: Some(ts),
+                authorization: AuthorizationBinding::default(),
             },
             signature: signature_str,
+            payer: None,
         };
 
         let (status, response_headers, Json(response)) =
@@ -1739,8 +2058,10 @@ mod tests {
                 nonce: "nonce".to_string(),
                 chain_id: BASE_SEPOLIA_CHAIN_ID,
                 timestamp: Some(ts),
+                authorization: AuthorizationBinding::default(),
             },
             signature: "0x1234567890".to_string(),
+            payer: None,
         };
 
         let (_status, response_headers, _json) =
@@ -1830,8 +2151,10 @@ mod tests {
                 nonce: "metrics-missing-timestamp".to_string(),
                 chain_id: BASE_SEPOLIA_CHAIN_ID,
                 timestamp: None,
+                authorization: AuthorizationBinding::default(),
             },
             signature: "0x1234567890".to_string(),
+            payer: None,
         };
         let (status, _, Json(resp)) = verify_signature(
             State(app_state()),
@@ -1850,8 +2173,10 @@ mod tests {
                 nonce: "metrics-malformed-signature".to_string(),
                 chain_id: BASE_SEPOLIA_CHAIN_ID,
                 timestamp: Some(now()),
+                authorization: AuthorizationBinding::default(),
             },
             signature: "not-a-signature".to_string(),
+            payer: None,
         };
         let (status, _, Json(resp)) = verify_signature(
             State(app_state()),

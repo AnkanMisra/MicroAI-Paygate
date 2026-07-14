@@ -1,6 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { ethers } from "ethers";
-import { buildSignedHeaders, signPaymentContext, type PaymentContext } from "../index";
+import authorizationV2Fixture from "../../../../tests/fixtures/payment-authorization-v2.json";
+import {
+  buildPaymentTypedData,
+  buildSignedHeaders,
+  signPaymentContext,
+  type PaymentContext,
+  type PaymentContextV2,
+} from "../index";
 
 const wallet = new ethers.Wallet(
   "0x0123456789012345678901234567890123456789012345678901234567890123",
@@ -50,6 +57,33 @@ describe("payment helpers", () => {
     );
 
     expect(recovered).toBe(wallet.address);
+  });
+
+  it("matches the shared request-bound v2 typed-data fixture", async () => {
+    const context = authorizationV2Fixture.context as PaymentContextV2;
+    const typedData = buildPaymentTypedData(context, authorizationV2Fixture.payer);
+
+    expect(ethers.TypedDataEncoder.hash(typedData.domain, typedData.types, typedData.value)).toBe(
+      authorizationV2Fixture.expectedTypedDataDigest,
+    );
+    expect(
+      ethers.verifyTypedData(
+        typedData.domain,
+        typedData.types,
+        typedData.value,
+        authorizationV2Fixture.expectedSignature,
+      ),
+    ).toBe(authorizationV2Fixture.expectedSigner);
+    expect(await signPaymentContext(wallet, context, authorizationV2Fixture.payer)).toBe(
+      authorizationV2Fixture.expectedSignature,
+    );
+    expect(
+      buildSignedHeaders(
+        context,
+        authorizationV2Fixture.expectedSignature,
+        authorizationV2Fixture.payer,
+      ),
+    ).toMatchObject({ "X-402-Payer": authorizationV2Fixture.expectedSigner });
   });
 
   it("buildSignedHeaders emits exactly the current MicroAI X-402 retry headers", () => {

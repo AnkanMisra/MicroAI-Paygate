@@ -94,6 +94,7 @@ Common optional variables:
 | `OLLAMA_URL` | `http://localhost:11434` | Used when `AI_PROVIDER=ollama`. |
 | `OLLAMA_MODEL` | `llama2` provider default | Used when `AI_PROVIDER=ollama`. |
 | `VERIFIER_URL` | **required** (no fallback) | Where the gateway calls `/verify`. Use `http://127.0.0.1:3002` for `bun run stack`, `http://verifier:3002` in Compose, the platform's HTTPS URL in production. The gateway refuses to start if unset. |
+| `PAYGATE_AUDIENCE` | unset | Public gateway origin reserved for request-bound authorization v2. Configure the production origin before the gateway cutover; the current v1 gateway does not read it. |
 | `RECIPIENT_ADDRESS` | Development fallback address | Recipient embedded in payment contexts. |
 | `PAYMENT_AMOUNT` | `0.001` | Amount string embedded in payment contexts. |
 | `CHAIN_ID` | `84532` | Base Sepolia by default. Must match verifier `EXPECTED_CHAIN_ID`. |
