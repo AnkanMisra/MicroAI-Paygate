@@ -63,7 +63,7 @@ export class PaygateClient {
     }
 
     const paymentContext = await this.protocol.readPaymentContext(firstResponse);
-    this.protocol.validatePaymentContext?.(paymentContext, {
+    this.protocol.validatePaymentContext(paymentContext, {
       url,
       method: request.method,
       contentType: this.requestContentType(firstInit),

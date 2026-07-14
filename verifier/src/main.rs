@@ -981,10 +981,12 @@ mod tests {
     use super::*;
     use ethers::signers::{LocalWallet, Signer};
     use ethers::types::transaction::eip712::{Eip712, TypedData};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
 
     const BASE_SEPOLIA_CHAIN_ID: u64 = 84532;
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+    static TEST_NONCE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     fn app_state() -> AppState {
         app_state_with_window(300, 60)
@@ -1017,6 +1019,14 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
+    }
+
+    fn unique_test_nonce() -> String {
+        format!(
+            "{}-{}",
+            now(),
+            TEST_NONCE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        )
     }
 
     fn with_chain_env(
@@ -1392,7 +1402,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_signature_accepts_v2_request_binding() {
-        let request = signed_v2_request("v2-valid").await;
+        let request = signed_v2_request(&unique_test_nonce()).await;
         let (status, _, Json(response)) =
             verify_signature(State(app_state()), HeaderMap::new(), Ok(Json(request))).await;
 
@@ -1406,7 +1416,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_signature_rejects_tampered_v2_binding_for_claimed_payer() {
-        let mut request = signed_v2_request("v2-tampered").await;
+        let mut request = signed_v2_request(&unique_test_nonce()).await;
         request.context.authorization.request_hash = Some(format!("0x{}", "00".repeat(32)));
 
         let (status, _, Json(response)) =
@@ -1419,7 +1429,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_signature_rejects_v2_request_without_payer() {
-        let mut request = signed_v2_request("v2-missing-payer").await;
+        let mut request = signed_v2_request(&unique_test_nonce()).await;
         request.payer = None;
 
         let (status, _, Json(response)) =

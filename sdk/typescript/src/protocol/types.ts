@@ -90,7 +90,7 @@ export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promis
 
 export type PaygateProtocolAdapter = {
   readPaymentContext(response: Response): Promise<PaymentContext>;
-  validatePaymentContext?(ctx: PaymentContext, request: PaymentRequestBinding): void;
+  validatePaymentContext(ctx: PaymentContext, request: PaymentRequestBinding): void;
   getPayer?(signer: PaymentSigner, ctx: PaymentContext): Promise<string | undefined>;
   signPaymentContext(
     signer: PaymentSigner,
