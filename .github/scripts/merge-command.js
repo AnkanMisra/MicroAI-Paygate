@@ -14,6 +14,7 @@ const ALWAYS_REQUIRED_CHECKS = new Set([
 const AUTHORIZED_USER_ID = 143676135;
 const GITHUB_ACTIONS_SOURCE = "check:github-actions";
 const VERCEL_SOURCE = "status:vercel.com";
+const ATOMIC_REQUIRED_CONTEXTS = new Set(ALWAYS_REQUIRED_CHECKS);
 const SUCCESSFUL_CONCLUSIONS = new Set(["success", "neutral"]);
 const FAILING_CONCLUSIONS = new Set([
   "action_required",
@@ -330,6 +331,40 @@ async function tokenRequest(token, method, path, body) {
   return payload;
 }
 
+function rulesetTargetsBranch(ruleset, branch) {
+  if (ruleset.target !== "branch" || ruleset.enforcement !== "active") return false;
+  const refName = ruleset.conditions?.ref_name;
+  if (!refName) return false;
+  const matches = (pattern) => ["~ALL", "~DEFAULT_BRANCH", `refs/heads/${branch}`].includes(pattern);
+  return refName.include?.some(matches) && !refName.exclude?.some(matches);
+}
+
+function hasRequiredMergeProtection(rulesets, branch = "main") {
+  return rulesets.some((ruleset) => {
+    if (!rulesetTargetsBranch(ruleset, branch) || ruleset.current_user_can_bypass !== "never") return false;
+    const statusRule = ruleset.rules?.find((rule) => rule.type === "required_status_checks");
+    const pullRule = ruleset.rules?.find((rule) => rule.type === "pull_request");
+    const contexts = new Set(
+      statusRule?.parameters?.required_status_checks?.map((check) => check.context) || [],
+    );
+    return statusRule?.parameters?.strict_required_status_checks_policy === true &&
+      [...ATOMIC_REQUIRED_CONTEXTS].every((context) => contexts.has(context)) &&
+      pullRule?.parameters?.required_approving_review_count >= 1 &&
+      pullRule?.parameters?.required_review_thread_resolution === true;
+  });
+}
+
+async function assertRequiredMergeProtection(token, owner, repo) {
+  const summaries = await tokenRequest(token, "GET", `/repos/${owner}/${repo}/rulesets`);
+  const rulesets = await Promise.all(summaries.map((ruleset) =>
+    tokenRequest(token, "GET", `/repos/${owner}/${repo}/rulesets/${ruleset.id}`)));
+  if (!hasRequiredMergeProtection(rulesets)) {
+    throw new Error(
+      "`main` lacks the required non-bypassable strict checks, Vercel, approval, or conversation ruleset. Configure `Protect main` before using `/merge`.",
+    );
+  }
+}
+
 async function waitForHeadChange(github, owner, repo, pullNumber, oldSha, sleep, timeoutMs = 120000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -413,6 +448,7 @@ async function run({
     if (pull.draft) throw new Error("Draft pull requests cannot be merged.");
     if (pull.base.ref !== "main") throw new Error("The merge bot only accepts pull requests targeting `main`.");
     if (pull.mergeable === false) throw new Error("The pull request has merge conflicts.");
+    await assertRequiredMergeProtection(token, owner, repo);
 
     const files = await github.paginate(github.rest.pulls.listFiles, {
       owner,
@@ -523,6 +559,7 @@ async function run({
           await sleep(pollIntervalMs);
           continue;
         }
+        await assertRequiredMergeProtection(token, owner, repo);
 
         await upsertStatusComment(github, owner, repo, pullNumber, statusBody({
           phase: "🚀 All gates passed; squash-merging",
@@ -572,6 +609,7 @@ module.exports = {
   ALLOWED_SKIPPED_CHECKS,
   ALWAYS_REQUIRED_CHECKS,
   AUTHORIZED_USER_ID,
+  assertRequiredMergeProtection,
   assertExpectedBranchUpdate,
   assertUpToDate,
   BOT_MARKER,
@@ -579,6 +617,7 @@ module.exports = {
   expectedChecks,
   isMergeCommand,
   isWorkflowChange,
+  hasRequiredMergeProtection,
   latestReviewsByUser,
   normalizeCheckRuns,
   normalizeStatuses,

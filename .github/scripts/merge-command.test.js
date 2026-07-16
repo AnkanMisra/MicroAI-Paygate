@@ -6,6 +6,7 @@ const {
   assertUpToDate,
   evaluateChecks,
   expectedChecks,
+  hasRequiredMergeProtection,
   isMergeCommand,
   isWorkflowChange,
   latestReviewsByUser,
@@ -32,6 +33,36 @@ function compareClient(behindBy) {
         compareCommits: async () => ({ data: { behind_by: behindBy } }),
       },
     },
+  };
+}
+
+function protectedRuleset(overrides = {}) {
+  return {
+    target: "branch",
+    enforcement: "active",
+    current_user_can_bypass: "never",
+    conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
+    rules: [{
+      type: "required_status_checks",
+      parameters: {
+        strict_required_status_checks_policy: true,
+        required_status_checks: [
+          "check-branch-status",
+          "dependency-review",
+          "Analyze (go)",
+          "Analyze (javascript-typescript)",
+          "Analyze (rust)",
+          "Vercel",
+        ].map((context) => ({ context })),
+      },
+    }, {
+      type: "pull_request",
+      parameters: {
+        required_approving_review_count: 1,
+        required_review_thread_resolution: true,
+      },
+    }],
+    ...overrides,
   };
 }
 
@@ -82,6 +113,18 @@ test("rejects an authorized head when main advanced during the update", async ()
     assertUpToDate(compareClient(1), "owner", "repo", "new-base", "updated-head"),
     /still behind `main`/,
   );
+});
+
+test("requires non-bypassable atomic merge protections", () => {
+  assert.equal(hasRequiredMergeProtection([protectedRuleset()]), true);
+  assert.equal(hasRequiredMergeProtection([protectedRuleset({ current_user_can_bypass: "always" })]), false);
+  const missingVercel = protectedRuleset();
+  missingVercel.rules[0].parameters.required_status_checks =
+    missingVercel.rules[0].parameters.required_status_checks.filter((check) => check.context !== "Vercel");
+  assert.equal(hasRequiredMergeProtection([missingVercel]), false);
+  const noApproval = protectedRuleset();
+  noApproval.rules[1].parameters.required_approving_review_count = 0;
+  assert.equal(hasRequiredMergeProtection([noApproval]), false);
 });
 
 test("always requires branch, security, CodeQL, and Vercel gates", () => {
