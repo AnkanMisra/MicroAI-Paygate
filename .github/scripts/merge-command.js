@@ -421,7 +421,7 @@ async function run({
 
   const reportFailure = async (message) => {
     await upsertStatusComment(github, owner, repo, pullNumber, statusBody({
-      phase: "❌ Stopped",
+      phase: "Stopped",
       sha: authorizedSha,
       required,
       detail: message,
@@ -471,7 +471,7 @@ async function run({
       const oldHeadSha = pull.head.sha;
       const baseSha = baseBefore.commit.sha;
       await upsertStatusComment(github, owner, repo, pullNumber, statusBody({
-        phase: "🔄 Updating the branch from `main`",
+        phase: "Updating the branch from `main`",
         sha: pull.head.sha,
         required,
         detail: "Fresh checks and a fresh approval will be required on the updated head.",
@@ -562,7 +562,7 @@ async function run({
         await assertRequiredMergeProtection(token, owner, repo);
 
         await upsertStatusComment(github, owner, repo, pullNumber, statusBody({
-          phase: "🚀 All gates passed; squash-merging",
+          phase: "All gates passed; squash-merging",
           sha: authorizedSha,
           required,
           detail: `Approval: @${finalReviewState.approvals[0]}`,
@@ -576,7 +576,7 @@ async function run({
         if (!result.merged) throw new Error(result.message || "GitHub declined the merge.");
         try {
           await upsertStatusComment(github, owner, repo, pullNumber, statusBody({
-            phase: "✅ Squash-merged",
+            phase: "Squash-merged",
             sha: authorizedSha,
             required,
             detail: `Merge commit: \`${result.sha}\``,
@@ -592,7 +592,7 @@ async function run({
         ? `Vercel needs manual authorization: ${vercel.url}`
         : "The bot will keep watching this exact commit.";
       await upsertStatusComment(github, owner, repo, pullNumber, statusBody({
-        phase: "⏳ Waiting for merge gates",
+        phase: "Waiting for merge gates",
         sha: authorizedSha,
         required,
         missing: checks.missing,
