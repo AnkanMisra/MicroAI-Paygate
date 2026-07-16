@@ -574,12 +574,16 @@ async function run({
           { sha: authorizedSha, merge_method: "squash" },
         );
         if (!result.merged) throw new Error(result.message || "GitHub declined the merge.");
-        await upsertStatusComment(github, owner, repo, pullNumber, statusBody({
-          phase: "✅ Squash-merged",
-          sha: authorizedSha,
-          required,
-          detail: `Merge commit: \`${result.sha}\``,
-        }));
+        try {
+          await upsertStatusComment(github, owner, repo, pullNumber, statusBody({
+            phase: "✅ Squash-merged",
+            sha: authorizedSha,
+            required,
+            detail: `Merge commit: \`${result.sha}\``,
+          }));
+        } catch (error) {
+          core.warning(`PR merged as ${result.sha}, but the success comment failed: ${error.message}`);
+        }
         return result;
       }
 

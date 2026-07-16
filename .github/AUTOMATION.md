@@ -33,7 +33,7 @@ Maintainer `AnkanMisra` can post an exact `/merge` comment on a ready pull reque
 
 ### Required setup
 
-1. Create a classic personal access token owned by `AnkanMisra` with only the `public_repo` scope and a 90-day expiration.
+1. Create a classic personal access token owned by `AnkanMisra` with only the `public_repo` scope and a 90-day expiration. This least-privilege scope is sufficient because MicroAI-Paygate is public; if the repository becomes private, replace it with a `repo`-scoped or appropriately permissioned fine-grained token.
 2. Store it as the Actions repository secret `MERGE_BOT_TOKEN` and record its expiration in the maintainer calendar. Never expose it as a repository variable.
 3. Update the `Protect main` ruleset to require one approval and the `Vercel` context in addition to the existing required checks. Keep strict branch freshness and resolved conversations enabled, and do not grant `AnkanMisra` or the token a bypass. The bot verifies these protections before waiting and again immediately before merging.
 4. Keep repository auto-merge disabled; the command bot performs the guarded squash merge.
