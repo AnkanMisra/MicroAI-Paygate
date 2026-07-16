@@ -335,11 +335,24 @@ test("accepts neutral check conclusions as passing", () => {
 test("tracks each reviewer's latest state", () => {
   const latest = latestReviewsByUser([
     { id: 1, user: { login: "reviewer" }, state: "CHANGES_REQUESTED" },
-    { id: 2, user: { login: "reviewer" }, state: "APPROVED" },
+    { id: 2, user: { login: "reviewer" }, state: "COMMENTED" },
     { id: 3, user: { login: "other" }, state: "APPROVED" },
   ]);
-  assert.equal(latest.get("reviewer").state, "APPROVED");
+  assert.equal(latest.get("reviewer").state, "CHANGES_REQUESTED");
   assert.equal(latest.get("other").id, 3);
+});
+
+test("only approval or dismissal clears an earlier change request", () => {
+  const approved = latestReviewsByUser([
+    { id: 1, user: { login: "reviewer" }, state: "CHANGES_REQUESTED" },
+    { id: 2, user: { login: "reviewer" }, state: "APPROVED" },
+  ]);
+  assert.equal(approved.get("reviewer").state, "APPROVED");
+  const dismissed = latestReviewsByUser([
+    { id: 1, user: { login: "reviewer" }, state: "CHANGES_REQUESTED" },
+    { id: 2, user: { login: "reviewer" }, state: "DISMISSED" },
+  ]);
+  assert.equal(dismissed.get("reviewer").state, "DISMISSED");
 });
 
 test("status output includes the bound SHA and waiting details", () => {

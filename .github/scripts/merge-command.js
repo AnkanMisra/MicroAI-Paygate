@@ -208,6 +208,7 @@ function latestReviewsByUser(reviews) {
   const latest = new Map();
   for (const review of reviews) {
     if (!review.user?.login) continue;
+    if (review.state === "COMMENTED" || review.state === "PENDING") continue;
     const current = latest.get(review.user.login);
     if (!current || Number(review.id) > Number(current.id)) latest.set(review.user.login, review);
   }
