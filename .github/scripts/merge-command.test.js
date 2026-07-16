@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const {
+  assertExpectedBranchUpdate,
   evaluateChecks,
   expectedChecks,
   isMergeCommand,
@@ -12,6 +13,16 @@ const {
   requirement,
   statusBody,
 } = require("./merge-command");
+
+function commitClient(parents) {
+  return {
+    rest: {
+      repos: {
+        getCommit: async () => ({ data: { parents: parents.map((sha) => ({ sha })) } }),
+      },
+    },
+  };
+}
 
 test("recognizes only the exact merge command", () => {
   assert.equal(isMergeCommand("/merge"), true);
@@ -28,6 +39,28 @@ test("identifies workflow-changing pull requests for manual merging", () => {
     previous_filename: ".github/workflows/ci.yml",
   }]), true);
   assert.equal(isWorkflowChange([".github/AUTOMATION.md"]), false);
+});
+
+test("accepts only the expected merge commit after a branch update", async () => {
+  await assertExpectedBranchUpdate(
+    commitClient(["old-head", "base"]),
+    "owner",
+    "repo",
+    "new-head",
+    "old-head",
+    "base",
+  );
+  await assert.rejects(
+    assertExpectedBranchUpdate(
+      commitClient(["contributor-push"]),
+      "owner",
+      "repo",
+      "new-head",
+      "old-head",
+      "base",
+    ),
+    /not the expected merge/,
+  );
 });
 
 test("always requires branch, security, CodeQL, and Vercel gates", () => {

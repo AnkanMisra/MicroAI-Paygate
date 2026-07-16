@@ -339,6 +339,16 @@ async function waitForHeadChange(github, owner, repo, pullNumber, oldSha, sleep,
   throw new Error("Timed out waiting for GitHub to update the pull request branch.");
 }
 
+async function assertExpectedBranchUpdate(github, owner, repo, newSha, oldHeadSha, baseSha) {
+  const { data: commit } = await github.rest.repos.getCommit({ owner, repo, ref: newSha });
+  const parents = new Set(commit.parents.map((parent) => parent.sha));
+  if (!parents.has(oldHeadSha) || !parents.has(baseSha)) {
+    throw new Error(
+      "The PR head changed, but it was not the expected merge of the authorized head and `main`. Post `/merge` again.",
+    );
+  }
+}
+
 async function checkSnapshot(github, owner, repo, sha) {
   const [checkRuns, statuses] = await Promise.all([
     github.paginate(github.rest.checks.listForRef, { owner, repo, ref: sha, per_page: 100 }),
@@ -415,6 +425,8 @@ async function run({
 
     const { data: baseBefore } = await github.rest.repos.getBranch({ owner, repo, branch: "main" });
     if (await compareBehind(github, owner, repo, baseBefore.commit.sha, pull.head.sha)) {
+      const oldHeadSha = pull.head.sha;
+      const baseSha = baseBefore.commit.sha;
       await upsertStatusComment(github, owner, repo, pullNumber, statusBody({
         phase: "🔄 Updating the branch from `main`",
         sha: pull.head.sha,
@@ -425,9 +437,10 @@ async function run({
         token,
         "PUT",
         `/repos/${owner}/${repo}/pulls/${pullNumber}/update-branch`,
-        { expected_head_sha: pull.head.sha },
+        { expected_head_sha: oldHeadSha },
       );
-      pull = await waitForHeadChange(github, owner, repo, pullNumber, pull.head.sha, sleep);
+      pull = await waitForHeadChange(github, owner, repo, pullNumber, oldHeadSha, sleep);
+      await assertExpectedBranchUpdate(github, owner, repo, pull.head.sha, oldHeadSha, baseSha);
     }
 
     authorizedSha = pull.head.sha;
@@ -551,6 +564,7 @@ module.exports = {
   ALLOWED_SKIPPED_CHECKS,
   ALWAYS_REQUIRED_CHECKS,
   AUTHORIZED_USER_ID,
+  assertExpectedBranchUpdate,
   BOT_MARKER,
   evaluateChecks,
   expectedChecks,
