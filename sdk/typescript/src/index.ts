@@ -3,6 +3,8 @@ export { PaygateSdkError, type PaygateSdkErrorCode } from "./errors";
 export {
   PAYMENT_DOMAIN_NAME,
   PAYMENT_DOMAIN_VERSION,
+  PAYMENT_DOMAIN_VERSION_V2,
+  PAYMENT_AUTHORIZATION_TYPES,
   PAYMENT_TYPES,
   buildPaymentTypedData,
   buildSignedHeaders,
@@ -17,6 +19,7 @@ export {
 } from "./receipts";
 export {
   MICROAI_NONCE_HEADER,
+  MICROAI_PAYER_HEADER,
   MICROAI_RECEIPT_HEADER,
   MICROAI_SIGNATURE_HEADER,
   MICROAI_TIMESTAMP_HEADER,
@@ -28,6 +31,9 @@ export type {
   PaygateRequest,
   PaygateResponse,
   PaymentContext,
+  PaymentContextV1,
+  PaymentContextV2,
+  PaymentRequestBinding,
   PaymentDetails,
   PaymentSigner,
   Receipt,

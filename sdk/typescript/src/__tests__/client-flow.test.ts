@@ -1,9 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { ethers } from "ethers";
 import fixture from "../__fixtures__/gateway-receipt.json";
+import authorizationV2Fixture from "../../../../tests/fixtures/payment-authorization-v2.json";
 import {
+  MicroAIPaygateProtocol,
   PaygateClient,
   type PaymentContext,
+  type PaymentContextV2,
+  type PaymentRequestBinding,
   type Receipt,
   type SignedReceipt,
 } from "../index";
@@ -114,6 +118,102 @@ function scriptedFetch(responses: Response[]) {
 }
 
 describe("PaygateClient request flow", () => {
+  it("validates a v2 challenge against the exact outgoing request before signing", async () => {
+    const context = {
+      ...(authorizationV2Fixture.context as PaymentContextV2),
+      nonce: "client-v2-binding",
+      audience: "http://gateway.test",
+      resource: "/api/ai/summarize?mode=brief",
+      requestHash: ethers.sha256(ethers.toUtf8Bytes(JSON.stringify({ text: "hello" }))),
+    };
+    const { calls, fetcher } = scriptedFetch([
+      jsonResponse({ paymentContext: context }, { status: 402 }),
+      jsonResponse({ result: "bound" }, { status: 200 }),
+    ]);
+    const client = new PaygateClient({ gatewayUrl: "http://gateway.test", signer: wallet, fetch: fetcher });
+
+    await client.request({
+      method: "POST",
+      path: "/api/ai/summarize?mode=brief",
+      body: { text: "hello" },
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1].init?.body).toBe(calls[0].init?.body);
+    expect(calls[1].init?.headers).toMatchObject({
+      "X-402-Payer": wallet.address,
+    });
+  });
+
+  it("rejects a mismatched v2 request binding before invoking the signer", async () => {
+    const context = {
+      ...(authorizationV2Fixture.context as PaymentContextV2),
+      audience: "http://gateway.test",
+      resource: "/api/ai/summarize",
+    };
+    let signCalls = 0;
+    const { calls, fetcher } = scriptedFetch([
+      jsonResponse({ paymentContext: context }, { status: 402 }),
+    ]);
+    const client = new PaygateClient({
+      gatewayUrl: "http://gateway.test",
+      signer: {
+        async signTypedData() {
+          signCalls += 1;
+          return "0xnever";
+        },
+      },
+      fetch: fetcher,
+    });
+
+    await expect(
+      client.request({ method: "POST", path: "/api/ai/summarize", body: { text: "tampered" } }),
+    ).rejects.toMatchObject({ code: "payment_binding_mismatch" });
+    expect(signCalls).toBe(0);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("rejects a mismatched v2 binding even when a custom adapter validation is a no-op", async () => {
+    const context = {
+      ...(authorizationV2Fixture.context as PaymentContextV2),
+      audience: "http://gateway.test",
+      resource: "/api/ai/summarize",
+    };
+    class NoOpValidationProtocol extends MicroAIPaygateProtocol {
+      signCalls = 0;
+
+      override validatePaymentContext(
+        _ctx: PaymentContext,
+        _request: PaymentRequestBinding,
+      ): void {}
+
+      override signPaymentContext(
+        signer: Parameters<MicroAIPaygateProtocol["signPaymentContext"]>[0],
+        ctx: PaymentContext,
+        payer?: string,
+      ): Promise<string> {
+        this.signCalls += 1;
+        return super.signPaymentContext(signer, ctx, payer);
+      }
+    }
+    const protocol = new NoOpValidationProtocol();
+    const { calls, fetcher } = scriptedFetch([
+      jsonResponse({ paymentContext: context }, { status: 402 }),
+    ]);
+    const client = new PaygateClient({
+      gatewayUrl: "http://gateway.test",
+      signer: wallet,
+      fetch: fetcher,
+      protocol,
+    });
+
+    await expect(
+      client.request({ method: "POST", path: "/api/ai/summarize", body: { text: "tampered" } }),
+    ).rejects.toMatchObject({ code: "payment_binding_mismatch" });
+    expect(protocol.signCalls).toBe(0);
+    expect(calls).toHaveLength(1);
+  });
+
   it("handles unsigned request, 402 challenge, signed retry, and verified receipt", async () => {
     const requestBody = JSON.stringify({ text: "hello" });
     const responseBody = JSON.stringify({ result: "summarized text" });
@@ -226,6 +326,9 @@ describe("PaygateClient request flow", () => {
       { ...paymentContext, chainId: Number.MAX_SAFE_INTEGER + 1 },
       { ...paymentContext, timestamp: 1766611200.5 },
       { ...paymentContext, timestamp: Number.MAX_SAFE_INTEGER + 1 },
+      { ...paymentContext, authorizationVersion: 3 },
+      { ...paymentContext, audience: "http://gateway.test" },
+      { ...authorizationV2Fixture.context, requestHash: undefined },
     ];
 
     for (const invalidContext of invalidContexts) {

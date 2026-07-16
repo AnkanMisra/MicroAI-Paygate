@@ -1,5 +1,6 @@
 export type PaygateSdkErrorCode =
   | "payment_challenge_missing"
+  | "payment_binding_mismatch"
   | "payment_signature_failed"
   | "signed_retry_failed"
   | "receipt_decode_failed"
