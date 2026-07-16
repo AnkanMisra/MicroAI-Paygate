@@ -81,6 +81,141 @@ func TestGetChainIDDefaultBaseSepolia(t *testing.T) {
 	}
 }
 
+func TestGetTrustedProxies(t *testing.T) {
+	tests := []struct {
+		name   string
+		setEnv bool
+		env    string
+		want   []string
+	}{
+		{
+			name: "unset",
+			want: nil,
+		},
+		{
+			name:   "empty",
+			setEnv: true,
+			env:    "",
+			want:   nil,
+		},
+		{
+			name:   "whitespace only",
+			setEnv: true,
+			env:    " \t\n ",
+			want:   nil,
+		},
+		{
+			name:   "trims and removes empty entries",
+			setEnv: true,
+			env:    " 192.0.2.10, , 198.51.100.0/24 ,, 2001:db8::1, 2001:db8:abcd::/48 ",
+			want:   []string{"192.0.2.10", "198.51.100.0/24", "2001:db8::1", "2001:db8:abcd::/48"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setEnv {
+				t.Setenv("TRUSTED_PROXIES", tt.env)
+			} else {
+				t.Setenv("TRUSTED_PROXIES", "placeholder")
+				require.NoError(t, os.Unsetenv("TRUSTED_PROXIES"))
+			}
+
+			require.Equal(t, tt.want, getTrustedProxies())
+		})
+	}
+}
+
+func TestTrustedProxyConfiguration(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("valid parsed list applies to gin engine", func(t *testing.T) {
+		t.Setenv("TRUSTED_PROXIES", "192.0.2.10,198.51.100.0/24,2001:db8::1,2001:db8:abcd::/48")
+
+		router := gin.New()
+
+		require.NoError(t, router.SetTrustedProxies(getTrustedProxies()))
+	})
+
+	t.Run("invalid entry is rejected and fallback trusts no proxies", func(t *testing.T) {
+		t.Setenv("TRUSTED_PROXIES", "not-a-proxy")
+
+		router := gin.New()
+		require.Error(t, router.SetTrustedProxies(getTrustedProxies()))
+		require.NoError(t, router.SetTrustedProxies(nil))
+
+		clientIP := serveClientIPRequest(t, router, "198.51.100.10:4321", "203.0.113.7")
+
+		require.Equal(t, "198.51.100.10", clientIP)
+	})
+}
+
+func TestTrustedProxyClientIPBehavior(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name           string
+		trustedProxies []string
+		remoteAddr     string
+		forwardedFor   string
+		want           string
+	}{
+		{
+			name:           "untrusted direct peer cannot choose forwarded client ip",
+			trustedProxies: []string{"192.0.2.10"},
+			remoteAddr:     "198.51.100.10:4321",
+			forwardedFor:   "203.0.113.7",
+			want:           "198.51.100.10",
+		},
+		{
+			name:           "trusted direct peer resolves forwarded client ip",
+			trustedProxies: []string{"192.0.2.10"},
+			remoteAddr:     "192.0.2.10:4321",
+			forwardedFor:   "203.0.113.7",
+			want:           "203.0.113.7",
+		},
+		{
+			name:           "trusted cidr resolves forwarded client ip",
+			trustedProxies: []string{"192.0.2.0/24"},
+			remoteAddr:     "192.0.2.55:4321",
+			forwardedFor:   "203.0.113.8",
+			want:           "203.0.113.8",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router := gin.New()
+			require.NoError(t, router.SetTrustedProxies(tt.trustedProxies))
+
+			clientIP := serveClientIPRequest(t, router, tt.remoteAddr, tt.forwardedFor)
+
+			require.Equal(t, tt.want, clientIP)
+		})
+	}
+}
+
+func serveClientIPRequest(t *testing.T, router *gin.Engine, remoteAddr, forwardedFor string) string {
+	t.Helper()
+
+	router.GET("/client-ip", func(c *gin.Context) {
+		c.String(http.StatusOK, c.ClientIP())
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/client-ip", nil)
+	req.RemoteAddr = remoteAddr
+	if forwardedFor != "" {
+		req.Header.Set("X-Forwarded-For", forwardedFor)
+	}
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	return strings.TrimSpace(w.Body.String())
+}
+
 // Rate Limiting Integration Tests
 
 func TestRateLimitMiddleware_AnonymousUser(t *testing.T) {
