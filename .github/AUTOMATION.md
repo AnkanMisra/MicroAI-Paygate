@@ -27,6 +27,28 @@ Service-specific checks are path-filtered. Keep them visible on relevant PRs, bu
 
 After the ruleset is active, enable automatic head-branch updates, automatic deletion of merged branches, and auto-merge if the repository's merge policy allows them.
 
+## Merge command bot
+
+Maintainer `AnkanMisra` can post an exact `/merge` comment on a ready pull request. The bot binds the command to one head commit, updates an out-of-date branch when possible, waits for a current write-access approval, resolved review threads, every applicable CI job, all CodeQL jobs, and Vercel, then squash-merges that exact commit.
+
+### Required setup
+
+1. Create a classic personal access token owned by `AnkanMisra` with only the `public_repo` scope and a 90-day expiration.
+2. Store it as the Actions repository secret `MERGE_BOT_TOKEN` and record its expiration in the maintainer calendar. Never expose it as a repository variable.
+3. Update the `Protect main` ruleset to require one approval and the `Vercel` context in addition to the existing required checks. Keep strict branch freshness and resolved conversations enabled.
+4. Keep repository auto-merge disabled; the command bot performs the guarded squash merge.
+
+The privileged `issue_comment` workflow checks out only the default branch and never the contributor branch. It uses the short-lived `GITHUB_TOKEN` for reads and status comments; `MERGE_BOT_TOKEN` is used only for the update-branch and exact-SHA merge API requests. Fork authors must enable maintainer edits for automatic branch updates. Workflow-changing pull requests under `.github/workflows/` are rejected by v1 and must be merged manually.
+
+If Vercel reports `Authorization required to deploy`, use its authorization link. The bot treats that state as pending and continues only after Vercel reports success. A failed check, a requested-changes review, a new contributor commit, or a change to `main` cancels the authorization and requires a fresh `/merge`.
+
+### Merge bot rollback
+
+1. Disable the `Merge Command Bot` workflow.
+2. Delete or rotate `MERGE_BOT_TOKEN` immediately.
+3. Revert the workflow, script, tests, and this documentation together.
+4. If manual merging is blocked, temporarily remove the added `Vercel` requirement while keeping the other main-branch protections intact.
+
 ## Added security and quality checks
 
 - Dependency Review rejects newly introduced dependencies with known vulnerabilities of moderate severity or higher.
