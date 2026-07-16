@@ -67,8 +67,8 @@ jobs:
 
       - name: Prep Go/Rust deps
         run: |
-          go mod download
-          cargo fetch
+          go mod download -C gateway
+          cargo fetch --manifest-path verifier/Cargo.toml
 
       - name: Run deterministic E2E
         run: |
