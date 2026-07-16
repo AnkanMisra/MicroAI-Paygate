@@ -151,7 +151,7 @@ function normalizeStatuses(statuses) {
   return statuses.map((status) => ({
     id: status.id,
     name: status.context,
-    source: `status:${status.creator?.login || statusTargetHost(status.target_url) || "unknown"}`,
+    source: `status:${statusTargetHost(status.target_url) || status.creator?.login || "unknown"}`,
     status: status.state === "pending" ? "in_progress" : "completed",
     conclusion: status.state,
     description: status.description || "",
@@ -362,6 +362,12 @@ async function compareBehind(github, owner, repo, baseSha, headSha) {
   return data.behind_by > 0;
 }
 
+async function assertUpToDate(github, owner, repo, baseSha, headSha) {
+  if (await compareBehind(github, owner, repo, baseSha, headSha)) {
+    throw new Error("The PR is still behind `main`. Post `/merge` again to update and revalidate.");
+  }
+}
+
 async function run({
   github,
   context,
@@ -446,6 +452,7 @@ async function run({
     authorizedSha = pull.head.sha;
     const { data: authorizedBase } = await github.rest.repos.getBranch({ owner, repo, branch: "main" });
     const authorizedBaseSha = authorizedBase.commit.sha;
+    await assertUpToDate(github, owner, repo, authorizedBaseSha, authorizedSha);
     const deadline = Date.now() + timeoutMs;
 
     while (Date.now() < deadline) {
@@ -565,6 +572,7 @@ module.exports = {
   ALWAYS_REQUIRED_CHECKS,
   AUTHORIZED_USER_ID,
   assertExpectedBranchUpdate,
+  assertUpToDate,
   BOT_MARKER,
   evaluateChecks,
   expectedChecks,

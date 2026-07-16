@@ -3,6 +3,7 @@ const test = require("node:test");
 
 const {
   assertExpectedBranchUpdate,
+  assertUpToDate,
   evaluateChecks,
   expectedChecks,
   isMergeCommand,
@@ -19,6 +20,16 @@ function commitClient(parents) {
     rest: {
       repos: {
         getCommit: async () => ({ data: { parents: parents.map((sha) => ({ sha })) } }),
+      },
+    },
+  };
+}
+
+function compareClient(behindBy) {
+  return {
+    rest: {
+      repos: {
+        compareCommits: async () => ({ data: { behind_by: behindBy } }),
       },
     },
   };
@@ -60,6 +71,14 @@ test("accepts only the expected merge commit after a branch update", async () =>
       "base",
     ),
     /not the expected merge/,
+  );
+});
+
+test("rejects an authorized head when main advanced during the update", async () => {
+  await assertUpToDate(compareClient(0), "owner", "repo", "base", "head");
+  await assert.rejects(
+    assertUpToDate(compareClient(1), "owner", "repo", "new-base", "updated-head"),
+    /still behind `main`/,
   );
 });
 
@@ -146,14 +165,22 @@ test("normalizes check runs and commit statuses", () => {
     description: "done",
     url: "https://example.test/check",
   }]);
-  assert.equal(normalizeStatuses([{
+  const statuses = normalizeStatuses([{
     id: 2,
     context: "Vercel",
     state: "pending",
     description: "building",
     target_url: "https://example.test/vercel",
     creator: { login: "vercel" },
-  }])[0].status, "in_progress");
+  }, {
+    id: 3,
+    context: "Vercel",
+    state: "success",
+    target_url: "https://vercel.com/project/deployment",
+    creator: { login: "vercel" },
+  }]);
+  assert.equal(statuses[0].status, "in_progress");
+  assert.equal(statuses[1].source, "status:vercel.com");
 });
 
 test("waits for missing and pending checks", () => {
