@@ -69,6 +69,9 @@ func normalizePaygateAudience() error {
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return fmt.Errorf("PAYGATE_AUDIENCE scheme must be http or https")
 	}
+	if parsed.Hostname() == "" {
+		return fmt.Errorf("PAYGATE_AUDIENCE must have a non-empty host")
+	}
 	if parsed.User != nil {
 		return fmt.Errorf("PAYGATE_AUDIENCE must not contain credentials")
 	}

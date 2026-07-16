@@ -44,6 +44,7 @@ func TestNormalizePaygateAudience(t *testing.T) {
 		{name: "rejects query", value: "https://gateway.example.com?tenant=a", wantErr: "origin only"},
 		{name: "rejects credentials", value: "https://user@gateway.example.com", wantErr: "credentials"},
 		{name: "rejects unsupported scheme", value: "javascript://gateway.example.com", wantErr: "http or https"},
+		{name: "rejects empty hostname", value: "https://:443", wantErr: "non-empty host"},
 	}
 
 	for _, test := range tests {

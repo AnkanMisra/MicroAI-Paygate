@@ -6,13 +6,14 @@ E2E_TMP_DIR="$(mktemp -d)"
 
 # Function to cleanup background processes on exit
 cleanup() {
+    local exit_code=$?
     echo "Stopping services..."
     # Use a portable check for jobs since xargs -r is not available on all macOS versions
     if [ -n "$(jobs -p)" ]; then
         jobs -p | xargs kill 2>/dev/null
     fi
     rm -rf "$E2E_TMP_DIR"
-    exit
+    exit "$exit_code"
 }
 
 trap cleanup EXIT
