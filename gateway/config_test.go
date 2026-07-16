@@ -40,6 +40,11 @@ func TestNormalizePaygateAudience(t *testing.T) {
 	}{
 		{name: "canonical origin", value: "https://gateway.example.com", want: "https://gateway.example.com"},
 		{name: "normalizes case and trailing slash", value: " HTTPS://Gateway.Example.COM/ ", want: "https://gateway.example.com"},
+		{name: "strips default HTTPS port", value: "https://gateway.example.com:443", want: "https://gateway.example.com"},
+		{name: "strips default HTTP port", value: "http://localhost:80", want: "http://localhost"},
+		{name: "preserves non-default port", value: "https://gateway.example.com:8443", want: "https://gateway.example.com:8443"},
+		{name: "normalizes IPv6 default port", value: "https://[::1]:443", want: "https://[::1]"},
+		{name: "preserves IPv6 non-default port", value: "https://[::1]:8443", want: "https://[::1]:8443"},
 		{name: "rejects path", value: "https://gateway.example.com/api", wantErr: "origin only"},
 		{name: "rejects query", value: "https://gateway.example.com?tenant=a", wantErr: "origin only"},
 		{name: "rejects credentials", value: "https://user@gateway.example.com", wantErr: "credentials"},

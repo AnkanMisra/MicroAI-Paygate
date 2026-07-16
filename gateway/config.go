@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -79,7 +80,18 @@ func normalizePaygateAudience() error {
 		return fmt.Errorf("PAYGATE_AUDIENCE must contain an origin only")
 	}
 
-	canonical := parsed.Scheme + "://" + strings.ToLower(parsed.Host)
+	hostname := strings.ToLower(parsed.Hostname())
+	port := parsed.Port()
+	if (parsed.Scheme == "https" && port == "443") || (parsed.Scheme == "http" && port == "80") {
+		port = ""
+	}
+	canonicalHost := hostname
+	if port != "" {
+		canonicalHost = net.JoinHostPort(hostname, port)
+	} else if strings.Contains(hostname, ":") {
+		canonicalHost = "[" + hostname + "]"
+	}
+	canonical := parsed.Scheme + "://" + canonicalHost
 	if err := os.Setenv("PAYGATE_AUDIENCE", canonical); err != nil {
 		return fmt.Errorf("failed to normalize PAYGATE_AUDIENCE: %w", err)
 	}
