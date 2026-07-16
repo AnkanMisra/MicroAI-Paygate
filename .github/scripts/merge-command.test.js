@@ -12,6 +12,7 @@ const {
   latestReviewsByUser,
   normalizeCheckRuns,
   normalizeStatuses,
+  normalizeVercelDeployment,
   requirement,
   statusBody,
 } = require("./merge-command");
@@ -54,7 +55,9 @@ function protectedRuleset(overrides = {}) {
           "Analyze (javascript-typescript)",
           "Analyze (rust)",
           "Vercel",
-        ].map((context) => ({ context })),
+        ].map((context) => context === "Vercel"
+          ? { context, integration_id: 8329 }
+          : { context }),
       },
     }, {
       type: "pull_request",
@@ -133,6 +136,13 @@ test("requires non-bypassable atomic merge protections", () => {
   assert.equal(hasRequiredMergeProtection(
     missingVercel.rules.map((rule) => ({ ...rule, ruleset_id: missingVercel.id })),
     [missingVercel],
+  ), false);
+  const unpinnedVercel = protectedRuleset();
+  delete unpinnedVercel.rules[0].parameters.required_status_checks
+    .find((check) => check.context === "Vercel").integration_id;
+  assert.equal(hasRequiredMergeProtection(
+    unpinnedVercel.rules.map((rule) => ({ ...rule, ruleset_id: unpinnedVercel.id })),
+    [unpinnedVercel],
   ), false);
   const noApproval = protectedRuleset();
   noApproval.rules[1].parameters.required_approving_review_count = 0;
@@ -242,21 +252,43 @@ test("normalizes check runs and commit statuses", () => {
     description: "building",
     target_url: "https://example.test/vercel",
     creator: { login: "vercel" },
-  }, {
-    id: 3,
-    context: "Vercel",
-    state: "success",
-    target_url: "https://vercel.com/project/deployment",
-    creator: { login: "vercel" },
   }]);
   assert.equal(statuses[0].status, "in_progress");
-  assert.equal(statuses[1].source, "status:vercel.com");
+  assert.equal(statuses[0].source, "status:unknown");
+});
+
+test("trusts only deployments created and reported by the immutable Vercel bot", () => {
+  const deployment = { id: 1, creator: { id: 35613825 } };
+  const status = {
+    id: 2,
+    creator: { id: 35613825 },
+    state: "success",
+    description: "Deployment completed",
+    environment_url: "https://preview.example",
+  };
+  assert.deepEqual(normalizeVercelDeployment(deployment, status), {
+    id: 2,
+    name: "Vercel",
+    source: "deployment:vercel-bot",
+    status: "completed",
+    conclusion: "success",
+    description: "Deployment completed",
+    url: "https://preview.example",
+  });
+  assert.equal(normalizeVercelDeployment(
+    { ...deployment, creator: { id: 123 } },
+    status,
+  ), null);
+  assert.equal(normalizeVercelDeployment(
+    deployment,
+    { ...status, creator: { id: 123 } },
+  ), null);
 });
 
 test("waits for missing and pending checks", () => {
   const result = evaluateChecks([
     requirement("go-tests"),
-    requirement("Vercel", "status:vercel.com"),
+    requirement("Vercel", "deployment:vercel-bot"),
   ], [{
     id: 1,
     name: "go-tests",
@@ -270,10 +302,10 @@ test("waits for missing and pending checks", () => {
 });
 
 test("treats Vercel fork authorization as waitable", () => {
-  const result = evaluateChecks([requirement("Vercel", "status:vercel.com")], [{
+  const result = evaluateChecks([requirement("Vercel", "deployment:vercel-bot")], [{
     id: 1,
     name: "Vercel",
-    source: "status:vercel",
+    source: "deployment:vercel-bot",
     status: "completed",
     conclusion: "failure",
     description: "Authorization required to deploy.",

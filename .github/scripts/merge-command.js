@@ -13,7 +13,9 @@ const ALWAYS_REQUIRED_CHECKS = new Set([
 ]);
 const AUTHORIZED_USER_ID = 143676135;
 const GITHUB_ACTIONS_SOURCE = "check:github-actions";
-const VERCEL_SOURCE = "status:vercel.com";
+const VERCEL_INTEGRATION_ID = 8329;
+const VERCEL_BOT_ID = 35613825;
+const VERCEL_SOURCE = "deployment:vercel-bot";
 const ATOMIC_REQUIRED_CONTEXTS = new Set(ALWAYS_REQUIRED_CHECKS);
 const SUCCESSFUL_CONCLUSIONS = new Set(["success", "neutral"]);
 const FAILING_CONCLUSIONS = new Set([
@@ -153,7 +155,7 @@ function normalizeStatuses(statuses) {
   return statuses.map((status) => ({
     id: status.id,
     name: status.context,
-    source: `status:${statusTargetHost(status.target_url) || status.creator?.login || "unknown"}`,
+    source: `status:${status.creator?.id || "unknown"}`,
     status: status.state === "pending" ? "in_progress" : "completed",
     conclusion: status.state,
     description: status.description || "",
@@ -161,14 +163,19 @@ function normalizeStatuses(statuses) {
   }));
 }
 
-function statusTargetHost(targetUrl) {
-  if (!targetUrl) return null;
-  try {
-    const hostname = new URL(targetUrl).hostname.toLowerCase();
-    return hostname === "vercel.com" || hostname.endsWith(".vercel.com") ? "vercel.com" : hostname;
-  } catch {
+function normalizeVercelDeployment(deployment, status) {
+  if (Number(deployment.creator?.id) !== VERCEL_BOT_ID || Number(status.creator?.id) !== VERCEL_BOT_ID) {
     return null;
   }
+  return {
+    id: status.id,
+    name: "Vercel",
+    source: VERCEL_SOURCE,
+    status: ["pending", "queued", "in_progress"].includes(status.state) ? "in_progress" : "completed",
+    conclusion: status.state,
+    description: status.description || "",
+    url: status.target_url || status.environment_url || "",
+  };
 }
 
 function evaluateChecks(required, observedItems) {
@@ -340,8 +347,12 @@ function hasRequiredMergeProtection(effectiveRules, rulesets) {
   const pullRules = nonBypassableRules.filter((rule) => rule.type === "pull_request");
   const contexts = new Set(statusRules.flatMap((rule) =>
     rule.parameters?.required_status_checks?.map((check) => check.context) || []));
+  const officialVercel = statusRules.some((rule) =>
+    rule.parameters?.required_status_checks?.some((check) =>
+      check.context === "Vercel" && Number(check.integration_id) === VERCEL_INTEGRATION_ID));
   return statusRules.some((rule) => rule.parameters?.strict_required_status_checks_policy === true) &&
     [...ATOMIC_REQUIRED_CONTEXTS].every((context) => contexts.has(context)) &&
+    officialVercel &&
     pullRules.some((rule) =>
       rule.parameters?.required_approving_review_count >= 1 &&
       rule.parameters?.required_review_thread_resolution === true);
@@ -380,11 +391,27 @@ async function assertExpectedBranchUpdate(github, owner, repo, newSha, oldHeadSh
 }
 
 async function checkSnapshot(github, owner, repo, sha) {
-  const [checkRuns, statuses] = await Promise.all([
+  const [checkRuns, statuses, deployments] = await Promise.all([
     github.paginate(github.rest.checks.listForRef, { owner, repo, ref: sha, per_page: 100 }),
     github.paginate(github.rest.repos.listCommitStatusesForRef, { owner, repo, ref: sha, per_page: 100 }),
+    github.paginate(github.rest.repos.listDeployments, { owner, repo, sha, per_page: 100 }),
   ]);
-  return [...normalizeCheckRuns(checkRuns), ...normalizeStatuses(statuses)];
+  const vercelDeployments = deployments.filter((deployment) =>
+    Number(deployment.creator?.id) === VERCEL_BOT_ID);
+  const deploymentItems = [];
+  for (const deployment of vercelDeployments) {
+    const deploymentStatuses = await github.paginate(github.rest.repos.listDeploymentStatuses, {
+      owner,
+      repo,
+      deployment_id: deployment.id,
+      per_page: 100,
+    });
+    for (const status of deploymentStatuses) {
+      const item = normalizeVercelDeployment(deployment, status);
+      if (item) deploymentItems.push(item);
+    }
+  }
+  return [...normalizeCheckRuns(checkRuns), ...normalizeStatuses(statuses), ...deploymentItems];
 }
 
 async function compareBehind(github, owner, repo, baseSha, headSha) {
@@ -612,6 +639,7 @@ module.exports = {
   latestReviewsByUser,
   normalizeCheckRuns,
   normalizeStatuses,
+  normalizeVercelDeployment,
   requirement,
   run,
   statusBody,
