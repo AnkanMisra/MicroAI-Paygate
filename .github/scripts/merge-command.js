@@ -296,7 +296,7 @@ function statusBody({ phase, sha, required = [], missing = [], pending = [], det
   ].filter(Boolean).join("\n");
 }
 
-async function upsertStatusComment(github, owner, repo, pullNumber, body) {
+async function upsertStatusComment(github, token, owner, repo, pullNumber, body) {
   const comments = await github.paginate(github.rest.issues.listComments, {
     owner,
     repo,
@@ -304,18 +304,24 @@ async function upsertStatusComment(github, owner, repo, pullNumber, body) {
     per_page: 100,
   });
   const existing = [...comments].reverse().find((comment) =>
-    comment.user?.type === "Bot" && comment.body?.includes(BOT_MARKER));
+    comment.body?.includes(BOT_MARKER) &&
+    Number(comment.user?.id) === AUTHORIZED_USER_ID);
   if (existing) {
-    await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+    await tokenRequest(
+      token,
+      "PATCH",
+      `/repos/${owner}/${repo}/issues/comments/${existing.id}`,
+      { body },
+    );
     return existing.id;
   }
-  const { data } = await github.rest.issues.createComment({
-    owner,
-    repo,
-    issue_number: pullNumber,
-    body,
-  });
-  return data.id;
+  const comment = await tokenRequest(
+    token,
+    "POST",
+    `/repos/${owner}/${repo}/issues/${pullNumber}/comments`,
+    { body },
+  );
+  return comment.id;
 }
 
 async function tokenRequest(token, method, path, body) {
@@ -441,13 +447,17 @@ async function run({
   let required = [];
 
   const reportFailure = async (message) => {
-    await upsertStatusComment(github, owner, repo, pullNumber, statusBody({
-      phase: "Stopped",
-      sha: authorizedSha,
-      required,
-      detail: message,
-    }));
     core.setFailed(message);
+    try {
+      await upsertStatusComment(github, token, owner, repo, pullNumber, statusBody({
+        phase: "Stopped",
+        sha: authorizedSha,
+        required,
+        detail: message,
+      }));
+    } catch (commentError) {
+      core.warning(`Could not post merge status: ${commentError.message}`);
+    }
   };
 
   try {
@@ -484,7 +494,7 @@ async function run({
     if (await compareBehind(github, owner, repo, baseBefore.commit.sha, pull.head.sha)) {
       const oldHeadSha = pull.head.sha;
       const baseSha = baseBefore.commit.sha;
-      await upsertStatusComment(github, owner, repo, pullNumber, statusBody({
+      await upsertStatusComment(github, token, owner, repo, pullNumber, statusBody({
         phase: "Updating the branch from `main`",
         sha: pull.head.sha,
         required,
@@ -575,7 +585,7 @@ async function run({
         }
         await assertRequiredMergeProtection(token, owner, repo);
 
-        await upsertStatusComment(github, owner, repo, pullNumber, statusBody({
+        await upsertStatusComment(github, token, owner, repo, pullNumber, statusBody({
           phase: "All gates passed; squash-merging",
           sha: authorizedSha,
           required,
@@ -589,7 +599,7 @@ async function run({
         );
         if (!result.merged) throw new Error(result.message || "GitHub declined the merge.");
         try {
-          await upsertStatusComment(github, owner, repo, pullNumber, statusBody({
+          await upsertStatusComment(github, token, owner, repo, pullNumber, statusBody({
             phase: "Squash-merged",
             sha: authorizedSha,
             required,
@@ -605,7 +615,7 @@ async function run({
       const vercelDetail = vercel?.url
         ? `Vercel needs manual authorization: ${vercel.url}`
         : "The bot will keep watching this exact commit.";
-      await upsertStatusComment(github, owner, repo, pullNumber, statusBody({
+      await upsertStatusComment(github, token, owner, repo, pullNumber, statusBody({
         phase: "Waiting for merge gates",
         sha: authorizedSha,
         required,
@@ -643,4 +653,5 @@ module.exports = {
   requirement,
   run,
   statusBody,
+  upsertStatusComment,
 };

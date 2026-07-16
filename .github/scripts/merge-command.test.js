@@ -14,7 +14,9 @@ const {
   normalizeStatuses,
   normalizeVercelDeployment,
   requirement,
+  run,
   statusBody,
+  upsertStatusComment,
 } = require("./merge-command");
 
 function commitClient(parents) {
@@ -399,4 +401,116 @@ test("status output includes the bound SHA and waiting details", () => {
   assert.match(body, /abc123/);
   assert.match(body, /go-tests/);
   assert.match(body, /Vercel/);
+});
+
+test("writes fork PR status comments with the maintainer token", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  let request;
+  global.fetch = async (url, options) => {
+    request = { url, options };
+    return {
+      ok: true,
+      text: async () => JSON.stringify({ id: 42 }),
+    };
+  };
+  const github = {
+    paginate: async () => [],
+    rest: { issues: { listComments: async () => ({ data: [] }) } },
+  };
+
+  const commentId = await upsertStatusComment(
+    github,
+    "maintainer-token",
+    "owner",
+    "repo",
+    314,
+    "status",
+  );
+
+  assert.equal(commentId, 42);
+  assert.equal(request.url, "https://api.github.com/repos/owner/repo/issues/314/comments");
+  assert.equal(request.options.method, "POST");
+  assert.equal(request.options.headers.Authorization, "Bearer maintainer-token");
+});
+
+test("updates only the maintainer-owned merge status comment", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  const requests = [];
+  global.fetch = async (url, options) => {
+    requests.push({ url, options });
+    return {
+      ok: true,
+      text: async () => JSON.stringify({ id: 42 }),
+    };
+  };
+  const github = {
+    paginate: async () => [{
+      id: 41,
+      body: "<!-- merge-command-bot -->\nuntrusted",
+      user: { id: 999, type: "Bot" },
+    }, {
+      id: 42,
+      body: "<!-- merge-command-bot -->\nold status",
+      user: { id: 143676135, type: "User" },
+    }],
+    rest: { issues: { listComments: async () => ({ data: [] }) } },
+  };
+
+  const commentId = await upsertStatusComment(
+    github,
+    "maintainer-token",
+    "owner",
+    "repo",
+    314,
+    "new status",
+  );
+
+  assert.equal(commentId, 42);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "https://api.github.com/repos/owner/repo/issues/comments/42");
+  assert.equal(requests[0].options.method, "PATCH");
+});
+
+test("preserves the original gate error when status reporting fails", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  global.fetch = async () => ({
+    ok: false,
+    status: 403,
+    text: async () => JSON.stringify({ message: "comment forbidden" }),
+  });
+  const failures = [];
+  const warnings = [];
+  const github = {
+    paginate: async () => [],
+    rest: {
+      issues: { listComments: async () => ({ data: [] }) },
+      pulls: {
+        get: async () => { throw new Error("original gate failure"); },
+      },
+    },
+  };
+
+  await run({
+    github,
+    context: {
+      repo: { owner: "owner", repo: "repo" },
+      payload: {
+        issue: { number: 314 },
+        comment: { body: "/merge" },
+        sender: { id: 143676135 },
+      },
+    },
+    core: {
+      setFailed: (message) => failures.push(message),
+      warning: (message) => warnings.push(message),
+    },
+    token: "maintainer-token",
+  });
+
+  assert.deepEqual(failures, ["original gate failure"]);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /comment forbidden/);
 });
