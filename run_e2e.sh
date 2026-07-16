@@ -22,7 +22,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 echo "Starting Verifier..."
-PORT=3002 cargo run --quiet &
+PORT=3002 MIN_AUTHORIZATION_VERSION=2 cargo run --quiet &
 VERIFIER_PID=$!
 
 echo "Starting Gateway..."
@@ -32,6 +32,15 @@ export CACHE_ENABLED="${CACHE_ENABLED:-false}"
 # The gateway now requires VERIFIER_URL at startup; point it at the verifier
 # we just spawned on localhost above. Honors any caller-supplied override.
 export VERIFIER_URL="${VERIFIER_URL:-http://127.0.0.1:3002}"
+export PAYGATE_AUDIENCE="${PAYGATE_AUDIENCE:-http://localhost:3000}"
+export SERVER_WALLET_PRIVATE_KEY="${SERVER_WALLET_PRIVATE_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}"
+export RECIPIENT_ADDRESS="${RECIPIENT_ADDRESS:-0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219}"
+if [ -z "$OPENROUTER_API_KEY" ]; then
+    echo "Starting deterministic OpenRouter mock..."
+    export OPENROUTER_API_KEY="e2e-test-key"
+    export OPENROUTER_URL="http://127.0.0.1:3100/api/v1/chat/completions"
+    (cd "$SCRIPT_DIR" && bun tests/mock-openrouter.ts) &
+fi
 go run . &
 GATEWAY_PID=$!
 

@@ -5,12 +5,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateConfig_MissingRequiredEnv(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "")
 	t.Setenv("VERIFIER_URL", "")
+	t.Setenv("PAYGATE_AUDIENCE", "")
 	t.Setenv("CACHE_ENABLED", "false")
 	t.Setenv("RECEIPT_STORE", "memory")
 
@@ -19,12 +22,41 @@ func TestValidateConfig_MissingRequiredEnv(t *testing.T) {
 		t.Fatalf("expected error when required env vars are missing, got nil")
 	}
 
-	expectedVars := []string{"OPENROUTER_API_KEY", "SERVER_WALLET_PRIVATE_KEY", "VERIFIER_URL"}
+	expectedVars := []string{"OPENROUTER_API_KEY", "SERVER_WALLET_PRIVATE_KEY", "VERIFIER_URL", "PAYGATE_AUDIENCE"}
 	errStr := err.Error()
 	for _, v := range expectedVars {
 		if !strings.Contains(errStr, v) {
 			t.Errorf("expected error to mention missing var %s, got: %v", v, err)
 		}
+	}
+}
+
+func TestNormalizePaygateAudience(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    string
+		wantErr string
+	}{
+		{name: "canonical origin", value: "https://gateway.example.com", want: "https://gateway.example.com"},
+		{name: "normalizes case and trailing slash", value: " HTTPS://Gateway.Example.COM/ ", want: "https://gateway.example.com"},
+		{name: "rejects path", value: "https://gateway.example.com/api", wantErr: "origin only"},
+		{name: "rejects query", value: "https://gateway.example.com?tenant=a", wantErr: "origin only"},
+		{name: "rejects credentials", value: "https://user@gateway.example.com", wantErr: "credentials"},
+		{name: "rejects unsupported scheme", value: "javascript://gateway.example.com", wantErr: "http or https"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("PAYGATE_AUDIENCE", test.value)
+			err := normalizePaygateAudience()
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.want, os.Getenv("PAYGATE_AUDIENCE"))
+		})
 	}
 }
 
@@ -68,6 +100,7 @@ func TestValidateConfig_WithRequiredEnv(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
+	t.Setenv("PAYGATE_AUDIENCE", "https://gateway.example.com")
 	t.Setenv("CACHE_ENABLED", "false")
 	t.Setenv("RECEIPT_STORE", "memory")
 	t.Setenv("RECIPIENT_ADDRESS", "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219")
@@ -82,6 +115,7 @@ func TestValidateConfig_CacheEnabledRequiresRedis(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
+	t.Setenv("PAYGATE_AUDIENCE", "https://gateway.example.com")
 	t.Setenv("CACHE_ENABLED", "true")
 	t.Setenv("RECEIPT_STORE", "memory")
 	t.Setenv("REDIS_URL", "")
@@ -101,6 +135,7 @@ func TestValidateConfig_CacheEnabledWithValidRedis(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
+	t.Setenv("PAYGATE_AUDIENCE", "https://gateway.example.com")
 	t.Setenv("CACHE_ENABLED", "true")
 	t.Setenv("RECEIPT_STORE", "memory")
 	t.Setenv("REDIS_URL", "localhost:6379")
@@ -116,6 +151,7 @@ func TestValidateConfig_DefaultReceiptStoreRequiresRedis(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
+	t.Setenv("PAYGATE_AUDIENCE", "https://gateway.example.com")
 	t.Setenv("CACHE_ENABLED", "false")
 	t.Setenv("RECEIPT_STORE", "")
 	t.Setenv("REDIS_URL", "")
@@ -134,6 +170,7 @@ func TestValidateConfig_MemoryReceiptStoreDoesNotRequireRedis(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
+	t.Setenv("PAYGATE_AUDIENCE", "https://gateway.example.com")
 	t.Setenv("CACHE_ENABLED", "false")
 	t.Setenv("RECEIPT_STORE", "memory")
 	t.Setenv("REDIS_URL", "")
@@ -149,6 +186,7 @@ func TestValidateConfig_InvalidReceiptStoreMode(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("VERIFIER_URL", "http://127.0.0.1:3002")
+	t.Setenv("PAYGATE_AUDIENCE", "https://gateway.example.com")
 	t.Setenv("CACHE_ENABLED", "false")
 	t.Setenv("RECEIPT_STORE", "postgres")
 	t.Setenv("REDIS_URL", "localhost:6379")

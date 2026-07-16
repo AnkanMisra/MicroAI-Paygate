@@ -76,6 +76,7 @@ The verifier is stateless EIP-712 signature recovery. Public on Render's free ti
    - `VERIFIER_NONCE_STORE=redis`
    - `VERIFIER_NONCE_KEY_PREFIX=microai:verifier:nonce:`
    - `VERIFIER_REDIS_TIMEOUT_MS=2000`
+   - `MIN_AUTHORIZATION_VERSION=2`
 
 4. Click **Deploy Web Service**. First Rust build takes ~3–5 min.
 5. Copy the assigned public URL — e.g. `https://microai-verifier.onrender.com`. The gateway needs this URL in the next step.
@@ -114,8 +115,8 @@ RECIPIENT_ADDRESS=<your-eip55-checksummed-address>
 REDIS_URL=<your-upstash-rediss-url>
 RECEIPT_STORE=redis
 VERIFIER_URL=https://<verifier-app>.onrender.com
+PAYGATE_AUDIENCE=https://<gateway-app>.onrender.com
 CHAIN_ID=84532
-EXPECTED_CHAIN_ID=84532
 PAYMENT_AMOUNT=0.001
 ALLOWED_ORIGINS=*
 TRUSTED_PROXIES=0.0.0.0/0

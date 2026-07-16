@@ -73,6 +73,45 @@ func TestHashData(t *testing.T) {
 	}
 }
 
+func TestGenerateReceiptPreservesRequestBoundAuthorization(t *testing.T) {
+	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	payment := PaymentContext{
+		AuthorizationVersion: 2,
+		Recipient:            "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219",
+		Token:                "USDC",
+		Amount:               "0.001",
+		Nonce:                "bound-receipt",
+		ChainID:              84532,
+		Timestamp:            1700000000,
+		Audience:             "https://gateway.example.com",
+		Method:               "POST",
+		Resource:             "/api/ai/summarize?mode=brief",
+		ContentType:          "application/json",
+		RequestHash:          "0x8187d0879ad19b46b277e1b761d3f70d51bc9de6459530b686cfaa503ae8d0e9",
+	}
+
+	receipt, err := GenerateReceipt(
+		payment,
+		"0x14791697260e4c9a71f18484c9f997b308e59325",
+		payment.Resource,
+		[]byte(`{"text":"hello"}`),
+		[]byte(`{"result":"hi"}`),
+	)
+	if err != nil {
+		t.Fatalf("GenerateReceipt() error = %v", err)
+	}
+
+	service := receipt.Receipt.Service
+	if service.AuthorizationVersion != payment.AuthorizationVersion ||
+		service.Audience != payment.Audience ||
+		service.Method != payment.Method ||
+		service.Resource != payment.Resource ||
+		service.ContentType != payment.ContentType ||
+		service.AuthorizationHash != payment.RequestHash {
+		t.Fatalf("receipt lost request-bound authorization: %#v", service)
+	}
+}
+
 func TestSignReceipt(t *testing.T) {
 	// Create a test receipt
 	receipt := Receipt{

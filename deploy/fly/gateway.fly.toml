@@ -9,6 +9,7 @@ primary_region = "bom"
 [env]
   PORT = "3000"
   VERIFIER_URL = "http://<verifier-app>.internal:3002"
+  PAYGATE_AUDIENCE = "https://<gateway-app>.fly.dev"
   OPENROUTER_MODEL = "z-ai/glm-4.5-air:free"
   PAYMENT_AMOUNT = "0.001"
   CHAIN_ID = "84532"

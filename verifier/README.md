@@ -84,18 +84,25 @@ Request shape:
 ```json
 {
   "context": {
+    "authorizationVersion": 2,
     "recipient": "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219",
     "token": "USDC",
     "amount": "0.001",
     "nonce": "550e8400-e29b-41d4-a716-446655440000",
     "chainId": 84532,
-    "timestamp": 1700000000
+    "timestamp": 1700000000,
+    "audience": "https://gateway.example.com",
+    "method": "POST",
+    "resource": "/api/ai/summarize",
+    "contentType": "application/json",
+    "requestHash": "0x8187d0879ad19b46b277e1b761d3f70d51bc9de6459530b686cfaa503ae8d0e9"
   },
-  "signature": "0x..."
+  "signature": "0x...",
+  "payer": "0x14791697260E4c9A71f18484C9f997B308e59325"
 }
 ```
 
-The verifier also accepts the staged `authorizationVersion: 2` context, which adds `audience`, `method`, `resource`, `contentType`, and `requestHash`. V2 requests must include a top-level `payer` address that is also covered by the typed-data signature; the verifier rejects the request unless the recovered signer matches it. Legacy requests omit both fields until the gateway cutover.
+V2 requests must include every request-binding field and a top-level `payer` covered by the EIP-712 signature. The verifier rejects the request unless the recovered signer matches that payer. `MIN_AUTHORIZATION_VERSION` defaults to `2`, so legacy v1 authorization fails closed; set it to `1` only for an explicit rollback window.
 
 Successful response:
 
@@ -124,6 +131,7 @@ Important error codes:
 | --- | --- |
 | `invalid_signature` | Signature recovery failed or signer did not match the context. |
 | `invalid_authorization_context` | The v2 version, binding fields, or payer are missing or malformed. |
+| `authorization_version_too_old` | Authorization is below `MIN_AUTHORIZATION_VERSION`. |
 | `signer_mismatch` | The v2 signature does not recover to the claimed payer. |
 | `chain_id_mismatch` | Payment context chain does not match verifier expectation. |
 | `timestamp_expired` | Timestamp is older than `SIGNATURE_EXPIRY_SECONDS`. |
@@ -146,6 +154,7 @@ Returns Prometheus text-format metrics for verifier request volume, verification
 | `PORT` | `3002` | Listen port for the verifier service. Invalid values fall back to `3002` with a warning. |
 | `BIND_ADDRESS` | `0.0.0.0` | Network interface/address the verifier binds to. Invalid values fall back to `0.0.0.0` with a warning. |
 | `SIGNATURE_CLOCK_SKEW_SECONDS` | `60` | Allowed future timestamp skew. |
+| `MIN_AUTHORIZATION_VERSION` | `2` | Minimum accepted authorization version. Set `1` only for an explicit rollback window. |
 | `VERIFIER_NONCE_STORE` | `memory` | Use `memory` locally/tests or `redis` for shared multi-replica replay protection. |
 | `REDIS_URL` | unset | Required when `VERIFIER_NONCE_STORE=redis`; accepts `host:port`, `redis://...`, or `rediss://...`. |
 | `VERIFIER_NONCE_KEY_PREFIX` | `microai:verifier:nonce:` | Redis key prefix for accepted nonce hashes. |

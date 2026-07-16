@@ -34,9 +34,15 @@ type PaymentDetails struct {
 
 // ServiceDetails contains service-related information
 type ServiceDetails struct {
-	Endpoint     string `json:"endpoint"`
-	RequestHash  string `json:"request_hash"`
-	ResponseHash string `json:"response_hash"`
+	Endpoint             string `json:"endpoint"`
+	AuthorizationVersion int    `json:"authorization_version,omitempty"`
+	Audience             string `json:"audience,omitempty"`
+	Method               string `json:"method,omitempty"`
+	Resource             string `json:"resource,omitempty"`
+	ContentType          string `json:"content_type,omitempty"`
+	AuthorizationHash    string `json:"authorization_request_hash,omitempty"`
+	RequestHash          string `json:"request_hash"`
+	ResponseHash         string `json:"response_hash"`
 }
 
 // SignedReceipt contains the receipt and its cryptographic signature
@@ -73,9 +79,15 @@ func GenerateReceipt(payment PaymentContext, payer string, endpoint string, reqB
 			Nonce:     payment.Nonce,
 		},
 		Service: ServiceDetails{
-			Endpoint:     endpoint,
-			RequestHash:  hashData(reqBody),
-			ResponseHash: hashData(respBody),
+			Endpoint:             endpoint,
+			AuthorizationVersion: payment.AuthorizationVersion,
+			Audience:             payment.Audience,
+			Method:               payment.Method,
+			Resource:             payment.Resource,
+			ContentType:          payment.ContentType,
+			AuthorizationHash:    payment.RequestHash,
+			RequestHash:          hashData(reqBody),
+			ResponseHash:         hashData(respBody),
 		},
 	}
 

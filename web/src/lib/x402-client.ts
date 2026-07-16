@@ -33,11 +33,6 @@ function isPaymentContext(value: unknown): value is PaymentContext {
   ) {
     return false;
   }
-  if (value.authorizationVersion === undefined) {
-    return !["audience", "method", "resource", "contentType", "requestHash"].some(
-      (field) => field in value,
-    );
-  }
   return (
     value.authorizationVersion === 2 &&
     isNonEmptyString(value.audience) &&

@@ -22,6 +22,12 @@ export interface PaymentDetails {
 
 export interface ServiceDetails {
   endpoint: string;
+  authorization_version?: number;
+  audience?: string;
+  method?: string;
+  resource?: string;
+  content_type?: string;
+  authorization_request_hash?: string;
   request_hash: string;
   response_hash: string;
 }

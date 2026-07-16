@@ -5,7 +5,7 @@ The gateway is the public API entry point for MicroAI Paygate. It is a Go/Gin se
 ## Responsibilities
 
 - Return `402 Payment Required` with a complete payment context when summarize requests are unsigned.
-- Require signed retries to include `X-402-Signature`, `X-402-Nonce`, and `X-402-Timestamp`.
+- Require signed retries to include `X-402-Signature`, `X-402-Nonce`, `X-402-Timestamp`, and `X-402-Payer`.
 - Reconstruct the payment context and call the Rust verifier at `POST /verify`.
 - Map verifier business failures to sanitized public gateway errors.
 - Call the configured AI provider only after payment verification succeeds.
@@ -25,7 +25,7 @@ sequenceDiagram
 
     C->>G: POST /api/ai/summarize
     G-->>C: 402 + paymentContext(recipient, token, amount, chainId, nonce, timestamp)
-    C->>G: Retry with X-402-Signature, X-402-Nonce, X-402-Timestamp
+    C->>G: Retry with X-402-Signature, nonce, timestamp, payer
     G->>V: POST /verify with reconstructed context
     V-->>G: valid + recovered wallet or structured error_code
     alt Optional Redis response cache hit
@@ -94,7 +94,7 @@ Common optional variables:
 | `OLLAMA_URL` | `http://localhost:11434` | Used when `AI_PROVIDER=ollama`. |
 | `OLLAMA_MODEL` | `llama2` provider default | Used when `AI_PROVIDER=ollama`. |
 | `VERIFIER_URL` | **required** (no fallback) | Where the gateway calls `/verify`. Use `http://127.0.0.1:3002` for `bun run stack`, `http://verifier:3002` in Compose, the platform's HTTPS URL in production. The gateway refuses to start if unset. |
-| `PAYGATE_AUDIENCE` | unset | Public gateway origin reserved for request-bound authorization v2. Configure the production origin before the gateway cutover; the current v1 gateway does not read it. |
+| `PAYGATE_AUDIENCE` | **required** | Trusted public gateway origin included in every v2 authorization. Origins only; paths, queries, fragments, credentials, and non-HTTP schemes are rejected at startup. |
 | `RECIPIENT_ADDRESS` | Development fallback address | Recipient embedded in payment contexts. |
 | `PAYMENT_AMOUNT` | `0.001` | Amount string embedded in payment contexts. |
 | `CHAIN_ID` | `84532` | Base Sepolia by default. Must match verifier `EXPECTED_CHAIN_ID`. |
@@ -165,6 +165,9 @@ The gateway exposes sanitized public errors and logs internal details with a `co
 - `invalid_timestamp`
 - `chain_id_mismatch`
 - `nonce_already_used`
+- `invalid_authorization_context`
+- `authorization_version_too_old`
+- `signer_mismatch`
 - `verification_unavailable`
 - `verifier_timeout`
 - `upstream_unavailable`

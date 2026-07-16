@@ -66,6 +66,23 @@ export function decodeReceiptHeader(headerValue: string): SignedReceipt {
 }
 
 function serializeReceiptForGateway(receipt: Receipt): string {
+  const service = {
+    endpoint: receipt.service.endpoint,
+    ...(receipt.service.authorization_version !== undefined && {
+      authorization_version: receipt.service.authorization_version,
+    }),
+    ...(receipt.service.audience !== undefined && { audience: receipt.service.audience }),
+    ...(receipt.service.method !== undefined && { method: receipt.service.method }),
+    ...(receipt.service.resource !== undefined && { resource: receipt.service.resource }),
+    ...(receipt.service.content_type !== undefined && {
+      content_type: receipt.service.content_type,
+    }),
+    ...(receipt.service.authorization_request_hash !== undefined && {
+      authorization_request_hash: receipt.service.authorization_request_hash,
+    }),
+    request_hash: receipt.service.request_hash,
+    response_hash: receipt.service.response_hash,
+  };
   return JSON.stringify({
     id: receipt.id,
     version: receipt.version,
@@ -78,11 +95,7 @@ function serializeReceiptForGateway(receipt: Receipt): string {
       chainId: receipt.payment.chainId,
       nonce: receipt.payment.nonce,
     },
-    service: {
-      endpoint: receipt.service.endpoint,
-      request_hash: receipt.service.request_hash,
-      response_hash: receipt.service.response_hash,
-    },
+    service,
   });
 }
 

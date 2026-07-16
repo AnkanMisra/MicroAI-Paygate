@@ -55,6 +55,34 @@ func isValidAllowedOrigin(origin string) bool {
 	return parsed.Path == "" && parsed.RawQuery == "" && parsed.Fragment == ""
 }
 
+func normalizePaygateAudience() error {
+	raw := strings.TrimSpace(os.Getenv("PAYGATE_AUDIENCE"))
+	if raw == "" {
+		return fmt.Errorf("PAYGATE_AUDIENCE is required")
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return fmt.Errorf("PAYGATE_AUDIENCE must be an absolute origin")
+	}
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("PAYGATE_AUDIENCE scheme must be http or https")
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("PAYGATE_AUDIENCE must not contain credentials")
+	}
+	if (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("PAYGATE_AUDIENCE must contain an origin only")
+	}
+
+	canonical := parsed.Scheme + "://" + strings.ToLower(parsed.Host)
+	if err := os.Setenv("PAYGATE_AUDIENCE", canonical); err != nil {
+		return fmt.Errorf("failed to normalize PAYGATE_AUDIENCE: %w", err)
+	}
+	return nil
+}
+
 func getReceiptStoreMode() string {
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("RECEIPT_STORE")))
 	if mode == "" {

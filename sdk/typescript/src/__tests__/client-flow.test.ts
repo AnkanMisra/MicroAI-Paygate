@@ -17,12 +17,21 @@ const wallet = new ethers.Wallet(
 );
 
 const paymentContext: PaymentContext = {
-  recipient: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219",
-  token: "USDC",
-  amount: "0.001",
+  ...(authorizationV2Fixture.context as PaymentContextV2),
   nonce: "client-flow-nonce",
-  chainId: 84532,
   timestamp: 1766611200,
+  audience: "http://gateway.test",
+  resource: "/api/ai/summarize",
+  requestHash: ethers.sha256(ethers.toUtf8Bytes(JSON.stringify({ text: "hello" }))),
+};
+
+const legacyPaymentContext: PaymentContext = {
+  recipient: paymentContext.recipient,
+  token: paymentContext.token,
+  amount: paymentContext.amount,
+  nonce: "legacy-client-flow-nonce",
+  chainId: paymentContext.chainId,
+  timestamp: paymentContext.timestamp,
 };
 
 const receiptSigningKey = new ethers.SigningKey(
@@ -214,6 +223,41 @@ describe("PaygateClient request flow", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("rejects a custom adapter downgrade to a legacy unbound context", async () => {
+    class DowngradeProtocol extends MicroAIPaygateProtocol {
+      signCalls = 0;
+
+      override async readPaymentContext(): Promise<PaymentContext> {
+        return legacyPaymentContext;
+      }
+
+      override signPaymentContext(
+        signer: Parameters<MicroAIPaygateProtocol["signPaymentContext"]>[0],
+        ctx: PaymentContext,
+        payer?: string,
+      ): Promise<string> {
+        this.signCalls += 1;
+        return super.signPaymentContext(signer, ctx, payer);
+      }
+    }
+    const protocol = new DowngradeProtocol();
+    const { calls, fetcher } = scriptedFetch([
+      jsonResponse({ paymentContext: authorizationV2Fixture.context }, { status: 402 }),
+    ]);
+    const client = new PaygateClient({
+      gatewayUrl: "http://gateway.test",
+      signer: wallet,
+      fetch: fetcher,
+      protocol,
+    });
+
+    await expect(
+      client.request({ method: "POST", path: "/api/ai/summarize", body: { text: "hello" } }),
+    ).rejects.toMatchObject({ code: "payment_binding_mismatch" });
+    expect(protocol.signCalls).toBe(0);
+    expect(calls).toHaveLength(1);
+  });
+
   it("handles unsigned request, 402 challenge, signed retry, and verified receipt", async () => {
     const requestBody = JSON.stringify({ text: "hello" });
     const responseBody = JSON.stringify({ result: "summarized text" });
@@ -327,7 +371,6 @@ describe("PaygateClient request flow", () => {
       { ...paymentContext, timestamp: 1766611200.5 },
       { ...paymentContext, timestamp: Number.MAX_SAFE_INTEGER + 1 },
       { ...paymentContext, authorizationVersion: 3 },
-      { ...paymentContext, audience: "http://gateway.test" },
       { ...authorizationV2Fixture.context, requestHash: undefined },
     ];
 
@@ -447,8 +490,12 @@ describe("PaygateClient request flow", () => {
     const requestBody = JSON.stringify({ text: "hello" });
     const responseBody = JSON.stringify({ result: "summarized text" });
     const receipt = signedReceiptForPayloads({ requestBody, responseBody });
+    const prefixedContext = {
+      ...paymentContext,
+      resource: "/paygate/api/ai/summarize",
+    };
     const { fetcher } = scriptedFetch([
-      jsonResponse({ paymentContext }, { status: 402 }),
+      jsonResponse({ paymentContext: prefixedContext }, { status: 402 }),
       jsonResponse(
         { result: "summarized text" },
         { status: 200, headers: { "X-402-Receipt": receiptHeader(receipt) } },

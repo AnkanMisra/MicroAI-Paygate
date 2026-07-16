@@ -1,8 +1,7 @@
-import { describe, it, expect, beforeAll } from "bun:test";
+import { describe, it, expect } from "bun:test";
 import { ethers } from "ethers";
 
 const GATEWAY_URL = "http://localhost:3000";
-const VERIFIER_URL = "http://localhost:3002";
 
 // Mock wallet for testing
 const PRIVATE_KEY = "0x0123456789012345678901234567890123456789012345678901234567890123";
@@ -11,28 +10,50 @@ const wallet = new ethers.Wallet(PRIVATE_KEY);
 async function signPaymentContext(paymentContext: any) {
   const domain = {
     name: "MicroAI Paygate",
-    version: "1",
+    version: "2",
     chainId: paymentContext.chainId,
     verifyingContract: ethers.ZeroAddress,
   };
 
   const types = {
-    Payment: [
+    PaymentAuthorization: [
+      { name: "payer", type: "address" },
       { name: "recipient", type: "address" },
       { name: "token", type: "string" },
       { name: "amount", type: "string" },
       { name: "nonce", type: "string" },
       { name: "timestamp", type: "uint256" },
+      { name: "audience", type: "string" },
+      { name: "method", type: "string" },
+      { name: "resource", type: "string" },
+      { name: "contentType", type: "string" },
+      { name: "requestHash", type: "bytes32" },
     ],
   };
 
   return wallet.signTypedData(domain, types, {
+    payer: wallet.address,
     recipient: paymentContext.recipient,
     token: paymentContext.token,
     amount: paymentContext.amount,
     nonce: paymentContext.nonce,
     timestamp: paymentContext.timestamp,
+    audience: paymentContext.audience,
+    method: paymentContext.method,
+    resource: paymentContext.resource,
+    contentType: paymentContext.contentType,
+    requestHash: paymentContext.requestHash,
   });
+}
+
+function signedHeaders(paymentContext: any, signature: string) {
+  return {
+    "Content-Type": "application/json",
+    "X-402-Signature": signature,
+    "X-402-Nonce": paymentContext.nonce,
+    "X-402-Timestamp": paymentContext.timestamp.toString(),
+    "X-402-Payer": wallet.address,
+  };
 }
 
 describe("MicroAI Paygate E2E Flow", () => {
@@ -48,14 +69,19 @@ describe("MicroAI Paygate E2E Flow", () => {
     expect(data.error).toBe("Payment Required");
     expect(data.paymentContext).toBeDefined();
     expect(data.paymentContext.nonce).toBeDefined();
+    expect(data.paymentContext.authorizationVersion).toBe(2);
+    expect(data.paymentContext.audience).toBe(GATEWAY_URL);
+    expect(data.paymentContext.method).toBe("POST");
+    expect(data.paymentContext.resource).toBe("/api/ai/summarize");
   });
 
   it("should accept a valid signature and return result", async () => {
     // 1. Get Nonce
+    const body = JSON.stringify({ text: "This is a test text to summarize." });
     const initRes = await fetch(`${GATEWAY_URL}/api/ai/summarize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "Hello world" }),
+      body,
     });
     const initData = await initRes.json() as any;
     const { paymentContext } = initData;
@@ -66,13 +92,8 @@ describe("MicroAI Paygate E2E Flow", () => {
     // 3. Send Signed Request
     const res = await fetch(`${GATEWAY_URL}/api/ai/summarize`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-402-Signature": signature,
-        "X-402-Nonce": paymentContext.nonce,
-        "X-402-Timestamp": paymentContext.timestamp.toString(),
-      },
-      body: JSON.stringify({ text: "This is a test text to summarize." }),
+      headers: signedHeaders(paymentContext, signature),
+      body,
     });
 
     // Note: It might fail if OpenRouter credentials are missing/invalid, but we expect at least not 402/403.
@@ -91,21 +112,16 @@ describe("MicroAI Paygate E2E Flow", () => {
   }, 30000);
 
   it("should reject replayed signed payment context", async () => {
+    const body = JSON.stringify({ text: "Replay protection test text." });
     const initRes = await fetch(`${GATEWAY_URL}/api/ai/summarize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "Replay setup" }),
+      body,
     });
     const initData = await initRes.json() as any;
     const { paymentContext } = initData;
     const signature = await signPaymentContext(paymentContext);
-    const body = JSON.stringify({ text: "Replay protection test text." });
-    const headers = {
-      "Content-Type": "application/json",
-      "X-402-Signature": signature,
-      "X-402-Nonce": paymentContext.nonce,
-      "X-402-Timestamp": paymentContext.timestamp.toString(),
-    };
+    const headers = signedHeaders(paymentContext, signature);
 
     const first = await fetch(`${GATEWAY_URL}/api/ai/summarize`, {
       method: "POST",
@@ -132,4 +148,24 @@ describe("MicroAI Paygate E2E Flow", () => {
     const data = await second.json() as any;
     expect(data.error).toBe("nonce_already_used");
   }, 30000);
+
+  it("should reject a signed retry when one request byte changes", async () => {
+    const originalBody = JSON.stringify({ text: "Bound request" });
+    const initRes = await fetch(`${GATEWAY_URL}/api/ai/summarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: originalBody,
+    });
+    const { paymentContext } = await initRes.json() as any;
+    const signature = await signPaymentContext(paymentContext);
+
+    const response = await fetch(`${GATEWAY_URL}/api/ai/summarize`, {
+      method: "POST",
+      headers: signedHeaders(paymentContext, signature),
+      body: originalBody + " ",
+    });
+
+    expect(response.status).toBe(403);
+    expect((await response.json() as any).error).toBe("signer_mismatch");
+  });
 });

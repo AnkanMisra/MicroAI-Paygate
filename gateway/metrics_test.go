@@ -163,6 +163,19 @@ func TestGatewayVerificationMetricRecordsInvalidResponses(t *testing.T) {
 	require.Equal(t, float64(1), after-before)
 }
 
+func TestGatewayAuthorizationMetricRecordsDowngradeRejection(t *testing.T) {
+	withVerifierResponse(t, http.StatusBadRequest, `{"is_valid":false,"recovered_address":null,"error":"legacy authorization rejected","error_code":"authorization_version_too_old"}`)
+	router := newSummarizeTestRouter()
+
+	before := testutil.ToFloat64(paymentAuthorizationTotal.WithLabelValues("2", "downgrade"))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, signedSummarizeRequest(`{"text":"hello"}`))
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	after := testutil.ToFloat64(paymentAuthorizationTotal.WithLabelValues("2", "downgrade"))
+	require.Equal(t, float64(1), after-before)
+}
+
 func TestGatewayVerificationMetricRecordsMalformedSuccessResponses(t *testing.T) {
 	withVerifierResponse(t, http.StatusOK, `{"is_valid":true,"recovered_address":"","error":""}`)
 	router := newSummarizeTestRouter()

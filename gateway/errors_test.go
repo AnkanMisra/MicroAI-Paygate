@@ -46,6 +46,7 @@ func signedSummarizeRequest(body string) *http.Request {
 	req.Header.Set("X-402-Signature", "0xsigned")
 	req.Header.Set("X-402-Nonce", "nonce-1")
 	req.Header.Set("X-402-Timestamp", "1700000000")
+	req.Header.Set("X-402-Payer", "0x14791697260E4c9A71f18484C9f997B308e59325")
 	req.Header.Set("X-Correlation-ID", "test-correlation-id")
 	return req
 }
@@ -90,7 +91,7 @@ func TestHandleSummarizeSanitizesOpenRouterProviderError(t *testing.T) {
 	aiProvider = failingProvider{
 		err: errors.New("openrouter returned status 429: SENSITIVE_PROVIDER_DETAIL"),
 	}
-	withVerifierResponse(t, http.StatusOK, `{"is_valid":true,"recovered_address":"0xabc","error":""}`)
+	withVerifierResponse(t, http.StatusOK, `{"is_valid":true,"recovered_address":"0x14791697260e4c9a71f18484c9f997b308e59325","error":""}`)
 
 	router := newSummarizeTestRouter()
 	recorder := httptest.NewRecorder()
@@ -194,6 +195,41 @@ func TestHandleSummarizeMapsVerifierChainMismatch(t *testing.T) {
 	require.Equal(t, "test-correlation-id", response["correlation_id"])
 }
 
+func TestHandleSummarizeMapsAuthorizationRejections(t *testing.T) {
+	for _, errorCode := range []string{
+		"invalid_authorization_context",
+		"authorization_version_too_old",
+	} {
+		t.Run(errorCode, func(t *testing.T) {
+			withVerifierResponse(t, http.StatusBadRequest, `{"is_valid":false,"recovered_address":null,"error":"SENSITIVE_AUTH_DETAIL","error_code":"`+errorCode+`"}`)
+
+			router := newSummarizeTestRouter()
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, signedSummarizeRequest(`{"text":"hello"}`))
+
+			require.Equal(t, http.StatusBadRequest, recorder.Code)
+			require.NotContains(t, recorder.Body.String(), "SENSITIVE_AUTH_DETAIL")
+			var response map[string]string
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+			require.Equal(t, errorCode, response["error"])
+		})
+	}
+}
+
+func TestHandleSummarizeMapsSignerMismatch(t *testing.T) {
+	withVerifierResponse(t, http.StatusOK, `{"is_valid":false,"recovered_address":"0x0000000000000000000000000000000000000001","error":"SENSITIVE_SIGNER_DETAIL","error_code":"signer_mismatch"}`)
+
+	router := newSummarizeTestRouter()
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, signedSummarizeRequest(`{"text":"hello"}`))
+
+	require.Equal(t, http.StatusForbidden, recorder.Code)
+	require.NotContains(t, recorder.Body.String(), "SENSITIVE_SIGNER_DETAIL")
+	var response map[string]string
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, "signer_mismatch", response["error"])
+}
+
 func TestHandleSummarizeMapsVerifierInvalidSignatureParse(t *testing.T) {
 	withVerifierResponse(t, http.StatusBadRequest, `{"is_valid":false,"recovered_address":null,"error":"bad signature: SENSITIVE_PARSE_DETAIL","error_code":"invalid_signature"}`)
 
@@ -232,7 +268,7 @@ func TestHandleSummarizePreservesAIProviderTimeoutStatus(t *testing.T) {
 	origProvider := aiProvider
 	t.Cleanup(func() { aiProvider = origProvider })
 	aiProvider = failingProvider{err: context.DeadlineExceeded}
-	withVerifierResponse(t, http.StatusOK, `{"is_valid":true,"recovered_address":"0xabc","error":""}`)
+	withVerifierResponse(t, http.StatusOK, `{"is_valid":true,"recovered_address":"0x14791697260e4c9a71f18484c9f997b308e59325","error":""}`)
 
 	router := newSummarizeTestRouter()
 	recorder := httptest.NewRecorder()

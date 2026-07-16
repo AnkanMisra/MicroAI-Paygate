@@ -123,7 +123,7 @@ func TestHandleSummarize_AIRequestTimeoutReturns504(t *testing.T) {
 	// Set up a verifier that returns valid immediately
 	verifier := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte(`{"is_valid":true, "recovered_address":"0xabc","error":""}`))
+		w.Write([]byte(`{"is_valid":true, "recovered_address":"0x14791697260e4c9a71f18484c9f997b308e59325","error":""}`))
 	}))
 	defer verifier.Close()
 
@@ -158,6 +158,7 @@ func TestHandleSummarize_AIRequestTimeoutReturns504(t *testing.T) {
 	reqBody := strings.NewReader(`{"text":"hello"}`)
 	req, _ := http.NewRequest("POST", "/api/ai/summarize", reqBody)
 	req.Header.Set("X-402-Signature", "sig")
+	req.Header.Set("X-402-Payer", "0x14791697260E4c9A71f18484C9f997B308e59325")
 	req.Header.Set("X-402-Nonce", "nonce")
 	req.Header.Set("X-402-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
 	req.Header.Set("Content-Type", "application/json")

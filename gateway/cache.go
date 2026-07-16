@@ -122,7 +122,7 @@ func CacheMiddleware() gin.HandlerFunc {
 			}
 			cacheHits.WithLabelValues(routePath).Inc()
 
-			payment, ok := verifyPaidRequest(c)
+			payment, ok := verifyPaidRequest(c, requestBody)
 			if !ok {
 				c.Abort()
 				return

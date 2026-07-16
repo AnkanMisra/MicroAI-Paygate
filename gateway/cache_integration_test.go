@@ -39,7 +39,7 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 		isValid := req.Signature == "0xValidSig"
 		resp := VerifyResponse{
 			IsValid:          isValid,
-			RecoveredAddress: "0xTestUser",
+			RecoveredAddress: "0x14791697260e4c9a71f18484c9f997b308e59325",
 			Error:            "",
 		}
 		if !isValid {
@@ -116,6 +116,7 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-402-Signature", sig)
+		req.Header.Set("X-402-Payer", "0x14791697260E4c9A71f18484C9f997B308e59325")
 		req.Header.Set("X-402-Nonce", "nonce-123")
 		req.Header.Set("X-402-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
 

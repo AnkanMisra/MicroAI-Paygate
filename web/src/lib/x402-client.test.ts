@@ -65,6 +65,14 @@ describe("request-bound payment authorization", () => {
 
   it("rejects unknown, partial, and malformed authorization versions", async () => {
     const invalidContexts = [
+      {
+        recipient: authorizationV2Fixture.context.recipient,
+        token: "USDC",
+        amount: "0.001",
+        nonce: "legacy-context",
+        chainId: 84532,
+        timestamp: 1766611200,
+      },
       { ...authorizationV2Fixture.context, authorizationVersion: 3 },
       { ...authorizationV2Fixture.context, requestHash: undefined },
       { ...authorizationV2Fixture.context, authorizationVersion: undefined },

@@ -38,17 +38,24 @@ import (
 )
 
 type PaymentContext struct {
-	Recipient string `json:"recipient"`
-	Token     string `json:"token"`
-	Amount    string `json:"amount"`
-	Nonce     string `json:"nonce"`
-	ChainID   int    `json:"chainId"`
-	Timestamp uint64 `json:"timestamp"`
+	AuthorizationVersion int    `json:"authorizationVersion"`
+	Recipient            string `json:"recipient"`
+	Token                string `json:"token"`
+	Amount               string `json:"amount"`
+	Nonce                string `json:"nonce"`
+	ChainID              int    `json:"chainId"`
+	Timestamp            uint64 `json:"timestamp"`
+	Audience             string `json:"audience"`
+	Method               string `json:"method"`
+	Resource             string `json:"resource"`
+	ContentType          string `json:"contentType"`
+	RequestHash          string `json:"requestHash"`
 }
 
 type VerifyRequest struct {
 	Context   PaymentContext `json:"context"`
 	Signature string         `json:"signature"`
+	Payer     string         `json:"payer"`
 }
 
 type VerifyResponse struct {
@@ -71,6 +78,7 @@ func validateConfig() error {
 	required := []string{
 		"SERVER_WALLET_PRIVATE_KEY", // Critical for signing receipts
 		"VERIFIER_URL",              // Where the gateway calls /verify; loopback fallback would hide misconfig in prod
+		"PAYGATE_AUDIENCE",          // Trusted public origin used in request-bound payment authorization
 	}
 
 	// Add provider-specific requirements
@@ -116,6 +124,9 @@ func validateConfig() error {
 	// don't reject it during EIP-712 signing.
 	if err := normalizeRecipientAddress(); err != nil {
 		return fmt.Errorf("RECIPIENT_ADDRESS validation failed: %w", err)
+	}
+	if err := normalizePaygateAudience(); err != nil {
+		return fmt.Errorf("PAYGATE_AUDIENCE validation failed: %w", err)
 	}
 
 	return nil
@@ -431,11 +442,6 @@ func handleSummarize(c *gin.Context) {
 	var requestBody []byte
 	var err error
 
-	if !hasPaymentHeaders(c) {
-		writePaymentChallenge(c)
-		return
-	}
-
 	// Check if body already read by middleware
 	if body, exists := c.Get("request_body"); exists {
 		// Cache middleware always sets this as []byte, safe to assert
@@ -446,8 +452,12 @@ func handleSummarize(c *gin.Context) {
 	if requestBody == nil {
 		// Read body with limit (only if middleware didn't process it)
 		const maxBodySize = 10 * 1024 * 1024
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodySize))
-		requestBody, err = io.ReadAll(c.Request.Body)
+		if c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodySize))
+			requestBody, err = io.ReadAll(c.Request.Body)
+		} else {
+			requestBody = []byte{}
+		}
 		if err != nil {
 			var maxBytesErr *http.MaxBytesError
 			if errors.As(err, &maxBytesErr) {
@@ -459,7 +469,7 @@ func handleSummarize(c *gin.Context) {
 		}
 	}
 
-	payment, ok := verifyPaidRequest(c)
+	payment, ok := verifyPaidRequest(c, requestBody)
 	if !ok {
 		return
 	}
@@ -499,24 +509,16 @@ func handleSummarize(c *gin.Context) {
 
 // verifyPayment calls the verification service.
 
-func verifyPayment(ctx context.Context, signature, nonce string, timestamp uint64) (*VerifyResponse, *PaymentContext, error) {
-	paymentCtx := PaymentContext{
-		Recipient: getRecipientAddress(),
-		Token:     "USDC",
-		Amount:    getPaymentAmount(),
-		Nonce:     nonce,
-		ChainID:   getChainID(),
-		Timestamp: timestamp,
-	}
-
+func verifyPayment(ctx context.Context, signature, payer string, paymentCtx PaymentContext) (*VerifyResponse, error) {
 	verifyReq := VerifyRequest{
 		Context:   paymentCtx,
 		Signature: signature,
+		Payer:     payer,
 	}
 
 	verifyBody, err := json.Marshal(verifyReq)
 	if err != nil {
-		return nil, nil, fmt.Errorf("marshal verification request: %w", err)
+		return nil, fmt.Errorf("marshal verification request: %w", err)
 	}
 
 	// VERIFIER_URL is guaranteed non-empty here: validateConfig() exits at
@@ -529,7 +531,7 @@ func verifyPayment(ctx context.Context, signature, nonce string, timestamp uint6
 
 	vreq, err := http.NewRequestWithContext(verifierCtx, "POST", verifierURL+"/verify", bytes.NewBuffer(verifyBody))
 	if err != nil {
-		return nil, nil, fmt.Errorf("create verifier request: %w", err)
+		return nil, fmt.Errorf("create verifier request: %w", err)
 	}
 	vreq.Header.Set("Content-Type", "application/json")
 
@@ -540,7 +542,7 @@ func verifyPayment(ctx context.Context, signature, nonce string, timestamp uint6
 	// Use http.DefaultClient and rely on verifierCtx for timeouts/cancellation.
 	resp, err := http.DefaultClient.Do(vreq)
 	if err != nil {
-		return nil, nil, fmt.Errorf("verifier request failed: %w", err)
+		return nil, fmt.Errorf("verifier request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -549,20 +551,20 @@ func verifyPayment(ctx context.Context, signature, nonce string, timestamp uint6
 		bodyText := strings.TrimSpace(string(body))
 		var verifyResp VerifyResponse
 		if bodyText != "" && json.Unmarshal(body, &verifyResp) == nil && isVerifierBusinessRejection(&verifyResp) {
-			return &verifyResp, &paymentCtx, nil
+			return &verifyResp, nil
 		}
 		if bodyText == "" {
-			return nil, nil, fmt.Errorf("verifier returned status %d", resp.StatusCode)
+			return nil, fmt.Errorf("verifier returned status %d", resp.StatusCode)
 		}
-		return nil, nil, fmt.Errorf("verifier returned status %d: %s", resp.StatusCode, bodyText)
+		return nil, fmt.Errorf("verifier returned status %d: %s", resp.StatusCode, bodyText)
 	}
 
 	var verifyResp VerifyResponse
 	if err := json.NewDecoder(resp.Body).Decode(&verifyResp); err != nil {
-		return nil, nil, fmt.Errorf("decode verification response: %w", err)
+		return nil, fmt.Errorf("decode verification response: %w", err)
 	}
 
-	return &verifyResp, &paymentCtx, nil
+	return &verifyResp, nil
 }
 
 // generateAndSendReceipt handles receipt generation, storage, and sending the final JSON response.
@@ -604,16 +606,30 @@ func generateAndSendReceipt(c *gin.Context, paymentCtx PaymentContext, recovered
 	return nil
 }
 
-// createPaymentContext constructs a PaymentContext prefilled with the recipient address (from RECIPIENT_ADDRESS or a fallback), the USDC token, amount "0.001", a newly generated UUID nonce, and the configured chain ID.
-func createPaymentContext() PaymentContext {
+// createPaymentContext constructs the exact request-bound context the wallet signs.
+func createPaymentContext(binding paymentRequestBinding, nonce string, timestamp uint64) PaymentContext {
 	return PaymentContext{
-		Recipient: getRecipientAddress(),
-		Token:     "USDC",
-		Amount:    getPaymentAmount(),
-		Nonce:     uuid.New().String(),
-		ChainID:   getChainID(),
-		Timestamp: uint64(time.Now().Unix()),
+		AuthorizationVersion: paymentAuthorizationVersion,
+		Recipient:            getRecipientAddress(),
+		Token:                "USDC",
+		Amount:               getPaymentAmount(),
+		Nonce:                nonce,
+		ChainID:              getChainID(),
+		Timestamp:            timestamp,
+		Audience:             binding.Audience,
+		Method:               binding.Method,
+		Resource:             binding.Resource,
+		ContentType:          binding.ContentType,
+		RequestHash:          binding.RequestHash,
 	}
+}
+
+func createPaymentChallengeContext(request *http.Request, body []byte) PaymentContext {
+	return createPaymentContext(
+		buildPaymentRequestBinding(request, body),
+		uuid.New().String(),
+		uint64(time.Now().Unix()),
+	)
 }
 
 // getRecipientAddress retrieves the recipient address from the RECIPIENT_ADDRESS environment variable.

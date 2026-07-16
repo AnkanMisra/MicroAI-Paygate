@@ -7,7 +7,7 @@ The SDK handles the existing gateway flow:
 1. Send an unsigned request.
 2. Read the `402 Payment Required` `paymentContext`.
 3. Sign the payment context with EIP-712.
-4. Retry with the signed `X-402-*` headers (v2 also includes the recovered `X-402-Payer`).
+4. Retry with the signed `X-402-*` headers, including the signer-derived `X-402-Payer`.
 5. Decode the `X-402-Receipt` response header.
 6. Verify the signed receipt locally.
 
@@ -19,7 +19,7 @@ MicroAI Paygate currently uses a custom x402-style wire contract. It is not offi
 
 A valid EIP-712 signature proves wallet authorization for the payment context. It does not prove that USDC moved on-chain.
 
-The SDK accepts the current legacy context and the staged request-bound v2 context. For v2 it verifies the audience, method, encoded path and raw query, content type, and SHA-256 hash of the exact serialized body before opening the wallet signature prompt. The public gateway remains on v1 until the separate cutover change is deployed.
+The gateway now issues request-bound v2 contexts. Before opening the wallet signature prompt, the SDK requires v2 and verifies the audience, method, encoded path and raw query, content type, and SHA-256 hash of the exact serialized body. Production verifiers also default to rejecting v1, preventing downgrade at both client and server boundaries.
 
 ## Install And Test
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { ethers } from "ethers";
 import fixture from "../__fixtures__/gateway-receipt.json";
 import {
   PaygateSdkError,
@@ -59,6 +60,52 @@ describe("receipt helpers", () => {
   it("verifyReceipt verifies the gateway-format receipt fixture", async () => {
     expect(
       await verifyReceipt(cloneFixture(), { expectedServerPublicKey: fixtureServerPublicKey }),
+    ).toBe(true);
+  });
+
+  it("verifyReceipt preserves request-bound v2 receipt fields in the signed payload", async () => {
+    const signingKey = new ethers.SigningKey(
+      "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    );
+    const receipt: SignedReceipt["receipt"] = {
+      id: "rcpt_boundv2test",
+      version: "1.0",
+      timestamp: "2026-07-16T00:00:00Z",
+      payment: {
+        payer: "0x14791697260E4c9A71f18484C9f997B308e59325",
+        recipient: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219",
+        amount: "0.001",
+        token: "USDC",
+        chainId: 84532,
+        nonce: "bound-v2-receipt",
+      },
+      service: {
+        endpoint: "/api/ai/summarize",
+        authorization_version: 2,
+        audience: "https://gateway.example.com",
+        method: "POST",
+        resource: "/api/ai/summarize?mode=brief",
+        content_type: "application/json",
+        authorization_request_hash:
+          "0x8187d0879ad19b46b277e1b761d3f70d51bc9de6459530b686cfaa503ae8d0e9",
+        request_hash:
+          "sha256:8187d0879ad19b46b277e1b761d3f70d51bc9de6459530b686cfaa503ae8d0e9",
+        response_hash:
+          "sha256:8a90fd4352d6e287b3e908e62f802c99c4f5680c9644cb27fb64d638e3fbb9d4",
+      },
+    };
+    const digest = ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(receipt)));
+    const signature = signingKey.sign(digest);
+    const signedReceipt: SignedReceipt = {
+      receipt,
+      signature: ethers.hexlify(
+        ethers.concat([signature.r, signature.s, ethers.toBeHex(signature.yParity, 1)]),
+      ),
+      server_public_key: signingKey.publicKey,
+    };
+
+    expect(
+      await verifyReceipt(signedReceipt, { expectedServerPublicKey: signingKey.publicKey }),
     ).toBe(true);
   });
 
