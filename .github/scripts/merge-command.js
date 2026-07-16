@@ -31,7 +31,8 @@ function isMergeCommand(body) {
 function isWorkflowChange(files) {
   return files.some((file) => {
     const paths = typeof file === "string" ? [file] : [file.filename, file.previous_filename];
-    return paths.some((path) => path?.startsWith(".github/workflows/"));
+    return paths.some((path) =>
+      path?.startsWith(".github/workflows/") || path === ".github/scripts/merge-command.js");
   });
 }
 
@@ -425,7 +426,7 @@ async function run({
       );
     }
     if (isWorkflowChange(files)) {
-      throw new Error("Workflow-changing pull requests must be merged manually in v1.");
+      throw new Error("Changes to merge-bot privileged automation must be merged manually in v1.");
     }
     required = expectedChecks(files).sort((a, b) => a.name.localeCompare(b.name));
 

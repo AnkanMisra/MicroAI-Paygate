@@ -50,6 +50,8 @@ test("identifies workflow-changing pull requests for manual merging", () => {
     previous_filename: ".github/workflows/ci.yml",
   }]), true);
   assert.equal(isWorkflowChange([".github/AUTOMATION.md"]), false);
+  assert.equal(isWorkflowChange([".github/scripts/merge-command.js"]), true);
+  assert.equal(isWorkflowChange([".github/scripts/merge-command.test.js"]), false);
 });
 
 test("accepts only the expected merge commit after a branch update", async () => {

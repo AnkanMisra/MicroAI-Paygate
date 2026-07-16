@@ -38,7 +38,7 @@ Maintainer `AnkanMisra` can post an exact `/merge` comment on a ready pull reque
 3. Update the `Protect main` ruleset to require one approval and the `Vercel` context in addition to the existing required checks. Keep strict branch freshness and resolved conversations enabled.
 4. Keep repository auto-merge disabled; the command bot performs the guarded squash merge.
 
-The privileged `issue_comment` workflow checks out only the default branch and never the contributor branch. It uses the short-lived `GITHUB_TOKEN` for reads and status comments; `MERGE_BOT_TOKEN` is used only for the update-branch and exact-SHA merge API requests. Fork authors must enable maintainer edits for automatic branch updates. Workflow-changing pull requests under `.github/workflows/` are rejected by v1 and must be merged manually.
+The privileged `issue_comment` workflow checks out only the default branch and never the contributor branch. It uses the short-lived `GITHUB_TOKEN` for reads and status comments; `MERGE_BOT_TOKEN` is used only for the update-branch and exact-SHA merge API requests. Fork authors must enable maintainer edits for automatic branch updates. Pull requests changing `.github/workflows/` or the privileged `.github/scripts/merge-command.js` runtime are rejected by v1 and must be merged manually.
 
 If Vercel reports `Authorization required to deploy`, use its authorization link. The bot treats that state as pending and continues only after Vercel reports success. A failed check, a requested-changes review, a new contributor commit, or a change to `main` cancels the authorization and requires a fresh `/merge`.
 
