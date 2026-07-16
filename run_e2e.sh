@@ -2,6 +2,7 @@
 
 # Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+E2E_TMP_DIR="$(mktemp -d)"
 
 # Function to cleanup background processes on exit
 cleanup() {
@@ -10,6 +11,7 @@ cleanup() {
     if [ -n "$(jobs -p)" ]; then
         jobs -p | xargs kill 2>/dev/null
     fi
+    rm -rf "$E2E_TMP_DIR"
     exit
 }
 
@@ -41,12 +43,31 @@ if [ -z "$OPENROUTER_API_KEY" ]; then
     export OPENROUTER_URL="http://127.0.0.1:3100/api/v1/chat/completions"
     (cd "$SCRIPT_DIR" && bun tests/mock-openrouter.ts) &
 fi
-go run . &
+echo "Building Gateway..."
+go build -o "$E2E_TMP_DIR/gateway" . || { echo "Gateway build failed"; exit 1; }
+"$E2E_TMP_DIR/gateway" &
 GATEWAY_PID=$!
 
-# Wait for services to be ready
-echo "Waiting for services to initialize (10s)..."
-sleep 10
+# Wait for both services to be ready instead of assuming a fixed build/start time.
+echo "Waiting for services to initialize..."
+SERVICES_READY=false
+for _ in $(seq 1 60); do
+    if curl --fail --silent "http://127.0.0.1:3002/health" >/dev/null 2>&1 && \
+       curl --fail --silent "http://localhost:3000/healthz" >/dev/null 2>&1; then
+        SERVICES_READY=true
+        break
+    fi
+    if ! kill -0 "$VERIFIER_PID" 2>/dev/null || ! kill -0 "$GATEWAY_PID" 2>/dev/null; then
+        echo "A service exited before becoming ready"
+        exit 1
+    fi
+    sleep 1
+done
+
+if [ "$SERVICES_READY" != true ]; then
+    echo "Services did not become ready within 60 seconds"
+    exit 1
+fi
 
 echo "Running E2E Tests..."
 cd "$SCRIPT_DIR" || { echo "Error: Failed to change directory to $SCRIPT_DIR"; exit 1; }

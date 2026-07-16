@@ -73,4 +73,4 @@ jobs:
       - name: Run deterministic E2E
         run: |
           chmod +x ./run_e2e.sh
-          timeout 150 ./run_e2e.sh
+          timeout 300 ./run_e2e.sh
