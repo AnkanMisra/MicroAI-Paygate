@@ -430,13 +430,6 @@ async function run({
     }
     if (!token) throw new Error("Repository secret `MERGE_BOT_TOKEN` is not configured.");
 
-    await github.rest.reactions.createForIssueComment({
-      owner,
-      repo,
-      comment_id: context.payload.comment.id,
-      content: "rocket",
-    });
-
     let { data: pull } = await github.rest.pulls.get({ owner, repo, pull_number: pullNumber });
     if (pull.state !== "open") throw new Error("The pull request is not open.");
     if (pull.draft) throw new Error("Draft pull requests cannot be merged.");
