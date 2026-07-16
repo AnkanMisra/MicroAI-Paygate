@@ -10,7 +10,11 @@ import {
   postSummarize,
   readPaymentChallenge,
   readSummarizeSuccess,
+  getSummarizeUrl,
+  getPaymentPayer,
+  serializeSummarizeRequest,
   signPaymentContext,
+  validatePaymentContextForRequest,
 } from "@/lib/x402-client";
 import {
   connectWallet,
@@ -105,7 +109,8 @@ export function useX402() {
     });
 
     try {
-      const first = await postSummarize(text, {
+      const requestBodyText = serializeSummarizeRequest(text);
+      const first = await postSummarize(requestBodyText, {
         "X-Correlation-ID": flow.correlationId,
       });
 
@@ -142,6 +147,12 @@ export function useX402() {
 
       update({ step: "challenge" });
       const context = await readPaymentChallenge(first);
+      validatePaymentContextForRequest(context, {
+        url: getSummarizeUrl(),
+        method: "POST",
+        contentType: "application/json",
+        bodyText: requestBodyText,
+      });
       track(AnalyticsEvent.PaymentChallengeReceived, {
         ...flowProps,
         status_code: first.status,
@@ -211,7 +222,8 @@ export function useX402() {
         ...flowProps,
         chain_id: context.chainId,
       });
-      const signature = await signPaymentContext(signer, context);
+      const payer = await getPaymentPayer(signer, context);
+      const signature = await signPaymentContext(signer, context, payer);
       // The signature prompt is modal and can take arbitrarily long. If the
       // user switched or disconnected accounts while it was open, the wallet's
       // accountsChanged handler has already reset analytics identity — so only
@@ -245,8 +257,8 @@ export function useX402() {
           ...flowProps,
           chain_id: context.chainId,
         });
-        retry = await postSummarize(text, {
-          ...buildSignedHeaders(context, signature),
+        retry = await postSummarize(requestBodyText, {
+          ...buildSignedHeaders(context, signature, payer),
           "X-Correlation-ID": flow.correlationId,
         });
       } finally {

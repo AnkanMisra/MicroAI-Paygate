@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - 'web/**'
+      - 'tests/fixtures/payment-authorization-v2.json'
       - 'docker-compose.yml'
       - '.github/workflows/web-lint-build.yml'
   push:
     branches: [main]
     paths:
       - 'web/**'
+      - 'tests/fixtures/payment-authorization-v2.json'
       - 'docker-compose.yml'
       - '.github/workflows/web-lint-build.yml'
 

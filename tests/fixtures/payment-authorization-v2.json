@@ -1,0 +1,22 @@
+{
+  "bodyText": "{\"text\":\"Hello, request-bound world!\"}",
+  "bodyHex": "0x7b2274657874223a2248656c6c6f2c20726571756573742d626f756e6420776f726c6421227d",
+  "context": {
+    "authorizationVersion": 2,
+    "recipient": "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219",
+    "token": "USDC",
+    "amount": "0.001",
+    "nonce": "request-binding-v2-fixture",
+    "chainId": 84532,
+    "timestamp": 1766611200,
+    "audience": "https://gateway.example.com",
+    "method": "POST",
+    "resource": "/api/ai/summarize?mode=brief&tag=a&tag=b",
+    "contentType": "application/json",
+    "requestHash": "0x8187d0879ad19b46b277e1b761d3f70d51bc9de6459530b686cfaa503ae8d0e9"
+  },
+  "payer": "0x14791697260E4c9A71f18484C9f997B308e59325",
+  "expectedSigner": "0x14791697260E4c9A71f18484C9f997B308e59325",
+  "expectedTypedDataDigest": "0xc80167523dde00caae3e18e67ed31fc3703257a488cd385b93c2c1d20a44bf68",
+  "expectedSignature": "0xd56e5f5319be8e0cb0940a12cf7a76562edd83c83355c2d1101c0b91dfe4f6c37da9e933b8f69128f1ee4df4ccadd17de757b4fd17294502b59afffc4d6c1b331b"
+}

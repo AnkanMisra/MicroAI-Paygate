@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'verifier/**'
+      - 'tests/fixtures/payment-authorization-v2.json'
       - 'deploy/fly/verifier.fly.toml'
       - 'docker-compose.yml'
       - '.github/workflows/rust-tests.yml'
@@ -11,6 +12,7 @@ on:
     branches: [main]
     paths:
       - 'verifier/**'
+      - 'tests/fixtures/payment-authorization-v2.json'
       - 'deploy/fly/verifier.fly.toml'
       - 'docker-compose.yml'
       - '.github/workflows/rust-tests.yml'
