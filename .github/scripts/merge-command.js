@@ -11,7 +11,10 @@ const ALWAYS_REQUIRED_CHECKS = new Set([
   "Analyze (rust)",
   "Vercel",
 ]);
-const SUCCESSFUL_CONCLUSIONS = new Set(["success"]);
+const AUTHORIZED_USER_ID = 143676135;
+const GITHUB_ACTIONS_SOURCE = "check:github-actions";
+const VERCEL_SOURCE = "status:vercel.com";
+const SUCCESSFUL_CONCLUSIONS = new Set(["success", "neutral"]);
 const FAILING_CONCLUSIONS = new Set([
   "action_required",
   "cancelled",
@@ -32,18 +35,31 @@ function isWorkflowChange(files) {
   });
 }
 
+function requirement(name, source = GITHUB_ACTIONS_SOURCE) {
+  return { name, source };
+}
+
+function requirementKey(item) {
+  return `${item.source}:${item.name}`;
+}
+
 function matchesPath(path, prefixes, exact = []) {
   return prefixes.some((prefix) => path.startsWith(prefix)) || exact.includes(path);
 }
 
 function expectedChecks(files) {
-  const checks = new Set(ALWAYS_REQUIRED_CHECKS);
+  const checks = new Map([
+    ...[...ALWAYS_REQUIRED_CHECKS]
+      .filter((name) => name !== "Vercel")
+      .map((name) => [requirementKey(requirement(name)), requirement(name)]),
+    [requirementKey(requirement("Vercel", VERCEL_SOURCE)), requirement("Vercel", VERCEL_SOURCE)],
+  ]);
   const paths = files.flatMap((file) => typeof file === "string"
     ? [file]
     : [file.filename, file.previous_filename].filter(Boolean));
 
   if (paths.some((path) => matchesPath(path, [".github/"], ["codecov.yml"]))) {
-    checks.add("validate");
+    checks.set(requirementKey(requirement("validate")), requirement("validate"));
   }
 
   const gateway = paths.some((path) => matchesPath(
@@ -52,33 +68,43 @@ function expectedChecks(files) {
     ["deploy/fly/gateway.fly.toml", "docker-compose.yml", ".github/workflows/go-lint.yml", ".github/workflows/go-tests.yml"],
   ));
   if (gateway) {
-    checks.add("go-lint");
-    checks.add("go-tests");
+    checks.set(requirementKey(requirement("go-lint")), requirement("go-lint"));
+    checks.set(requirementKey(requirement("go-tests")), requirement("go-tests"));
   }
 
   const verifier = paths.some((path) => matchesPath(
     path,
     ["verifier/"],
-    ["deploy/fly/verifier.fly.toml", "docker-compose.yml", ".github/workflows/rust-lint.yml", ".github/workflows/rust-tests.yml"],
+    [
+      "tests/fixtures/payment-authorization-v2.json",
+      "deploy/fly/verifier.fly.toml",
+      "docker-compose.yml",
+      ".github/workflows/rust-lint.yml",
+      ".github/workflows/rust-tests.yml",
+    ],
   ));
   if (verifier) {
-    checks.add("rust-lint");
-    checks.add("rust-tests");
+    checks.set(requirementKey(requirement("rust-lint")), requirement("rust-lint"));
+    checks.set(requirementKey(requirement("rust-tests")), requirement("rust-tests"));
   }
 
   const web = paths.some((path) => matchesPath(
     path,
     ["web/"],
-    ["docker-compose.yml", ".github/workflows/web-lint-build.yml"],
+    [
+      "tests/fixtures/payment-authorization-v2.json",
+      "docker-compose.yml",
+      ".github/workflows/web-lint-build.yml",
+    ],
   ));
-  if (web) checks.add("web-lint-build");
+  if (web) checks.set(requirementKey(requirement("web-lint-build")), requirement("web-lint-build"));
 
   const sdk = paths.some((path) => matchesPath(
     path,
     ["sdk/", "gateway/", "verifier/", "web/", "tests/"],
     ["package.json", "bun.lock", ".github/workflows/sdk-tests.yml"],
   ));
-  if (sdk) checks.add("sdk-tests");
+  if (sdk) checks.set(requirementKey(requirement("sdk-tests")), requirement("sdk-tests"));
 
   const e2e = paths.some((path) => matchesPath(
     path,
@@ -94,9 +120,9 @@ function expectedChecks(files) {
       ".github/workflows/e2e.yml",
     ],
   ));
-  if (e2e) checks.add("e2e");
+  if (e2e) checks.set(requirementKey(requirement("e2e")), requirement("e2e"));
 
-  return checks;
+  return [...checks.values()];
 }
 
 function newestByName(items) {
@@ -125,7 +151,7 @@ function normalizeStatuses(statuses) {
   return statuses.map((status) => ({
     id: status.id,
     name: status.context,
-    source: `status:${status.creator?.login || "unknown"}`,
+    source: `status:${status.creator?.login || statusTargetHost(status.target_url) || "unknown"}`,
     status: status.state === "pending" ? "in_progress" : "completed",
     conclusion: status.state,
     description: status.description || "",
@@ -133,10 +159,22 @@ function normalizeStatuses(statuses) {
   }));
 }
 
+function statusTargetHost(targetUrl) {
+  if (!targetUrl) return null;
+  try {
+    const hostname = new URL(targetUrl).hostname.toLowerCase();
+    return hostname === "vercel.com" || hostname.endsWith(".vercel.com") ? "vercel.com" : hostname;
+  } catch {
+    return null;
+  }
+}
+
 function evaluateChecks(required, observedItems) {
   const observed = newestByName(observedItems);
-  const observedNames = new Set([...observed.values()].map((item) => item.name));
-  const missing = [...required].filter((name) => !observedNames.has(name)).sort();
+  const requiredItems = [...required];
+  const missing = requiredItems
+    .filter((item) => !observed.has(requirementKey(item)))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const pending = [];
   const failed = [];
 
@@ -341,7 +379,9 @@ async function run({
 
   try {
     if (!isMergeCommand(context.payload.comment.body)) throw new Error("The command must be exactly `/merge`.");
-    if (context.actor !== "AnkanMisra") throw new Error("Only `AnkanMisra` may use `/merge`.");
+    if (Number(context.payload.sender?.id) !== AUTHORIZED_USER_ID) {
+      throw new Error("Only the configured repository owner may use `/merge`.");
+    }
     if (!token) throw new Error("Repository secret `MERGE_BOT_TOKEN` is not configured.");
 
     await github.rest.reactions.createForIssueComment({
@@ -363,10 +403,15 @@ async function run({
       pull_number: pullNumber,
       per_page: 100,
     });
+    if (files.length !== pull.changed_files) {
+      throw new Error(
+        `GitHub returned ${files.length} of ${pull.changed_files} changed files; refusing an incomplete inspection.`,
+      );
+    }
     if (isWorkflowChange(files)) {
       throw new Error("Workflow-changing pull requests must be merged manually in v1.");
     }
-    required = [...expectedChecks(files)].sort();
+    required = expectedChecks(files).sort((a, b) => a.name.localeCompare(b.name));
 
     const { data: baseBefore } = await github.rest.repos.getBranch({ owner, repo, branch: "main" });
     if (await compareBehind(github, owner, repo, baseBefore.commit.sha, pull.head.sha)) {
@@ -414,7 +459,7 @@ async function run({
         }),
         unresolvedThreads(github, owner, repo, pullNumber),
       ]);
-      const checks = evaluateChecks(new Set(required), items);
+      const checks = evaluateChecks(required, items);
       if (checks.failed.length) {
         throw new Error(`Failed checks:\n${list(checks.failed)}`);
       }
@@ -428,14 +473,32 @@ async function run({
       waiting.push(...checks.pending);
 
       if (!checks.missing.length && !waiting.length) {
-        const finalItems = await checkSnapshot(github, owner, repo, authorizedSha);
-        const finalChecks = evaluateChecks(new Set(required), finalItems);
+        const [finalItems, finalReviewState, finalThreads] = await Promise.all([
+          checkSnapshot(github, owner, repo, authorizedSha),
+          evaluateReviews({
+            github,
+            owner,
+            repo,
+            pullNumber,
+            headSha: authorizedSha,
+            author: currentPull.user.login,
+          }),
+          unresolvedThreads(github, owner, repo, pullNumber),
+        ]);
+        const finalChecks = evaluateChecks(required, finalItems);
         const { data: finalPull } = await github.rest.pulls.get({ owner, repo, pull_number: pullNumber });
         const { data: finalBase } = await github.rest.repos.getBranch({ owner, repo, branch: "main" });
         if (finalPull.head.sha !== authorizedSha || finalBase.commit.sha !== authorizedBaseSha) {
           throw new Error("The PR or `main` changed during the final merge check.");
         }
-        if (finalChecks.failed.length || finalChecks.missing.length || finalChecks.pending.length) {
+        if (
+          finalChecks.failed.length ||
+          finalChecks.missing.length ||
+          finalChecks.pending.length ||
+          finalReviewState.changesRequested.length ||
+          !finalReviewState.approvals.length ||
+          finalThreads.length
+        ) {
           await sleep(pollIntervalMs);
           continue;
         }
@@ -444,7 +507,7 @@ async function run({
           phase: "🚀 All gates passed; squash-merging",
           sha: authorizedSha,
           required,
-          detail: `Approval: @${reviewState.approvals[0]}`,
+          detail: `Approval: @${finalReviewState.approvals[0]}`,
         }));
         const result = await tokenRequest(
           token,
@@ -487,6 +550,7 @@ async function run({
 module.exports = {
   ALLOWED_SKIPPED_CHECKS,
   ALWAYS_REQUIRED_CHECKS,
+  AUTHORIZED_USER_ID,
   BOT_MARKER,
   evaluateChecks,
   expectedChecks,
@@ -495,6 +559,7 @@ module.exports = {
   latestReviewsByUser,
   normalizeCheckRuns,
   normalizeStatuses,
+  requirement,
   run,
   statusBody,
 };

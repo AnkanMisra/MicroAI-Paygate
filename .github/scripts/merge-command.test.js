@@ -9,6 +9,7 @@ const {
   latestReviewsByUser,
   normalizeCheckRuns,
   normalizeStatuses,
+  requirement,
   statusBody,
 } = require("./merge-command");
 
@@ -30,7 +31,7 @@ test("identifies workflow-changing pull requests for manual merging", () => {
 });
 
 test("always requires branch, security, CodeQL, and Vercel gates", () => {
-  assert.deepEqual([...expectedChecks([])].sort(), [
+  assert.deepEqual(expectedChecks([]).map((item) => item.name).sort(), [
     "Analyze (go)",
     "Analyze (javascript-typescript)",
     "Analyze (rust)",
@@ -43,10 +44,10 @@ test("always requires branch, security, CodeQL, and Vercel gates", () => {
 test("maps gateway changes to every applicable path-filtered check", () => {
   const checks = expectedChecks([{ filename: "gateway/main.go" }]);
   for (const name of ["go-lint", "go-tests", "sdk-tests", "e2e"]) {
-    assert.equal(checks.has(name), true, name);
+    assert.equal(checks.some((item) => item.name === name), true, name);
   }
-  assert.equal(checks.has("rust-tests"), false);
-  assert.equal(checks.has("web-lint-build"), false);
+  assert.equal(checks.some((item) => item.name === "rust-tests"), false);
+  assert.equal(checks.some((item) => item.name === "web-lint-build"), false);
 });
 
 test("uses both sides of a renamed path when selecting checks", () => {
@@ -54,24 +55,30 @@ test("uses both sides of a renamed path when selecting checks", () => {
     filename: "docs/old-main.go",
     previous_filename: "gateway/old-main.go",
   }]);
-  assert.equal(checks.has("go-tests"), true);
-  assert.equal(checks.has("go-lint"), true);
+  assert.equal(checks.some((item) => item.name === "go-tests"), true);
+  assert.equal(checks.some((item) => item.name === "go-lint"), true);
 });
 
 test("maps verifier, web, SDK, and automation paths", () => {
   const verifier = expectedChecks(["verifier/src/main.rs"]);
-  assert.equal(verifier.has("rust-lint"), true);
-  assert.equal(verifier.has("rust-tests"), true);
-  assert.equal(verifier.has("sdk-tests"), true);
-  assert.equal(verifier.has("e2e"), true);
+  assert.equal(verifier.some((item) => item.name === "rust-lint"), true);
+  assert.equal(verifier.some((item) => item.name === "rust-tests"), true);
+  assert.equal(verifier.some((item) => item.name === "sdk-tests"), true);
+  assert.equal(verifier.some((item) => item.name === "e2e"), true);
 
   const web = expectedChecks(["web/src/app/page.tsx"]);
-  assert.equal(web.has("web-lint-build"), true);
-  assert.equal(web.has("sdk-tests"), true);
-  assert.equal(web.has("e2e"), false);
+  assert.equal(web.some((item) => item.name === "web-lint-build"), true);
+  assert.equal(web.some((item) => item.name === "sdk-tests"), true);
+  assert.equal(web.some((item) => item.name === "e2e"), false);
 
-  assert.equal(expectedChecks(["sdk/typescript/src/index.ts"]).has("sdk-tests"), true);
-  assert.equal(expectedChecks([".github/AUTOMATION.md"]).has("validate"), true);
+  assert.equal(expectedChecks(["sdk/typescript/src/index.ts"]).some((item) => item.name === "sdk-tests"), true);
+  assert.equal(expectedChecks([".github/AUTOMATION.md"]).some((item) => item.name === "validate"), true);
+});
+
+test("shared payment fixture requires verifier and web checks", () => {
+  const checks = expectedChecks(["tests/fixtures/payment-authorization-v2.json"]);
+  assert.equal(checks.some((item) => item.name === "rust-tests"), true);
+  assert.equal(checks.some((item) => item.name === "web-lint-build"), true);
 });
 
 test("docker compose changes require all affected service checks", () => {
@@ -84,7 +91,7 @@ test("docker compose changes require all affected service checks", () => {
     "web-lint-build",
     "e2e",
   ]) {
-    assert.equal(checks.has(name), true, name);
+    assert.equal(checks.some((item) => item.name === name), true, name);
   }
 });
 
@@ -117,20 +124,23 @@ test("normalizes check runs and commit statuses", () => {
 });
 
 test("waits for missing and pending checks", () => {
-  const result = evaluateChecks(new Set(["go-tests", "Vercel"]), [{
+  const result = evaluateChecks([
+    requirement("go-tests"),
+    requirement("Vercel", "status:vercel.com"),
+  ], [{
     id: 1,
     name: "go-tests",
     source: "check:github-actions",
     status: "in_progress",
     conclusion: null,
   }]);
-  assert.deepEqual(result.missing, ["Vercel"]);
+  assert.deepEqual(result.missing.map((item) => item.name), ["Vercel"]);
   assert.deepEqual(result.pending.map((item) => item.name), ["go-tests"]);
   assert.deepEqual(result.failed, []);
 });
 
 test("treats Vercel fork authorization as waitable", () => {
-  const result = evaluateChecks(new Set(["Vercel"]), [{
+  const result = evaluateChecks([requirement("Vercel", "status:vercel.com")], [{
     id: 1,
     name: "Vercel",
     source: "status:vercel",
@@ -144,7 +154,7 @@ test("treats Vercel fork authorization as waitable", () => {
 });
 
 test("fails real failures and unknown skipped checks", () => {
-  const result = evaluateChecks(new Set(), [
+  const result = evaluateChecks([], [
     { id: 1, name: "go-tests", source: "check:github-actions", status: "completed", conclusion: "failure" },
     { id: 2, name: "unexpected", source: "check:other", status: "completed", conclusion: "skipped" },
   ]);
@@ -152,7 +162,7 @@ test("fails real failures and unknown skipped checks", () => {
 });
 
 test("allows only known non-applicable skipped checks", () => {
-  const result = evaluateChecks(new Set(), [
+  const result = evaluateChecks([], [
     { id: 1, name: "claude", source: "check:github-actions", status: "completed", conclusion: "skipped" },
     { id: 2, name: "Macroscope - Correctness Check", source: "check:macroscope", status: "completed", conclusion: "skipped" },
   ]);
@@ -161,7 +171,7 @@ test("allows only known non-applicable skipped checks", () => {
 });
 
 test("uses only the newest result for duplicate check names", () => {
-  const result = evaluateChecks(new Set(["Vercel"]), [
+  const result = evaluateChecks([requirement("Vercel", "status:vercel")], [
     { id: 1, name: "Vercel", source: "status:vercel", status: "completed", conclusion: "failure", description: "build failed" },
     { id: 2, name: "Vercel", source: "status:vercel", status: "completed", conclusion: "success" },
   ]);
@@ -170,11 +180,26 @@ test("uses only the newest result for duplicate check names", () => {
 });
 
 test("requires same-named checks from different providers to both pass", () => {
-  const result = evaluateChecks(new Set(["security"]), [
+  const result = evaluateChecks([requirement("security", "check:first")], [
     { id: 1, name: "security", source: "check:first", status: "completed", conclusion: "success" },
     { id: 2, name: "security", source: "status:second", status: "completed", conclusion: "failure" },
   ]);
   assert.deepEqual(result.failed.map((item) => item.source), ["status:second"]);
+});
+
+test("an untrusted same-named check cannot satisfy a trusted requirement", () => {
+  const result = evaluateChecks([requirement("security", "check:trusted")], [
+    { id: 1, name: "security", source: "check:untrusted", status: "completed", conclusion: "success" },
+  ]);
+  assert.deepEqual(result.missing, [requirement("security", "check:trusted")]);
+});
+
+test("accepts neutral check conclusions as passing", () => {
+  const result = evaluateChecks([requirement("advisory")], [
+    { id: 1, name: "advisory", source: "check:github-actions", status: "completed", conclusion: "neutral" },
+  ]);
+  assert.deepEqual(result.missing, []);
+  assert.deepEqual(result.failed, []);
 });
 
 test("tracks each reviewer's latest state", () => {

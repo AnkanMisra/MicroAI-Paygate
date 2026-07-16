@@ -25,7 +25,7 @@ Create a repository ruleset targeting `main` with:
 
 Service-specific checks are path-filtered. Keep them visible on relevant PRs, but do not make a skipped path-filtered check globally required until CI exposes one always-on aggregate status.
 
-After the ruleset is active, enable automatic head-branch updates, automatic deletion of merged branches, and auto-merge if the repository's merge policy allows them.
+After the ruleset is active, enable automatic head-branch updates and automatic deletion of merged branches. Keep repository auto-merge disabled when using the merge command bot below.
 
 ## Merge command bot
 

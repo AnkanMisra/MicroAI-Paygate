@@ -12,14 +12,18 @@ permissions:
   statuses: read
 
 concurrency:
-  group: merge-command-${{ github.event.issue.number }}
+  group: >-
+    merge-command-${{
+      github.event.sender.id == 143676135 && github.event.comment.body == '/merge' &&
+      format('authorized-{0}', github.event.issue.number) || format('ignored-{0}', github.run_id)
+    }}
   cancel-in-progress: true
 
 jobs:
   merge:
     if: >-
       github.event.issue.pull_request != null &&
-      github.actor == 'AnkanMisra' &&
+      github.event.sender.id == 143676135 &&
       github.event.comment.body == '/merge'
     runs-on: ubuntu-latest
     timeout-minutes: 125
