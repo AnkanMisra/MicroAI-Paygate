@@ -114,6 +114,7 @@ git checkout -b feat/web-receipt-viewer
 - New pull requests are auto-labeled from changed paths, for example `go`, `rust`, `TypeScript`, `documentation`, and workflow-related labels.
 - PR path labels stay in sync with the current diff when files are added or removed from the branch.
 - Comment `/claim` on an unassigned issue to ask the bot to assign it to you. Writing "assign me" in a new issue body also triggers self-assignment when the issue is still unassigned.
+- After a pull request is approved and its required checks are passing, maintainer `AnkanMisra` merges it by posting an exact `/merge` comment on the pull request. The bot revalidates the approved head commit, review threads, branch freshness, CodeQL, applicable CI, and Vercel before squash-merging.
 - Inactive issues and pull requests are marked stale after 45 days and closed 7 days later unless they have an assignee or exempt labels.
 - Automation is intentionally conservative. Maintainers may adjust labels manually when the bot guesses wrong.
 
@@ -207,6 +208,16 @@ Do not open public issues for vulnerabilities. Follow [SECURITY.md](SECURITY.md)
 ## Maintainer Review Expectations
 
 Reviewers should check the whole affected flow, not only changed lines. Cross-service behavior often touches gateway structs, verifier structs, web typed data, E2E signing, OpenAPI, README diagrams, env examples, Docker, deployment docs, and CI path filters.
+
+When a pull request is ready to merge:
+
+1. Confirm the current head has the required approval, no requested changes, and no unresolved review conversations.
+2. Authorize Vercel when a fork deployment requests it.
+3. Post an exact `/merge` comment on the pull request from the `AnkanMisra` account. Do not use `/merch`, additional prose, or GitHub's manual merge button for a normal pull request.
+4. Let the Merge Command Bot wait for or revalidate every required check and squash-merge the authorized head.
+5. If the bot automatically updates an out-of-date branch, approve the updated head when required and let the same command continue. If the contributor pushes or the head changes unexpectedly, approve the new head when required and post a fresh `/merge` command.
+
+Pull requests that change `.github/workflows/**` or `.github/scripts/merge-command.js` are intentionally rejected by the bot and must be reviewed and merged manually.
 
 Pull requests are easiest to merge when they:
 
