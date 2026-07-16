@@ -215,7 +215,7 @@ When a pull request is ready to merge:
 2. Authorize Vercel when a fork deployment requests it.
 3. Post an exact `/merge` comment on the pull request from the `AnkanMisra` account. Do not use `/merch`, additional prose, or GitHub's manual merge button for a normal pull request.
 4. Let the Merge Command Bot wait for or revalidate every required check and squash-merge the authorized head.
-5. If the branch or contributor head changes, approve the new head when required and post a fresh `/merge` command.
+5. If the bot automatically updates an out-of-date branch, approve the updated head when required and let the same command continue. If the contributor pushes or the head changes unexpectedly, approve the new head when required and post a fresh `/merge` command.
 
 Pull requests that change `.github/workflows/**` or `.github/scripts/merge-command.js` are intentionally rejected by the bot and must be reviewed and merged manually.
 

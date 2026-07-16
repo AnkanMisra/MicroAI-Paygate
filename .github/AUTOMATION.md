@@ -38,7 +38,7 @@ Maintainer `AnkanMisra` can post an exact `/merge` comment on a ready pull reque
 3. After the required checks pass, comment exactly `/merge` on the pull request from the `AnkanMisra` account.
 4. Let the bot revalidate the merge gates and squash-merge the authorized head. Do not use GitHub's manual merge button for a normal pull request.
 
-The command is `/merge`, not `/merch`, and must not include other prose. A contributor push or branch update invalidates the old authorization; approve the new head when required and post a fresh `/merge`. Pull requests changing `.github/workflows/**` or `.github/scripts/merge-command.js` remain manual-merge exceptions.
+The command is `/merge`, not `/merch`, and must not include other prose. If the bot automatically updates an out-of-date branch, approve the updated head when required; the same command keeps running. A contributor push or any other unexpected head change invalidates the authorization and requires a fresh `/merge`. Pull requests changing `.github/workflows/**` or `.github/scripts/merge-command.js` remain manual-merge exceptions.
 
 ### Required setup
 

@@ -37,7 +37,7 @@
 ## Maintainer Merge Workflow
 - For a normal pull request, do not use GitHub's manual merge button after checks pass. Once the current head is approved, review conversations are resolved, Vercel is authorized, and required checks are passing, post an exact `/merge` comment from the `AnkanMisra` account.
 - The command must be exactly `/merge`. Similar commands such as `/merch` or comments containing additional prose do not trigger a merge.
-- Treat `/merge` as authorization for the current head commit only. If the contributor pushes or the branch is updated, obtain any required fresh approval and post `/merge` again.
+- Treat `/merge` as authorization for the current head commit only. If the bot automatically updates an out-of-date branch, obtain any required fresh approval and let the same command continue. If the contributor pushes or the head changes unexpectedly, obtain any required fresh approval and post `/merge` again.
 - The bot revalidates branch freshness, approvals, requested changes, unresolved threads, applicable CI, CodeQL, and Vercel before squash-merging.
 - Pull requests changing `.github/workflows/**` or `.github/scripts/merge-command.js` cannot use the bot and must be merged manually after review.
 
