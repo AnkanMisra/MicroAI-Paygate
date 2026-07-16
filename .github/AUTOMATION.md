@@ -31,6 +31,15 @@ After the ruleset is active, enable automatic head-branch updates and automatic 
 
 Maintainer `AnkanMisra` can post an exact `/merge` comment on a ready pull request. The bot binds the command to one head commit, updates an out-of-date branch when possible, waits for a current write-access approval, resolved review threads, every applicable CI job, all CodeQL jobs, and Vercel, then squash-merges that exact commit.
 
+### Maintainer usage
+
+1. Review and approve the current pull request head and resolve every review conversation.
+2. Authorize Vercel when a fork deployment requests it.
+3. After the required checks pass, comment exactly `/merge` on the pull request from the `AnkanMisra` account.
+4. Let the bot revalidate the merge gates and squash-merge the authorized head. Do not use GitHub's manual merge button for a normal pull request.
+
+The command is `/merge`, not `/merch`, and must not include other prose. A contributor push or branch update invalidates the old authorization; approve the new head when required and post a fresh `/merge`. Pull requests changing `.github/workflows/**` or `.github/scripts/merge-command.js` remain manual-merge exceptions.
+
 ### Required setup
 
 1. Create a classic personal access token owned by `AnkanMisra` with only the `public_repo` scope and a 90-day expiration. This least-privilege scope is sufficient because MicroAI-Paygate is public; if the repository becomes private, replace it with a `repo`-scoped or appropriately permissioned fine-grained token.

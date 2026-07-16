@@ -34,6 +34,13 @@
   `Co-authored-by: codex <codex@users.noreply.github.com>`
 - Keep the trailer in addition to any human or tool co-authors. Do not omit it from docs-only, review-followup, or small cleanup commits when Codex performed the work.
 
+## Maintainer Merge Workflow
+- For a normal pull request, do not use GitHub's manual merge button after checks pass. Once the current head is approved, review conversations are resolved, Vercel is authorized, and required checks are passing, post an exact `/merge` comment from the `AnkanMisra` account.
+- The command must be exactly `/merge`. Similar commands such as `/merch` or comments containing additional prose do not trigger a merge.
+- Treat `/merge` as authorization for the current head commit only. If the contributor pushes or the branch is updated, obtain any required fresh approval and post `/merge` again.
+- The bot revalidates branch freshness, approvals, requested changes, unresolved threads, applicable CI, CodeQL, and Vercel before squash-merging.
+- Pull requests changing `.github/workflows/**` or `.github/scripts/merge-command.js` cannot use the bot and must be merged manually after review.
+
 ## Strict Codex Review Guidelines
 When asked to review a PR, act like a senior engineer doing a pre-merge review. Inspect every changed file and enough surrounding code to trace the affected behavior. Do **not** stop at “no major issues” if there are concrete edge cases, missing tests, docs drift, CI gaps, or maintainability risks.
 
