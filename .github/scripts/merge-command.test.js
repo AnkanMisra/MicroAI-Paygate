@@ -38,6 +38,7 @@ function compareClient(behindBy) {
 
 function protectedRuleset(overrides = {}) {
   return {
+    id: 1,
     target: "branch",
     enforcement: "active",
     current_user_can_bypass: "never",
@@ -64,6 +65,11 @@ function protectedRuleset(overrides = {}) {
     }],
     ...overrides,
   };
+}
+
+function effectiveRules() {
+  const ruleset = protectedRuleset();
+  return ruleset.rules.map((rule) => ({ ...rule, ruleset_id: ruleset.id }));
 }
 
 test("recognizes only the exact merge command", () => {
@@ -116,15 +122,34 @@ test("rejects an authorized head when main advanced during the update", async ()
 });
 
 test("requires non-bypassable atomic merge protections", () => {
-  assert.equal(hasRequiredMergeProtection([protectedRuleset()]), true);
-  assert.equal(hasRequiredMergeProtection([protectedRuleset({ current_user_can_bypass: "always" })]), false);
+  assert.equal(hasRequiredMergeProtection(effectiveRules(), [protectedRuleset()]), true);
+  assert.equal(hasRequiredMergeProtection(
+    effectiveRules(),
+    [protectedRuleset({ current_user_can_bypass: "always" })],
+  ), false);
   const missingVercel = protectedRuleset();
   missingVercel.rules[0].parameters.required_status_checks =
     missingVercel.rules[0].parameters.required_status_checks.filter((check) => check.context !== "Vercel");
-  assert.equal(hasRequiredMergeProtection([missingVercel]), false);
+  assert.equal(hasRequiredMergeProtection(
+    missingVercel.rules.map((rule) => ({ ...rule, ruleset_id: missingVercel.id })),
+    [missingVercel],
+  ), false);
   const noApproval = protectedRuleset();
   noApproval.rules[1].parameters.required_approving_review_count = 0;
-  assert.equal(hasRequiredMergeProtection([noApproval]), false);
+  assert.equal(hasRequiredMergeProtection(
+    noApproval.rules.map((rule) => ({ ...rule, ruleset_id: noApproval.id })),
+    [noApproval],
+  ), false);
+});
+
+test("uses GitHub-resolved effective rules independent of ref patterns", () => {
+  const wildcard = protectedRuleset({
+    conditions: { ref_name: { include: ["refs/heads/*"], exclude: [] } },
+  });
+  assert.equal(hasRequiredMergeProtection(
+    wildcard.rules.map((rule) => ({ ...rule, ruleset_id: wildcard.id })),
+    [wildcard],
+  ), true);
 });
 
 test("always requires branch, security, CodeQL, and Vercel gates", () => {

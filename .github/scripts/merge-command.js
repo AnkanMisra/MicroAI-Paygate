@@ -331,34 +331,27 @@ async function tokenRequest(token, method, path, body) {
   return payload;
 }
 
-function rulesetTargetsBranch(ruleset, branch) {
-  if (ruleset.target !== "branch" || ruleset.enforcement !== "active") return false;
-  const refName = ruleset.conditions?.ref_name;
-  if (!refName) return false;
-  const matches = (pattern) => ["~ALL", "~DEFAULT_BRANCH", `refs/heads/${branch}`].includes(pattern);
-  return refName.include?.some(matches) && !refName.exclude?.some(matches);
-}
-
-function hasRequiredMergeProtection(rulesets, branch = "main") {
-  return rulesets.some((ruleset) => {
-    if (!rulesetTargetsBranch(ruleset, branch) || ruleset.current_user_can_bypass !== "never") return false;
-    const statusRule = ruleset.rules?.find((rule) => rule.type === "required_status_checks");
-    const pullRule = ruleset.rules?.find((rule) => rule.type === "pull_request");
-    const contexts = new Set(
-      statusRule?.parameters?.required_status_checks?.map((check) => check.context) || [],
-    );
-    return statusRule?.parameters?.strict_required_status_checks_policy === true &&
-      [...ATOMIC_REQUIRED_CONTEXTS].every((context) => contexts.has(context)) &&
-      pullRule?.parameters?.required_approving_review_count >= 1 &&
-      pullRule?.parameters?.required_review_thread_resolution === true;
-  });
+function hasRequiredMergeProtection(effectiveRules, rulesets) {
+  const rulesetsById = new Map(rulesets.map((ruleset) => [ruleset.id, ruleset]));
+  const nonBypassableRules = effectiveRules.filter((rule) =>
+    rulesetsById.get(rule.ruleset_id)?.current_user_can_bypass === "never");
+  const statusRules = nonBypassableRules.filter((rule) => rule.type === "required_status_checks");
+  const pullRules = nonBypassableRules.filter((rule) => rule.type === "pull_request");
+  const contexts = new Set(statusRules.flatMap((rule) =>
+    rule.parameters?.required_status_checks?.map((check) => check.context) || []));
+  return statusRules.some((rule) => rule.parameters?.strict_required_status_checks_policy === true) &&
+    [...ATOMIC_REQUIRED_CONTEXTS].every((context) => contexts.has(context)) &&
+    pullRules.some((rule) =>
+      rule.parameters?.required_approving_review_count >= 1 &&
+      rule.parameters?.required_review_thread_resolution === true);
 }
 
 async function assertRequiredMergeProtection(token, owner, repo) {
-  const summaries = await tokenRequest(token, "GET", `/repos/${owner}/${repo}/rulesets`);
-  const rulesets = await Promise.all(summaries.map((ruleset) =>
-    tokenRequest(token, "GET", `/repos/${owner}/${repo}/rulesets/${ruleset.id}`)));
-  if (!hasRequiredMergeProtection(rulesets)) {
+  const effectiveRules = await tokenRequest(token, "GET", `/repos/${owner}/${repo}/rules/branches/main`);
+  const rulesetIds = [...new Set(effectiveRules.map((rule) => rule.ruleset_id).filter(Boolean))];
+  const rulesets = await Promise.all(rulesetIds.map((id) =>
+    tokenRequest(token, "GET", `/repos/${owner}/${repo}/rulesets/${id}`)));
+  if (!hasRequiredMergeProtection(effectiveRules, rulesets)) {
     throw new Error(
       "`main` lacks the required non-bypassable strict checks, Vercel, approval, or conversation ruleset. Configure `Protect main` before using `/merge`.",
     );
