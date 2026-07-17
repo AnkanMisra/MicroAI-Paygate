@@ -13,17 +13,21 @@ const originalClearTimeout = window.clearTimeout;
 
 let nextTimerId = 1;
 let pendingTimers = new Map<number, () => void>();
+let pendingTimerDelays = new Map<number, number>();
 
 function installDeterministicTimers(): void {
   nextTimerId = 1;
   pendingTimers = new Map();
-  window.setTimeout = ((callback: TimerHandler) => {
+  pendingTimerDelays = new Map();
+  window.setTimeout = ((callback: TimerHandler, delay?: number) => {
     const id = nextTimerId++;
     pendingTimers.set(id, callback as () => void);
+    pendingTimerDelays.set(id, delay ?? 0);
     return id;
   }) as unknown as typeof window.setTimeout;
   window.clearTimeout = ((id: number) => {
     pendingTimers.delete(id);
+    pendingTimerDelays.delete(id);
   }) as typeof window.clearTimeout;
 }
 
@@ -55,6 +59,7 @@ afterEach(() => {
   window.clearTimeout = originalClearTimeout;
   browserAnalytics.capture = originalCapture;
   pendingTimers.clear();
+  pendingTimerDelays.clear();
 
   if (originalClipboard) {
     Object.defineProperty(navigator, "clipboard", originalClipboard);
@@ -111,6 +116,7 @@ describe("CopyButton", () => {
     fireEvent.click(button);
     await waitFor(() => expect(button.textContent).toContain("Copied"));
     expect(pendingTimers.size).toBe(1);
+    expect(pendingTimerDelays.get([...pendingTimers.keys()][0])).toBe(1600);
 
     act(() => flushPendingTimer());
     expect(button.textContent).toContain("Copy");
