@@ -25,6 +25,13 @@ const ORIGIN = new URL(process.env.ORIGIN ?? "https://microai-paygate.vercel.app
 
 const DOMAIN_NAME = "MicroAI Paygate";
 const DOMAIN_VERSION = "2";
+const SIGNED_RETRY_HEADERS = [
+  "content-type",
+  "x-402-signature",
+  "x-402-nonce",
+  "x-402-timestamp",
+  "x-402-payer",
+] as const;
 
 type PaymentContext = {
   authorizationVersion: 2;
@@ -140,12 +147,48 @@ async function postSigned(ctx: PaymentContext, sig: string, payer: string, body:
   return { status: r.status, body: await r.text(), headers: r.headers };
 }
 
+async function validateSignedRetryPreflight(): Promise<boolean> {
+  const response = await timedFetch(`${GATEWAY}/api/ai/summarize`, {
+    method: "OPTIONS",
+    headers: {
+      Origin: ORIGIN,
+      "Access-Control-Request-Method": "POST",
+      "Access-Control-Request-Headers": SIGNED_RETRY_HEADERS.join(","),
+    },
+  });
+  const allowOrigin = response.headers.get("access-control-allow-origin");
+  const allowMethods = new Set(
+    (response.headers.get("access-control-allow-methods") ?? "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase()),
+  );
+  const allowHeaders = new Set(
+    (response.headers.get("access-control-allow-headers") ?? "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase()),
+  );
+  const missingHeaders = SIGNED_RETRY_HEADERS.filter((header) => !allowHeaders.has(header));
+
+  const checks = [
+    ["signed retry preflight succeeds", response.ok, `HTTP ${response.status}`],
+    ["preflight allows deployed web origin", allowOrigin === ORIGIN, allowOrigin ?? "missing"],
+    ["preflight allows POST", allowMethods.has("post"), [...allowMethods].join(",") || "missing"],
+    ["preflight allows signed retry headers", missingHeaders.length === 0, missingHeaders.join(",") || "all"],
+  ] as const;
+  for (const [label, ok, detail] of checks) rec(label, ok, detail);
+  return checks.every(([, ok]) => ok);
+}
+
 async function main() {
   console.log(`Targets:\n  gateway  ${GATEWAY}\n  verifier ${VERIFIER}\n  origin   ${ORIGIN}`);
   const wallet = ethers.Wallet.createRandom();
   console.log(`Ephemeral wallet: ${wallet.address}`);
 
   bar("Happy path");
+  if (!(await validateSignedRetryPreflight())) {
+    bar(`Summary: ${failures} failure(s)`);
+    process.exit(1);
+  }
   const body = JSON.stringify({ text: "smoke test summarize" });
   const ctx = await getChallenge(body);
   rec("challenge uses authorization v2", ctx.authorizationVersion === 2, String(ctx.authorizationVersion));
