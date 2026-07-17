@@ -251,7 +251,7 @@ Run the checks for every component you change:
 | Web | `cd web && bun run lint && bun run typecheck && bun run test:unit && bun run build` |
 | SDK | `cd sdk/typescript && bun run typecheck && bun run test` |
 | Unit suite | `bun run test:unit` |
-| E2E | `RECEIPT_STORE=memory VERIFIER_NONCE_STORE=memory CACHE_ENABLED=false bun run test:e2e` — also requires `OPENROUTER_API_KEY` for the default provider |
+| E2E | `RECEIPT_STORE=memory VERIFIER_NONCE_STORE=memory CACHE_ENABLED=false bun run test:e2e` — starts a deterministic OpenRouter-compatible mock when `OPENROUTER_API_KEY` is unset; set the key to exercise the live provider |
 
 > [!TIP]
 > Do not replace `bun run test:e2e` with plain `bun test`; the E2E script builds and starts the gateway and verifier first.

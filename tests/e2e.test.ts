@@ -96,16 +96,6 @@ describe("MicroAI Paygate E2E Flow", () => {
       body,
     });
 
-    // Note: It might fail if OpenRouter credentials are missing/invalid, but we expect at least not 402/403.
-    // If 502 with upstream_unavailable, it means verification passed and only the AI provider failed.
-    if (res.status === 502) {
-        const text = await res.text();
-        if (text.includes("upstream_unavailable")) {
-            expect(true).toBe(true); 
-            return;
-        }
-    }
-
     expect(res.status).toBe(200);
     const data = await res.json() as any;
     expect(data.result).toBeDefined();
