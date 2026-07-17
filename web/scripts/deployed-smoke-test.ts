@@ -21,7 +21,7 @@ import { ethers } from "ethers";
 
 const GATEWAY = process.env.GATEWAY_URL ?? "https://microai-gateway.onrender.com";
 const VERIFIER = process.env.VERIFIER_URL ?? "https://microai-paygate.onrender.com";
-const ORIGIN = process.env.ORIGIN ?? "https://microai-paygate.vercel.app";
+const ORIGIN = new URL(process.env.ORIGIN ?? "https://microai-paygate.vercel.app").origin;
 
 const DOMAIN_NAME = "MicroAI Paygate";
 const DOMAIN_VERSION = "2";
@@ -109,6 +109,21 @@ async function signCtx(wallet: ethers.Signer, ctx: PaymentContext, chainIdOverri
   );
 }
 
+function validateChallengeBinding(ctx: PaymentContext, body: string): boolean {
+  const expectedAudience = new URL(GATEWAY).origin;
+  const expectedRequestHash = ethers.sha256(ethers.toUtf8Bytes(body));
+  const checks = [
+    ["challenge audience matches gateway", ctx.audience === expectedAudience, ctx.audience],
+    ["challenge method is POST", ctx.method === "POST", ctx.method],
+    ["challenge resource matches request", ctx.resource === "/api/ai/summarize", ctx.resource],
+    ["challenge content type matches request", ctx.contentType === "application/json", ctx.contentType],
+    ["challenge request hash matches body", ctx.requestHash === expectedRequestHash, ctx.requestHash],
+  ] as const;
+
+  for (const [label, ok, detail] of checks) rec(label, ok, detail);
+  return checks.every(([, ok]) => ok);
+}
+
 async function postSigned(ctx: PaymentContext, sig: string, payer: string, body: string) {
   const r = await timedFetch(`${GATEWAY}/api/ai/summarize`, {
     method: "POST",
@@ -135,9 +150,15 @@ async function main() {
   const ctx = await getChallenge(body);
   rec("challenge uses authorization v2", ctx.authorizationVersion === 2, String(ctx.authorizationVersion));
   rec("recipient is EIP-55 canonical", (() => { try { return ethers.getAddress(ctx.recipient) === ctx.recipient; } catch { return false; } })(), ctx.recipient);
+  if (ctx.authorizationVersion !== 2 || !validateChallengeBinding(ctx, body)) {
+    bar(`Summary: ${failures} failure(s)`);
+    process.exit(1);
+  }
   const sig = await signCtx(wallet, ctx);
   const ok = await postSigned(ctx, sig, wallet.address, body);
   rec("signed flow returns 200", ok.status === 200, `HTTP ${ok.status}`);
+  const allowOrigin = ok.headers.get("access-control-allow-origin");
+  rec("signed response allows deployed web origin", allowOrigin === ORIGIN, allowOrigin ?? "missing");
   const receiptHeader = ok.headers.get("x-402-receipt");
   rec("X-402-Receipt header present", !!receiptHeader, receiptHeader ? "yes" : "missing");
 

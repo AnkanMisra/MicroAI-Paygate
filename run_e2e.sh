@@ -40,6 +40,7 @@ export SERVER_WALLET_PRIVATE_KEY="${SERVER_WALLET_PRIVATE_KEY:-0123456789abcdef0
 export RECIPIENT_ADDRESS="${RECIPIENT_ADDRESS:-0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219}"
 if [ -z "$OPENROUTER_API_KEY" ]; then
     echo "Starting deterministic OpenRouter mock..."
+    export AI_PROVIDER="openrouter"
     export OPENROUTER_API_KEY="e2e-test-key"
     export OPENROUTER_URL="http://127.0.0.1:3100/api/v1/chat/completions"
     (cd "$SCRIPT_DIR" && bun tests/mock-openrouter.ts) &

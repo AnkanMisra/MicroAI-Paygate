@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/idna"
 )
 
 var defaultAllowedOrigins = []string{"http://localhost:3001"}
@@ -81,7 +83,14 @@ func normalizePaygateAudience() error {
 		return fmt.Errorf("PAYGATE_AUDIENCE must contain an origin only")
 	}
 
-	hostname := strings.ToLower(parsed.Hostname())
+	hostname := parsed.Hostname()
+	if !strings.Contains(hostname, ":") {
+		hostname, err = idna.Lookup.ToASCII(hostname)
+		if err != nil {
+			return fmt.Errorf("PAYGATE_AUDIENCE must contain a valid hostname: %w", err)
+		}
+	}
+	hostname = strings.ToLower(hostname)
 	port := parsed.Port()
 	if port != "" {
 		portNumber, err := strconv.Atoi(port)
