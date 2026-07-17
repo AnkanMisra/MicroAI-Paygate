@@ -25,7 +25,38 @@ Create a repository ruleset targeting `main` with:
 
 Service-specific checks are path-filtered. Keep them visible on relevant PRs, but do not make a skipped path-filtered check globally required until CI exposes one always-on aggregate status.
 
-After the ruleset is active, enable automatic head-branch updates, automatic deletion of merged branches, and auto-merge if the repository's merge policy allows them.
+After the ruleset is active, enable automatic head-branch updates and automatic deletion of merged branches. Keep repository auto-merge disabled when using the merge command bot below.
+
+## Merge command bot
+
+Maintainer `AnkanMisra` can post an exact `/merge` comment on a ready pull request. The bot binds the command to one head commit, updates an out-of-date branch when possible, waits for a current write-access approval, resolved review threads, every applicable CI job, all CodeQL jobs, and Vercel, then squash-merges that exact commit.
+
+### Maintainer usage
+
+1. Review and approve the current pull request head and resolve every review conversation.
+2. Authorize Vercel when a fork deployment requests it.
+3. After the required checks pass, comment exactly `/merge` on the pull request from the `AnkanMisra` account.
+4. Let the bot revalidate the merge gates and squash-merge the authorized head. Do not use GitHub's manual merge button for a normal pull request.
+
+The command is `/merge`, not `/merch`, and must not include other prose. If the bot automatically updates an out-of-date branch, approve the updated head when required; the same command keeps running. A contributor push or any other unexpected head change invalidates the authorization and requires a fresh `/merge`. Pull requests changing `.github/workflows/**` or `.github/scripts/merge-command.js` remain manual-merge exceptions.
+
+### Required setup
+
+1. Create a classic personal access token owned by `AnkanMisra` with only the `public_repo` scope and a 90-day expiration. This least-privilege scope is sufficient because MicroAI-Paygate is public; if the repository becomes private, replace it with a `repo`-scoped or appropriately permissioned fine-grained token.
+2. Store it as the Actions repository secret `MERGE_BOT_TOKEN` and record its expiration in the maintainer calendar. Never expose it as a repository variable.
+3. Update the `Protect main` ruleset to require one approval and bind the `Vercel` context to the official Vercel integration in addition to the existing required checks. Keep strict branch freshness and resolved conversations enabled, and do not grant `AnkanMisra` or the token a bypass. The bot verifies these protections before waiting and again immediately before merging, and accepts Vercel progress only from deployments owned by the immutable Vercel bot account.
+4. Keep repository auto-merge disabled; the command bot performs the guarded squash merge.
+
+The privileged `issue_comment` workflow checks out only the default branch and never the contributor branch. It uses the short-lived `GITHUB_TOKEN` only for reads. `MERGE_BOT_TOKEN` creates or updates the marked merge-status comment and is used for the update-branch and exact-SHA merge API requests. This avoids GitHub's write restrictions on the temporary token for fork pull requests. Fork authors must enable maintainer edits for automatic branch updates. Pull requests changing `.github/workflows/` or the privileged `.github/scripts/merge-command.js` runtime are rejected by v1 and must be merged manually.
+
+If Vercel reports `Authorization required to deploy`, use its authorization link. The bot treats that state as pending and continues only after Vercel reports success. A failed check, a requested-changes review, a new contributor commit, or a change to `main` cancels the authorization and requires a fresh `/merge`.
+
+### Merge bot rollback
+
+1. Disable the `Merge Command Bot` workflow.
+2. Delete or rotate `MERGE_BOT_TOKEN` immediately.
+3. Revert the workflow, script, tests, and this documentation together.
+4. If manual merging is blocked, temporarily remove the added `Vercel` requirement while keeping the other main-branch protections intact.
 
 ## Added security and quality checks
 

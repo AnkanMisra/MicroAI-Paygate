@@ -274,7 +274,7 @@ The demo deployment uses Render for the gateway and verifier, Vercel for the web
 
 ## Current boundaries
 
-- The protocol uses custom `X-402-*` headers and has no official facilitator adapter.
+- The protocol uses custom `X-402-*` headers and has no official facilitator adapters.
 - Wallet signatures authorize payment contexts but do not prove on-chain settlement.
 - Gateway rate limits are process-local; horizontally scaled deployments need distributed limits.
 - Memory-backed nonces and receipts are single-process development modes; use Redis for shared or restart-safe state.
