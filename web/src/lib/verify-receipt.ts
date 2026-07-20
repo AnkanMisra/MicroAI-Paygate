@@ -128,6 +128,22 @@ export function receiptMatchesPaymentAuthorization(
   }
 }
 
+function sha256Body(bodyText: string): string {
+  return `sha256:${ethers.sha256(ethers.toUtf8Bytes(bodyText)).slice(2)}`;
+}
+
+export function receiptMatchesExchange(
+  signedReceipt: SignedReceipt,
+  endpoint: string,
+  requestBodyText: string,
+  responseBodyText: string,
+): boolean {
+  const service = signedReceipt.receipt.service;
+  return service.endpoint === endpoint &&
+    service.request_hash === sha256Body(requestBodyText) &&
+    service.response_hash === sha256Body(responseBodyText);
+}
+
 /**
  * Verifies a cryptographic receipt signature
  * 

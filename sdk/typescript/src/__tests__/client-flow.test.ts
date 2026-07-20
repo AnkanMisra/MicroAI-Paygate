@@ -5,6 +5,7 @@ import authorizationV2Fixture from "../../../../tests/fixtures/payment-authoriza
 import {
   MicroAIPaygateProtocol,
   PaygateClient,
+  type PaygateProtocolAdapter,
   type PaymentContext,
   type PaymentContextV2,
   type PaymentRequestBinding,
@@ -314,6 +315,39 @@ describe("PaygateClient request flow", () => {
     expect(
       (calls[1].init?.headers as Record<string, string>)["X-402-Signature"].startsWith("0x"),
     ).toBe(true);
+  });
+
+  it("falls back to signer getAddress for v2 adapters without getPayer", async () => {
+    const requestBody = JSON.stringify({ text: "hello" });
+    const responseBody = JSON.stringify({ result: "summarized text" });
+    const receipt = signedReceiptForPayloads({ requestBody, responseBody });
+    const base = new MicroAIPaygateProtocol();
+    const protocol: PaygateProtocolAdapter = {
+      readPaymentContext: (response) => base.readPaymentContext(response),
+      validatePaymentContext: (context, request) => base.validatePaymentContext(context, request),
+      signPaymentContext: (signer, context, payer) => base.signPaymentContext(signer, context, payer),
+      buildSignedHeaders: (context, signature, payer) => base.buildSignedHeaders(context, signature, payer),
+      readReceipt: (response) => base.readReceipt(response),
+    };
+    const { calls, fetcher } = scriptedFetch([
+      jsonResponse({ paymentContext }, { status: 402 }),
+      jsonResponse(
+        { result: "summarized text" },
+        { status: 200, headers: { "X-402-Receipt": receiptHeader(receipt) } },
+      ),
+    ]);
+    const client = new PaygateClient({
+      gatewayUrl: "http://gateway.test",
+      signer: wallet,
+      fetch: fetcher,
+      protocol,
+      trustedServerPublicKey,
+    });
+
+    const response = await client.summarize("hello");
+
+    expect(response.receiptVerified).toBe(true);
+    expect(calls[1].init?.headers).toMatchObject({ "X-402-Payer": wallet.address });
   });
 
   it("throws typed errors for missing paymentContext and non-JSON 402 bodies", async () => {

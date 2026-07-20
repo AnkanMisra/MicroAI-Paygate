@@ -27,6 +27,7 @@ import {
 import { saveReceipt } from "@/lib/receipt-storage";
 import { classifyError, type ClassifiedError } from "@/lib/errors";
 import {
+  receiptMatchesExchange,
   receiptMatchesPaymentAuthorization,
   type SignedReceipt,
 } from "@/lib/verify-receipt";
@@ -295,8 +296,16 @@ export function useX402() {
       }
 
       update({ step: "receipt" });
-      const { summary, receipt } = await readSummarizeSuccess(retry);
-      if (receipt && (!payer || !receiptMatchesPaymentAuthorization(receipt, context, payer))) {
+      const { summary, receipt, responseBodyText } = await readSummarizeSuccess(retry);
+      const receiptMatches = receipt && payer &&
+        receiptMatchesPaymentAuthorization(receipt, context, payer) &&
+        receiptMatchesExchange(
+          receipt,
+          new URL(getSummarizeUrl()).pathname,
+          requestBodyText,
+          responseBodyText,
+        );
+      if (receipt && !receiptMatches) {
         throw new Error("Receipt does not match the signed payment authorization");
       }
       if (receipt) saveReceipt(receipt, text);

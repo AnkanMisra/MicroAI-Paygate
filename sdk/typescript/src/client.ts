@@ -87,6 +87,9 @@ export class PaygateClient {
     let payer: string | undefined;
     try {
       payer = await this.protocol.getPayer?.(this.signer, paymentContext);
+      if (isPaymentContextV2(paymentContext) && payer === undefined) {
+        payer = await this.signer.getAddress?.();
+      }
       signature = await this.protocol.signPaymentContext(this.signer, paymentContext, payer);
     } catch (error) {
       throw new PaygateSdkError("payment_signature_failed", "Failed to sign payment context", {

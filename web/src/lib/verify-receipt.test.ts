@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { ethers } from 'ethers';
 import {
+  receiptMatchesExchange,
   receiptMatchesPaymentAuthorization,
   validateReceiptFormat,
   verifyReceipt,
@@ -113,5 +114,16 @@ describe('versioned receipt verification', () => {
         signed.receipt.payment.payer,
       ),
     ).toBe(false);
+  });
+
+  it('binds a receipt to the exact browser request and response bytes', () => {
+    const signed = signedReceipt(receipt('2.0'));
+    const requestBodyText = '{"text":"hello"}';
+    const responseBodyText = '{"result":"summary"}';
+    signed.receipt.service.request_hash = `sha256:${ethers.sha256(ethers.toUtf8Bytes(requestBodyText)).slice(2)}`;
+    signed.receipt.service.response_hash = `sha256:${ethers.sha256(ethers.toUtf8Bytes(responseBodyText)).slice(2)}`;
+
+    expect(receiptMatchesExchange(signed, '/api/ai/summarize', requestBodyText, responseBodyText)).toBe(true);
+    expect(receiptMatchesExchange(signed, '/api/ai/summarize', requestBodyText, '{"result":"tampered"}')).toBe(false);
   });
 });
