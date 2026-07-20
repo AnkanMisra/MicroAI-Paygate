@@ -34,6 +34,7 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 	// Mock Verifier
 	var verifierMu sync.Mutex
 	var verifierRequestHashes []string
+	seenNonces := make(map[string]struct{})
 	verifier := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Mock validation based on signature
 		var req VerifyRequest
@@ -41,11 +42,16 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 			http.Error(w, "Invalid verification request", http.StatusBadRequest)
 			return
 		}
+		expectedSignature := fmt.Sprintf("0x%x", sha256.Sum256([]byte(req.Context.Nonce+":"+req.Context.RequestHash)))
 		verifierMu.Lock()
+		_, replayed := seenNonces[req.Context.Nonce]
+		isValid := req.Signature == expectedSignature && !replayed
+		if isValid {
+			seenNonces[req.Context.Nonce] = struct{}{}
+		}
 		verifierRequestHashes = append(verifierRequestHashes, req.Context.RequestHash)
 		verifierMu.Unlock()
 
-		isValid := req.Signature == "0xValidSig"
 		resp := VerifyResponse{
 			IsValid:          isValid,
 			RecoveredAddress: "0x14791697260e4c9a71f18484c9f997b308e59325",
@@ -119,17 +125,22 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 	model := "z-ai/glm-4.5-air:free" // Default model
 	cacheKey := getCacheKey(textToSummarize, model)
 
-	// Helper to make request
-	makeRequest := func(sig string, rawBody []byte) *httptest.ResponseRecorder {
+	// Helper to make a request whose test signature is bound to its nonce and exact body hash.
+	makeRequest := func(nonce string, rawBody []byte, validSignature bool) *httptest.ResponseRecorder {
 		t.Helper()
 		req, err := http.NewRequest("POST", "/api/ai/summarize", bytes.NewReader(rawBody))
 		if err != nil {
 			t.Fatalf("Failed to create request: %v", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-402-Signature", sig)
+		requestHash := fmt.Sprintf("0x%x", sha256.Sum256(rawBody))
+		signature := fmt.Sprintf("0x%x", sha256.Sum256([]byte(nonce+":"+requestHash)))
+		if !validSignature {
+			signature = "0xInvalidSig"
+		}
+		req.Header.Set("X-402-Signature", signature)
 		req.Header.Set("X-402-Payer", "0x14791697260E4c9A71f18484C9f997B308e59325")
-		req.Header.Set("X-402-Nonce", "nonce-123")
+		req.Header.Set("X-402-Nonce", nonce)
 		req.Header.Set("X-402-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
 
 		w := httptest.NewRecorder()
@@ -143,7 +154,7 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 
 	// Request 1: Cache Miss (Valid Sig)
 	start := time.Now()
-	w1 := makeRequest("0xValidSig", compactBody)
+	w1 := makeRequest("nonce-compact", compactBody, true)
 	duration1 := time.Since(start)
 
 	if w1.Code != 200 {
@@ -172,7 +183,7 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 
 	// Request 2: Cache Hit (Valid Sig)
 	start = time.Now()
-	w2 := makeRequest("0xValidSig", spacedBody.Bytes())
+	w2 := makeRequest("nonce-spaced", spacedBody.Bytes(), true)
 	duration2 := time.Since(start)
 
 	if w2.Code != 200 {
@@ -198,7 +209,7 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 	}
 
 	// Security Check: Cache HIT but INVALID Signature
-	w3 := makeRequest("0xInvalidSig", compactBody)
+	w3 := makeRequest("nonce-invalid", compactBody, false)
 	if w3.Code != 403 {
 		t.Errorf("Expected status 403 for invalid signature on cache hit, got %d", w3.Code)
 	}

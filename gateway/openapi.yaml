@@ -490,7 +490,9 @@ components:
           example: rcpt_a1b2c3d4e5f6
         version:
           type: string
-          example: "1.0"
+          enum: ["1.0", "2.0"]
+          description: Receipt serialization version. New request-bound receipts use 2.0; 1.0 remains readable for stored legacy receipts.
+          example: "2.0"
         timestamp:
           type: string
           format: date-time

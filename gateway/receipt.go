@@ -13,6 +13,8 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
+const currentReceiptVersion = "2.0"
+
 // Receipt represents a cryptographic payment receipt
 type Receipt struct {
 	ID        string         `json:"id"`
@@ -68,7 +70,7 @@ func GenerateReceipt(payment PaymentContext, payer string, endpoint string, reqB
 
 	receipt := Receipt{
 		ID:        receiptID,
-		Version:   "1.0",
+		Version:   currentReceiptVersion,
 		Timestamp: time.Now().UTC(),
 		Payment: PaymentDetails{
 			Payer:     payer,

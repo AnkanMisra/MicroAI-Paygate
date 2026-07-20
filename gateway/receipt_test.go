@@ -100,6 +100,9 @@ func TestGenerateReceiptPreservesRequestBoundAuthorization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateReceipt() error = %v", err)
 	}
+	if receipt.Receipt.Version != currentReceiptVersion {
+		t.Fatalf("receipt version = %q, want %q", receipt.Receipt.Version, currentReceiptVersion)
+	}
 
 	service := receipt.Receipt.Service
 	if service.AuthorizationVersion != payment.AuthorizationVersion ||

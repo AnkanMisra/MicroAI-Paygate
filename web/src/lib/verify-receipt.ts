@@ -46,6 +46,41 @@ export interface SignedReceipt {
   server_public_key: string;
 }
 
+function serializeReceiptForGateway(receipt: Receipt): string {
+  const service = receipt.version === '1.0'
+    ? {
+        endpoint: receipt.service.endpoint,
+        request_hash: receipt.service.request_hash,
+        response_hash: receipt.service.response_hash,
+      }
+    : {
+        endpoint: receipt.service.endpoint,
+        authorization_version: receipt.service.authorization_version,
+        audience: receipt.service.audience,
+        method: receipt.service.method,
+        resource: receipt.service.resource,
+        content_type: receipt.service.content_type,
+        authorization_request_hash: receipt.service.authorization_request_hash,
+        request_hash: receipt.service.request_hash,
+        response_hash: receipt.service.response_hash,
+      };
+
+  return JSON.stringify({
+    id: receipt.id,
+    version: receipt.version,
+    timestamp: receipt.timestamp,
+    payment: {
+      payer: receipt.payment.payer,
+      recipient: receipt.payment.recipient,
+      amount: receipt.payment.amount,
+      token: receipt.payment.token,
+      chainId: receipt.payment.chainId,
+      nonce: receipt.payment.nonce,
+    },
+    service,
+  });
+}
+
 /**
  * Verifies a cryptographic receipt signature
  * 
@@ -63,13 +98,13 @@ export interface SignedReceipt {
 export async function verifyReceipt(signedReceipt: SignedReceipt): Promise<boolean> {
   try {
     // Validate structure
-    if (!signedReceipt?.receipt || !signedReceipt.signature || !signedReceipt.server_public_key) {
+    if (!validateReceiptFormat(signedReceipt)) {
       console.error('Invalid receipt structure');
       return false;
     }
 
-    // Serialize receipt deterministically (same as Go's json.Marshal)
-    const receiptJSON = JSON.stringify(signedReceipt.receipt);
+    // Serialize according to the versioned Go receipt contract.
+    const receiptJSON = serializeReceiptForGateway(signedReceipt.receipt);
     
     // Hash using Keccak256 (Ethereum-compatible) - same as Go's crypto.Keccak256Hash
     const messageHash = ethers.keccak256(ethers.toUtf8Bytes(receiptJSON));
@@ -114,9 +149,9 @@ export function validateReceiptFormat(signedReceipt: SignedReceipt): boolean {
   
   const r = signedReceipt.receipt;
   
-  return !!(
+  const validBase = !!(
     r.id?.startsWith('rcpt_') &&
-    r.version &&
+    (r.version === '1.0' || r.version === '2.0') &&
     r.timestamp &&
     r.payment?.payer &&
     r.payment?.recipient &&
@@ -129,6 +164,28 @@ export function validateReceiptFormat(signedReceipt: SignedReceipt): boolean {
     signedReceipt.signature?.startsWith('0x') &&
     signedReceipt.server_public_key?.startsWith('0x')
   );
+  if (!validBase) return false;
+
+  const v2Fields = [
+    r.service.authorization_version,
+    r.service.audience,
+    r.service.method,
+    r.service.resource,
+    r.service.content_type,
+    r.service.authorization_request_hash,
+  ];
+  if (r.version === '1.0') {
+    return v2Fields.every((field) => field === undefined);
+  }
+  return r.service.authorization_version === 2 &&
+    [
+      r.service.audience,
+      r.service.method,
+      r.service.resource,
+      r.service.content_type,
+      r.service.authorization_request_hash,
+    ].every((field) => typeof field === 'string' && field.length > 0) &&
+    r.service.authorization_request_hash!.startsWith('0x');
 }
 
 /**

@@ -28,9 +28,9 @@ export function validateReceiptFormat(value: unknown): value is SignedReceipt {
   const service = receipt.service;
   if (!isRecord(payment) || !isRecord(service)) return false;
 
-  return (
+  const validBase =
     isPrefixedString(receipt.id, "rcpt_") &&
-    isNonEmptyString(receipt.version) &&
+    (receipt.version === "1.0" || receipt.version === "2.0") &&
     isNonEmptyString(receipt.timestamp) &&
     isNonEmptyString(payment.payer) &&
     isNonEmptyString(payment.recipient) &&
@@ -44,7 +44,23 @@ export function validateReceiptFormat(value: unknown): value is SignedReceipt {
     isPrefixedString(service.request_hash, "sha256:") &&
     isPrefixedString(service.response_hash, "sha256:") &&
     isPrefixedString(value.signature, "0x") &&
-    isPrefixedString(value.server_public_key, "0x")
+    isPrefixedString(value.server_public_key, "0x");
+  if (!validBase) return false;
+
+  const v2Fields = [
+    service.audience,
+    service.method,
+    service.resource,
+    service.content_type,
+    service.authorization_request_hash,
+  ];
+  if (receipt.version === "1.0") {
+    return service.authorization_version === undefined && v2Fields.every((field) => field === undefined);
+  }
+  return (
+    service.authorization_version === 2 &&
+    v2Fields.every(isNonEmptyString) &&
+    isPrefixedString(service.authorization_request_hash, "0x")
   );
 }
 
@@ -66,23 +82,24 @@ export function decodeReceiptHeader(headerValue: string): SignedReceipt {
 }
 
 function serializeReceiptForGateway(receipt: Receipt): string {
-  const service = {
-    endpoint: receipt.service.endpoint,
-    ...(receipt.service.authorization_version !== undefined && {
-      authorization_version: receipt.service.authorization_version,
-    }),
-    ...(receipt.service.audience !== undefined && { audience: receipt.service.audience }),
-    ...(receipt.service.method !== undefined && { method: receipt.service.method }),
-    ...(receipt.service.resource !== undefined && { resource: receipt.service.resource }),
-    ...(receipt.service.content_type !== undefined && {
-      content_type: receipt.service.content_type,
-    }),
-    ...(receipt.service.authorization_request_hash !== undefined && {
-      authorization_request_hash: receipt.service.authorization_request_hash,
-    }),
-    request_hash: receipt.service.request_hash,
-    response_hash: receipt.service.response_hash,
-  };
+  const service =
+    receipt.version === "1.0"
+      ? {
+          endpoint: receipt.service.endpoint,
+          request_hash: receipt.service.request_hash,
+          response_hash: receipt.service.response_hash,
+        }
+      : {
+          endpoint: receipt.service.endpoint,
+          authorization_version: receipt.service.authorization_version,
+          audience: receipt.service.audience,
+          method: receipt.service.method,
+          resource: receipt.service.resource,
+          content_type: receipt.service.content_type,
+          authorization_request_hash: receipt.service.authorization_request_hash,
+          request_hash: receipt.service.request_hash,
+          response_hash: receipt.service.response_hash,
+        };
   return JSON.stringify({
     id: receipt.id,
     version: receipt.version,

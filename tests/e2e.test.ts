@@ -97,6 +97,14 @@ describe("MicroAI Paygate E2E Flow", () => {
     });
 
     expect(res.status).toBe(200);
+    const receiptHeader = res.headers.get("X-402-Receipt");
+    expect(receiptHeader).toBeTruthy();
+    const signedReceipt = JSON.parse(Buffer.from(receiptHeader!, "base64").toString("utf8"));
+    expect(signedReceipt.receipt.version).toBe("2.0");
+    expect(signedReceipt.receipt.service.authorization_version).toBe(2);
+    expect(signedReceipt.receipt.service.authorization_request_hash).toBe(
+      paymentContext.requestHash,
+    );
     const data = await res.json() as any;
     expect(data.result).toBeDefined();
   }, 30000);

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -83,15 +84,9 @@ func normalizePaygateAudience() error {
 		return fmt.Errorf("PAYGATE_AUDIENCE must contain an origin only")
 	}
 
-	hostname := parsed.Hostname()
-	if strings.Contains(hostname, ":") && strings.Contains(hostname, "%") {
-		return fmt.Errorf("PAYGATE_AUDIENCE must contain a valid hostname")
-	}
-	if !strings.Contains(hostname, ":") {
-		hostname, err = idna.Lookup.ToASCII(hostname)
-		if err != nil {
-			return fmt.Errorf("PAYGATE_AUDIENCE must contain a valid hostname: %w", err)
-		}
+	hostname, err := normalizeAudienceHostname(parsed.Hostname())
+	if err != nil {
+		return err
 	}
 	hostname = strings.ToLower(hostname)
 	port := parsed.Port()
@@ -116,6 +111,55 @@ func normalizePaygateAudience() error {
 		return fmt.Errorf("failed to normalize PAYGATE_AUDIENCE: %w", err)
 	}
 	return nil
+}
+
+func normalizeAudienceHostname(hostname string) (string, error) {
+	if strings.Contains(hostname, "%") {
+		return "", fmt.Errorf("PAYGATE_AUDIENCE must contain a valid hostname")
+	}
+	if address, err := netip.ParseAddr(hostname); err == nil {
+		if address.Is4In6() {
+			return "", fmt.Errorf("PAYGATE_AUDIENCE must contain a canonical IP address")
+		}
+		return address.String(), nil
+	}
+	if strings.Contains(hostname, ":") || endsInIPv4Number(hostname) {
+		return "", fmt.Errorf("PAYGATE_AUDIENCE must contain a canonical IP address")
+	}
+
+	asciiHostname, err := idna.Lookup.ToASCII(hostname)
+	if err != nil {
+		return "", fmt.Errorf("PAYGATE_AUDIENCE must contain a valid hostname: %w", err)
+	}
+	return strings.ToLower(asciiHostname), nil
+}
+
+func endsInIPv4Number(hostname string) bool {
+	lastLabel := hostname
+	if index := strings.LastIndexByte(hostname, '.'); index >= 0 {
+		lastLabel = hostname[index+1:]
+	}
+	if lastLabel == "" {
+		return false
+	}
+	if strings.HasPrefix(lastLabel, "0x") || strings.HasPrefix(lastLabel, "0X") {
+		lastLabel = lastLabel[2:]
+		if lastLabel == "" {
+			return false
+		}
+		for _, character := range lastLabel {
+			if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F')) {
+				return false
+			}
+		}
+		return true
+	}
+	for _, character := range lastLabel {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func getReceiptStoreMode() string {

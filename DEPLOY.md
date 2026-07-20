@@ -76,10 +76,13 @@ The verifier is stateless EIP-712 signature recovery. Public on Render's free ti
    - `VERIFIER_NONCE_STORE=redis`
    - `VERIFIER_NONCE_KEY_PREFIX=microai:verifier:nonce:`
    - `VERIFIER_REDIS_TIMEOUT_MS=2000`
-   - `MIN_AUTHORIZATION_VERSION=2`
+   - `MIN_AUTHORIZATION_VERSION=1` during an upgrade from authorization v1. For a fresh deployment, use `2`.
 
 4. Click **Deploy Web Service**. First Rust build takes ~3–5 min.
 5. Copy the assigned public URL — e.g. `https://microai-verifier.onrender.com`. The gateway needs this URL in the next step.
+
+> [!IMPORTANT]
+> For an existing v1 deployment, keep the upgraded verifier at `MIN_AUTHORIZATION_VERSION=1` until the v2 gateway is live. After completing the gateway deployment below, raise the verifier setting to `2` and redeploy it. Setting the minimum to `2` before the gateway upgrade rejects every v1 authorization during the rollout window.
 
 Verify:
 
@@ -148,6 +151,8 @@ curl -i https://<gateway-app>.onrender.com/api/ai/summarize \
 # {"error":"Payment Required","paymentContext":{...}}
 ```
 
+7. For an upgrade from authorization v1, return to the verifier service, set `MIN_AUTHORIZATION_VERSION=2`, and redeploy it. This closes the temporary compatibility window after the v2 gateway is serving challenges.
+
 ## 4. Deploy the Web on Vercel
 
 1. Sign up at https://vercel.com using GitHub OAuth.
@@ -176,7 +181,7 @@ Phase 1 analytics is privacy-scoped to funnel metadata only. The web app does **
 
 ## 5. Tighten Gateway CORS
 
-Go back to the gateway service on Render → **Environment** → update `ALLOWED_ORIGINS` from `*` to your exact Vercel domain:
+Go back to the gateway service on Render → **Environment** → replace the placeholder `ALLOWED_ORIGINS` value with your exact Vercel domain:
 
 ```
 ALLOWED_ORIGINS=https://<your-vercel-app>.vercel.app

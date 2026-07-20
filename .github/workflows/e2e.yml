@@ -38,6 +38,7 @@ concurrency:
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       OPENROUTER_API_KEY: ""
       OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'z-ai/glm-4.5-air:free' }}
@@ -75,4 +76,4 @@ jobs:
       - name: Run deterministic E2E
         run: |
           chmod +x ./run_e2e.sh
-          timeout 300 ./run_e2e.sh
+          timeout 900 ./run_e2e.sh

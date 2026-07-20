@@ -69,7 +69,7 @@ describe("receipt helpers", () => {
     );
     const receipt: SignedReceipt["receipt"] = {
       id: "rcpt_boundv2test",
-      version: "1.0",
+      version: "2.0",
       timestamp: "2026-07-16T00:00:00Z",
       payment: {
         payer: "0x14791697260E4c9A71f18484C9f997B308e59325",
@@ -107,6 +107,17 @@ describe("receipt helpers", () => {
     expect(
       await verifyReceipt(signedReceipt, { expectedServerPublicKey: signingKey.publicKey }),
     ).toBe(true);
+  });
+
+  it("rejects unsupported versions and unsigned v2 metadata on legacy receipts", () => {
+    const unsupported = cloneFixture();
+    unsupported.receipt.version = "3.0";
+    expect(validateReceiptFormat(unsupported)).toBe(false);
+
+    const legacyWithV2Metadata = cloneFixture();
+    legacyWithV2Metadata.receipt.service.authorization_version = 2;
+    legacyWithV2Metadata.receipt.service.audience = "https://gateway.example.com";
+    expect(validateReceiptFormat(legacyWithV2Metadata)).toBe(false);
   });
 
   it("verifyReceipt requires the expected gateway receipt signing key as a trust anchor", async () => {
