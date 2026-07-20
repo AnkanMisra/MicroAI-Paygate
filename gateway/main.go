@@ -330,29 +330,7 @@ func main() {
 	// constraints.
 	registerDocRoutes(r)
 
-	r.Use(cors.New(cors.Config{
-		AllowOrigins: getAllowedOrigins(),
-		AllowMethods: []string{"GET", "POST", "OPTIONS"},
-		AllowHeaders: []string{
-			"Origin",
-			"Content-Type",
-			"X-402-Signature",
-			"X-402-Nonce",
-			"X-402-Timestamp",
-			"X-402-Payer",
-			"X-Correlation-ID",
-		},
-		ExposeHeaders: []string{
-			"Content-Length",
-			"X-RateLimit-Limit",
-			"X-RateLimit-Remaining",
-			"X-RateLimit-Reset",
-			"Retry-After",
-			"X-402-Receipt",
-			"X-Correlation-ID",
-		},
-		AllowCredentials: true,
-	}))
+	configureCORSMiddleware(r)
 
 	// Initialize rate limiters if enabled
 	if getRateLimitEnabled() {
@@ -431,6 +409,32 @@ func main() {
 	} else {
 		log.Println("Server stopped gracefully")
 	}
+}
+
+func configureCORSMiddleware(r *gin.Engine) {
+	r.Use(cors.New(cors.Config{
+		AllowOrigins: getAllowedOrigins(),
+		AllowMethods: []string{"GET", "POST", "OPTIONS"},
+		AllowHeaders: []string{
+			"Origin",
+			"Content-Type",
+			"X-402-Signature",
+			"X-402-Nonce",
+			"X-402-Timestamp",
+			"X-402-Payer",
+			"X-Correlation-ID",
+		},
+		ExposeHeaders: []string{
+			"Content-Length",
+			"X-RateLimit-Limit",
+			"X-RateLimit-Remaining",
+			"X-RateLimit-Reset",
+			"Retry-After",
+			"X-402-Receipt",
+			"X-Correlation-ID",
+		},
+		AllowCredentials: true,
+	}))
 }
 
 // handleSummarize handles POST /api/ai/summarize requests. It validates

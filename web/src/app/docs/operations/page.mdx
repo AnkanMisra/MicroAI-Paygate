@@ -5,13 +5,15 @@ This page collects the knobs and checks needed to run MicroAI Paygate locally or
 ## Core Environment Variables
 
 - `AI_PROVIDER`: `openrouter` by default, `ollama` for local Ollama experiments.
-- `OPENROUTER_API_KEY`: required when using OpenRouter.
+- `OPENROUTER_API_KEY`: required for live OpenRouter calls; not required by the deterministic E2E path.
 - `OPENROUTER_MODEL`: model name for OpenRouter.
 - `OLLAMA_URL` and `OLLAMA_MODEL`: used only when `AI_PROVIDER=ollama`.
 - `SERVER_WALLET_PRIVATE_KEY`: signs receipts. Use only unfunded local keys in development.
 - `RECIPIENT_ADDRESS`: embedded in payment contexts.
 - `CHAIN_ID`: gateway EIP-712 chain ID.
 - `EXPECTED_CHAIN_ID`: verifier chain ID. Falls back to `CHAIN_ID` if unset.
+- `PAYGATE_AUDIENCE`: required public gateway origin bound into authorization v2 signatures.
+- `MIN_AUTHORIZATION_VERSION`: verifier minimum, `2` by default.
 - `VERIFIER_URL`: where the gateway calls `/verify`.
 - `VERIFIER_NONCE_STORE`: `memory` for one verifier process or `redis` for shared replay protection.
 - `RECEIPT_STORE`: `redis` by default, `memory` for tests and quick local runs.
@@ -20,11 +22,11 @@ This page collects the knobs and checks needed to run MicroAI Paygate locally or
 
 ## Provider Modes
 
-OpenRouter is the default remote AI path. It needs `OPENROUTER_API_KEY`.
+OpenRouter is the default remote AI path. Live calls need `OPENROUTER_API_KEY`.
 
 Ollama is the local AI experiment path. It needs a reachable Ollama server and configured model.
 
-A deterministic mock provider is a planned follow-on for demos and CI. Do not document it as available until it is implemented.
+When `OPENROUTER_API_KEY` is unset, `bun run test:e2e` starts a deterministic local OpenRouter-compatible mock on port `3100`. Supplying a real key opts into the live provider path instead.
 
 ## Test Commands
 
@@ -40,7 +42,7 @@ RECEIPT_STORE=memory VERIFIER_NONCE_STORE=memory CACHE_ENABLED=false bun run tes
 bun run test:unit
 ```
 
-`bun run test:e2e` starts gateway and verifier. The command above overrides the Redis-backed `.env.example` store modes for a no-Redis run. With the default OpenRouter path, it also requires `OPENROUTER_API_KEY`.
+`bun run test:e2e` starts gateway and verifier. The command above overrides the Redis-backed `.env.example` store modes for a no-Redis run. It also starts the deterministic provider mock when `OPENROUTER_API_KEY` is unset.
 
 ## Troubleshooting
 
@@ -48,6 +50,6 @@ bun run test:unit
 - Wrong chain: switch the wallet to the configured chain ID.
 - Signature rejected: check account, nonce, timestamp, chain ID, and verifier logs.
 - Gateway cold start: wait for backend services to wake, then retry.
-- OpenRouter key missing: set `OPENROUTER_API_KEY` or use a local provider mode.
+- Live OpenRouter key missing: set `OPENROUTER_API_KEY`; deterministic E2E runs do not need one.
 - Verifier unavailable: check `VERIFIER_URL` and `http://localhost:3002/health`.
 - Receipt verification false: confirm `PAYGATE_SERVER_PUBLIC_KEY` is the trusted gateway receipt signing key.

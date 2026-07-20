@@ -100,6 +100,7 @@ func normalizePaygateAudience() error {
 		if err != nil || portNumber < 1 || portNumber > 65535 {
 			return fmt.Errorf("PAYGATE_AUDIENCE must contain a valid port")
 		}
+		port = strconv.Itoa(portNumber)
 	}
 	if (parsed.Scheme == "https" && port == "443") || (parsed.Scheme == "http" && port == "80") {
 		port = ""

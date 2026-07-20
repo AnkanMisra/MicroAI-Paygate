@@ -128,7 +128,7 @@ Run the checks for the area you touched. When a change crosses services, run eve
 | `verifier/**` | `cd verifier && cargo fmt -- --check && cargo clippy -- -D warnings && cargo test` |
 | `web/**` | `cd web && bun run lint && bun run typecheck && bun run test:unit && bun run build` |
 | `sdk/typescript/**` | `cd sdk/typescript && bun run typecheck && bun run test` |
-| `tests/**` or x402 flow | `RECEIPT_STORE=memory VERIFIER_NONCE_STORE=memory CACHE_ENABLED=false bun run test:e2e` when `OPENROUTER_API_KEY` is available |
+| `tests/**` or x402 flow | `RECEIPT_STORE=memory VERIFIER_NONCE_STORE=memory CACHE_ENABLED=false bun run test:e2e` |
 | `gateway/openapi.yaml` | YAML parse plus compare against gateway routes |
 | `.github/workflows/**` | YAML parse and explain which paths trigger checks |
 | Docker/Compose/deploy docs | Validate YAML/TOML where practical and do not run real deploy commands unless maintainers explicitly approve |
@@ -171,7 +171,7 @@ Common files to check:
 Treat these changes as security-sensitive even if they look small:
 
 - `PaymentContext` fields in Go, Rust, TypeScript, tests, or docs.
-- `X-402-Signature`, `X-402-Nonce`, or `X-402-Timestamp` handling.
+- `X-402-Signature`, `X-402-Nonce`, `X-402-Timestamp`, or `X-402-Payer` handling.
 - Signature expiry, client clock skew, chain ID, or recipient/token/amount validation.
 - Verifier nonce replay protection.
 - Receipt signing, receipt TTL, receipt lookup, and Redis persistence.
@@ -199,7 +199,7 @@ If you change a public gateway endpoint, update `gateway/openapi.yaml` in the sa
 
 If you copied `.env.example`, explicitly override `RECEIPT_STORE` and `VERIFIER_NONCE_STORE` to `memory` when testing without Redis.
 
-The default OpenRouter path still requires `OPENROUTER_API_KEY` for gateway startup. If a signed request returns `502 upstream_unavailable` or `504 upstream_timeout`, payment verification may have succeeded and only the upstream model call failed. Read the test output before assuming the x402 flow broke.
+When `OPENROUTER_API_KEY` is unset, the helper starts a deterministic local OpenRouter-compatible mock, so the default E2E path needs no external secret and must return `200` for a valid signed request. Set a real key only when intentionally testing the live OpenRouter path; live-provider failures may return `502 upstream_unavailable` or `504 upstream_timeout` after payment verification succeeds.
 
 ## Security Reports
 
