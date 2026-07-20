@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCacheIntegration_FullFlow(t *testing.T) {
@@ -212,8 +213,27 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 	r.ServeHTTP(w4, reqNoSig)
 
 	if w4.Code != 402 {
-		t.Errorf("Expected status 402 for missing signature, got %d", w4.Code)
+		t.Fatalf("Expected status 402 for missing signature, got %d", w4.Code)
 	}
+	var challenge struct {
+		PaymentContext PaymentContext `json:"paymentContext"`
+	}
+	if err := json.Unmarshal(w4.Body.Bytes(), &challenge); err != nil {
+		t.Fatalf("Failed to unmarshal payment challenge: %v", err)
+	}
+	wantRequestHash := fmt.Sprintf("0x%x", sha256.Sum256(compactBody))
+	require.Equal(t, paymentAuthorizationVersion, challenge.PaymentContext.AuthorizationVersion)
+	require.Equal(t, "0xTestRecipient", challenge.PaymentContext.Recipient)
+	require.Equal(t, "USDC", challenge.PaymentContext.Token)
+	require.NotEmpty(t, challenge.PaymentContext.Amount)
+	require.NotEmpty(t, challenge.PaymentContext.Nonce)
+	require.Positive(t, challenge.PaymentContext.ChainID)
+	require.Positive(t, challenge.PaymentContext.Timestamp)
+	require.Equal(t, "http://localhost:3000", challenge.PaymentContext.Audience)
+	require.Equal(t, http.MethodPost, challenge.PaymentContext.Method)
+	require.Equal(t, "/api/ai/summarize", challenge.PaymentContext.Resource)
+	require.Equal(t, "application/json", challenge.PaymentContext.ContentType)
+	require.Equal(t, wantRequestHash, challenge.PaymentContext.RequestHash)
 
 	// Verify Body
 	var resp1, resp2 map[string]interface{}
