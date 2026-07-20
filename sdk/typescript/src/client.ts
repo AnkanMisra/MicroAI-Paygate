@@ -9,10 +9,19 @@ import type {
   PaygateProtocolAdapter,
   PaygateRequest,
   PaygateResponse,
+  PaymentContext,
   PaymentSigner,
   SignedReceipt,
 } from "./protocol/types";
 import { verifyReceipt } from "./receipts";
+import { isPaymentContextV2 } from "./payment";
+
+type SuccessContext = {
+  endpoint: string;
+  requestBodyText?: string;
+  paymentContext?: PaymentContext;
+  payer?: string;
+};
 
 export type PaygateClientOptions = {
   gatewayUrl: string;
@@ -98,7 +107,11 @@ export class PaygateClient {
       });
     }
 
-    return this.readSuccess<TData>(retryResponse, successContext);
+    return this.readSuccess<TData>(retryResponse, {
+      ...successContext,
+      paymentContext,
+      payer,
+    });
   }
 
   private buildUrl(path: string): string {
@@ -170,19 +183,47 @@ export class PaygateClient {
 
   private receiptMatchesPayload(
     receipt: SignedReceipt,
-    context: { endpoint: string; requestBodyText?: string },
+    context: SuccessContext,
     responseBodyText: string,
   ): boolean {
-    return (
+    const payloadMatches =
       receipt.receipt.service.endpoint === context.endpoint &&
       receipt.receipt.service.request_hash === this.hashBody(context.requestBodyText) &&
-      receipt.receipt.service.response_hash === this.hashBody(responseBodyText)
+      receipt.receipt.service.response_hash === this.hashBody(responseBodyText);
+    if (!payloadMatches || context.paymentContext === undefined) return payloadMatches;
+    if (!isPaymentContextV2(context.paymentContext) || context.payer === undefined) return false;
+
+    const payment = receipt.receipt.payment;
+    const service = receipt.receipt.service;
+    const authorization = context.paymentContext;
+    return (
+      receipt.receipt.version === "2.0" &&
+      this.sameAddress(payment.payer, context.payer) &&
+      this.sameAddress(payment.recipient, authorization.recipient) &&
+      payment.amount === authorization.amount &&
+      payment.token === authorization.token &&
+      payment.chainId === authorization.chainId &&
+      payment.nonce === authorization.nonce &&
+      service.authorization_version === authorization.authorizationVersion &&
+      service.audience === authorization.audience &&
+      service.method === authorization.method &&
+      service.resource === authorization.resource &&
+      service.content_type === authorization.contentType &&
+      service.authorization_request_hash === authorization.requestHash
     );
+  }
+
+  private sameAddress(left: string, right: string): boolean {
+    try {
+      return ethers.getAddress(left) === ethers.getAddress(right);
+    } catch {
+      return false;
+    }
   }
 
   private async readSuccess<TData>(
     response: Response,
-    context: { endpoint: string; requestBodyText?: string },
+    context: SuccessContext,
   ): Promise<PaygateResponse<TData>> {
     const bodyText = await response.text();
     let data: TData;

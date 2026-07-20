@@ -71,3 +71,40 @@ func TestOpenAPISpecMatchesRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenAPIReceiptVersionsAreDiscriminated(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(".", "openapi.yaml"))
+	if err != nil {
+		t.Fatalf("read openapi.yaml: %v", err)
+	}
+	var spec struct {
+		Components struct {
+			Schemas map[string]struct {
+				Required             []string `yaml:"required"`
+				AdditionalProperties *bool    `yaml:"additionalProperties"`
+				OneOf                []struct {
+					Ref string `yaml:"$ref"`
+				} `yaml:"oneOf"`
+			} `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(data, &spec); err != nil {
+		t.Fatalf("parse openapi.yaml: %v", err)
+	}
+
+	receipt := spec.Components.Schemas["Receipt"]
+	if len(receipt.OneOf) != 2 || receipt.OneOf[0].Ref != "#/components/schemas/ReceiptV1" || receipt.OneOf[1].Ref != "#/components/schemas/ReceiptV2" {
+		t.Fatalf("Receipt oneOf does not discriminate v1 and v2: %#v", receipt.OneOf)
+	}
+	for _, schemaName := range []string{"ReceiptServiceV1", "ReceiptServiceV2"} {
+		schema := spec.Components.Schemas[schemaName]
+		if schema.AdditionalProperties == nil || *schema.AdditionalProperties {
+			t.Fatalf("%s must reject fields from other receipt versions", schemaName)
+		}
+	}
+	wantV2Fields := []string{"endpoint", "authorization_version", "audience", "method", "resource", "content_type", "authorization_request_hash", "request_hash", "response_hash"}
+	gotV2Fields := spec.Components.Schemas["ReceiptServiceV2"].Required
+	if strings.Join(gotV2Fields, ",") != strings.Join(wantV2Fields, ",") {
+		t.Fatalf("ReceiptServiceV2 required fields = %v, want %v", gotV2Fields, wantV2Fields)
+	}
+}

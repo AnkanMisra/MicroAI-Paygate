@@ -44,6 +44,13 @@ function sha256Body(bodyText: string): string {
 }
 
 function serializeReceiptForGateway(receipt: Receipt): string {
+  const service = receipt.version === "1.0"
+    ? {
+        endpoint: receipt.service.endpoint,
+        request_hash: receipt.service.request_hash,
+        response_hash: receipt.service.response_hash,
+      }
+    : receipt.service;
   return JSON.stringify({
     id: receipt.id,
     version: receipt.version,
@@ -56,11 +63,7 @@ function serializeReceiptForGateway(receipt: Receipt): string {
       chainId: receipt.payment.chainId,
       nonce: receipt.payment.nonce,
     },
-    service: {
-      endpoint: receipt.service.endpoint,
-      request_hash: receipt.service.request_hash,
-      response_hash: receipt.service.response_hash,
-    },
+    service,
   });
 }
 
@@ -68,25 +71,33 @@ function signedReceiptForPayloads({
   requestBody,
   responseBody,
   endpoint = "/api/ai/summarize",
+  authorization = paymentContext as PaymentContextV2,
 }: {
   requestBody: string;
   responseBody: string;
   endpoint?: string;
+  authorization?: PaymentContextV2;
 }): SignedReceipt {
   const receipt: Receipt = {
     id: "rcpt_clientflow1",
-    version: "1.0",
+    version: "2.0",
     timestamp: "2026-05-25T00:00:00Z",
     payment: {
       payer: wallet.address,
-      recipient: paymentContext.recipient,
-      amount: paymentContext.amount,
-      token: paymentContext.token,
-      chainId: paymentContext.chainId,
-      nonce: paymentContext.nonce,
+      recipient: authorization.recipient,
+      amount: authorization.amount,
+      token: authorization.token,
+      chainId: authorization.chainId,
+      nonce: authorization.nonce,
     },
     service: {
       endpoint,
+      authorization_version: authorization.authorizationVersion,
+      audience: authorization.audience,
+      method: authorization.method,
+      resource: authorization.resource,
+      content_type: authorization.contentType,
+      authorization_request_hash: authorization.requestHash,
       request_hash: sha256Body(requestBody),
       response_hash: sha256Body(responseBody),
     },
@@ -486,14 +497,46 @@ describe("PaygateClient request flow", () => {
     }
   });
 
+  it("rejects a valid receipt from a different v2 payment authorization", async () => {
+    const requestBody = JSON.stringify({ text: "hello" });
+    const responseBody = JSON.stringify({ result: "summarized text" });
+    const substitutedReceipt = signedReceiptForPayloads({
+      requestBody,
+      responseBody,
+      authorization: { ...paymentContext, nonce: "different-payment-nonce" } as PaymentContextV2,
+    });
+    const { fetcher } = scriptedFetch([
+      jsonResponse({ paymentContext }, { status: 402 }),
+      jsonResponse(
+        { result: "summarized text" },
+        { status: 200, headers: { "X-402-Receipt": receiptHeader(substitutedReceipt) } },
+      ),
+    ]);
+    const client = new PaygateClient({
+      gatewayUrl: "http://gateway.test",
+      signer: wallet,
+      fetch: fetcher,
+      trustedServerPublicKey,
+    });
+
+    await expect(client.summarize("hello")).rejects.toMatchObject({
+      code: "receipt_verification_failed",
+      status: 200,
+    });
+  });
+
   it("matches receipt endpoints against the request path, not gatewayUrl path prefixes", async () => {
     const requestBody = JSON.stringify({ text: "hello" });
     const responseBody = JSON.stringify({ result: "summarized text" });
-    const receipt = signedReceiptForPayloads({ requestBody, responseBody });
     const prefixedContext = {
       ...paymentContext,
       resource: "/paygate/api/ai/summarize",
     };
+    const receipt = signedReceiptForPayloads({
+      requestBody,
+      responseBody,
+      authorization: prefixedContext as PaymentContextV2,
+    });
     const { fetcher } = scriptedFetch([
       jsonResponse({ paymentContext: prefixedContext }, { status: 402 }),
       jsonResponse(

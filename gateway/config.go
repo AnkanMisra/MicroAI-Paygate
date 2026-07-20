@@ -135,9 +135,10 @@ func normalizeAudienceHostname(hostname string) (string, error) {
 }
 
 func endsInIPv4Number(hostname string) bool {
-	lastLabel := hostname
-	if index := strings.LastIndexByte(hostname, '.'); index >= 0 {
-		lastLabel = hostname[index+1:]
+	withoutTrailingDot := strings.TrimSuffix(hostname, ".")
+	lastLabel := withoutTrailingDot
+	if index := strings.LastIndexByte(withoutTrailingDot, '.'); index >= 0 {
+		lastLabel = withoutTrailingDot[index+1:]
 	}
 	if lastLabel == "" {
 		return false

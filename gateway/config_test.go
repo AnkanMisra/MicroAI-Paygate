@@ -53,6 +53,7 @@ func TestNormalizePaygateAudience(t *testing.T) {
 		{name: "preserves IPv6 non-default port", value: "https://[::1]:8443", want: "https://[::1]:8443"},
 		{name: "rejects IPv6 zone identifier", value: "https://[fe80::1%25eth0]", wantErr: "valid hostname"},
 		{name: "rejects zero-padded IPv4", value: "http://127.000.000.001", wantErr: "canonical IP address"},
+		{name: "rejects trailing-dot IPv4", value: "http://127.0.0.1.", wantErr: "canonical IP address"},
 		{name: "rejects integer IPv4", value: "http://2130706433", wantErr: "canonical IP address"},
 		{name: "rejects hexadecimal IPv4", value: "http://0x7f000001", wantErr: "canonical IP address"},
 		{name: "rejects IPv4-mapped IPv6", value: "http://[::ffff:127.0.0.1]", wantErr: "canonical IP address"},
