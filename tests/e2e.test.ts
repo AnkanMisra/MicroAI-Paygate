@@ -102,6 +102,7 @@ describe("MicroAI Paygate E2E Flow", () => {
     const signedReceipt = JSON.parse(Buffer.from(receiptHeader!, "base64").toString("utf8"));
     expect(signedReceipt.receipt.version).toBe("2.0");
     expect(signedReceipt.receipt.service.authorization_version).toBe(2);
+    expect(signedReceipt.receipt.payment.timestamp).toBe(paymentContext.timestamp);
     expect(signedReceipt.receipt.service.authorization_request_hash).toBe(
       paymentContext.requestHash,
     );

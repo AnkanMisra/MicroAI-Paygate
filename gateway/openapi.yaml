@@ -507,7 +507,7 @@ components:
           type: string
           format: date-time
         payment:
-          $ref: "#/components/schemas/ReceiptPayment"
+          $ref: "#/components/schemas/ReceiptPaymentV1"
         service:
           $ref: "#/components/schemas/ReceiptServiceV1"
 
@@ -527,11 +527,11 @@ components:
           type: string
           format: date-time
         payment:
-          $ref: "#/components/schemas/ReceiptPayment"
+          $ref: "#/components/schemas/ReceiptPaymentV2"
         service:
           $ref: "#/components/schemas/ReceiptServiceV2"
 
-    ReceiptPayment:
+    ReceiptPaymentV1:
       type: object
       additionalProperties: false
       required: [payer, recipient, amount, token, chainId, nonce]
@@ -554,6 +554,35 @@ components:
         nonce:
           type: string
           example: "550e8400-e29b-41d4-a716-446655440000"
+
+    ReceiptPaymentV2:
+      type: object
+      additionalProperties: false
+      required: [payer, recipient, amount, token, chainId, nonce, timestamp]
+      properties:
+        payer:
+          type: string
+          example: "0x..."
+        recipient:
+          type: string
+          example: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219"
+        amount:
+          type: string
+          example: "0.001"
+        token:
+          type: string
+          example: USDC
+        chainId:
+          type: integer
+          example: 84532
+        nonce:
+          type: string
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        timestamp:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Unix timestamp from the verified payment authorization.
 
     ReceiptServiceV1:
       type: object

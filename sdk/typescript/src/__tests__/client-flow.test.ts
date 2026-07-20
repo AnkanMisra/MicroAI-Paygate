@@ -62,9 +62,12 @@ function serializeReceiptForGateway(receipt: Receipt): string {
       token: receipt.payment.token,
       chainId: receipt.payment.chainId,
       nonce: receipt.payment.nonce,
+      ...(receipt.version === "2.0" && { timestamp: receipt.payment.timestamp }),
     },
     service,
-  });
+  }).replace(/[<>&\u2028\u2029]/g, (character) =>
+    `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
 }
 
 function signedReceiptForPayloads({
@@ -89,6 +92,7 @@ function signedReceiptForPayloads({
       token: authorization.token,
       chainId: authorization.chainId,
       nonce: authorization.nonce,
+      timestamp: authorization.timestamp,
     },
     service: {
       endpoint,

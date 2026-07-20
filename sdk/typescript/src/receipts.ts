@@ -19,6 +19,12 @@ function isPrefixedString(value: unknown, prefix: string): value is string {
   return isNonEmptyString(value) && value.startsWith(prefix);
 }
 
+function hasExactKeys(value: Record<string, unknown>, keys: string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
 export function validateReceiptFormat(value: unknown): value is SignedReceipt {
   if (!isRecord(value)) return false;
   const receipt = value.receipt;
@@ -29,6 +35,7 @@ export function validateReceiptFormat(value: unknown): value is SignedReceipt {
   if (!isRecord(payment) || !isRecord(service)) return false;
 
   const validBase =
+    hasExactKeys(receipt, ["id", "version", "timestamp", "payment", "service"]) &&
     isPrefixedString(receipt.id, "rcpt_") &&
     (receipt.version === "1.0" || receipt.version === "2.0") &&
     isNonEmptyString(receipt.timestamp) &&
@@ -55,9 +62,19 @@ export function validateReceiptFormat(value: unknown): value is SignedReceipt {
     service.authorization_request_hash,
   ];
   if (receipt.version === "1.0") {
-    return service.authorization_version === undefined && v2Fields.every((field) => field === undefined);
+    return (
+      hasExactKeys(payment, ["payer", "recipient", "amount", "token", "chainId", "nonce"]) &&
+      hasExactKeys(service, ["endpoint", "request_hash", "response_hash"]) &&
+      service.authorization_version === undefined &&
+      v2Fields.every((field) => field === undefined)
+    );
   }
   return (
+    hasExactKeys(payment, ["payer", "recipient", "amount", "token", "chainId", "nonce", "timestamp"]) &&
+    hasExactKeys(service, ["endpoint", "authorization_version", "audience", "method", "resource", "content_type", "authorization_request_hash", "request_hash", "response_hash"]) &&
+    typeof payment.timestamp === "number" &&
+    Number.isSafeInteger(payment.timestamp) &&
+    payment.timestamp > 0 &&
     service.authorization_version === 2 &&
     v2Fields.every(isNonEmptyString) &&
     isPrefixedString(service.authorization_request_hash, "0x")
@@ -100,7 +117,7 @@ function serializeReceiptForGateway(receipt: Receipt): string {
           request_hash: receipt.service.request_hash,
           response_hash: receipt.service.response_hash,
         };
-  return JSON.stringify({
+  return stringifyLikeGo({
     id: receipt.id,
     version: receipt.version,
     timestamp: receipt.timestamp,
@@ -111,9 +128,16 @@ function serializeReceiptForGateway(receipt: Receipt): string {
       token: receipt.payment.token,
       chainId: receipt.payment.chainId,
       nonce: receipt.payment.nonce,
+      ...(receipt.version === "2.0" && { timestamp: receipt.payment.timestamp }),
     },
     service,
   });
+}
+
+function stringifyLikeGo(value: unknown): string {
+  return JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, (character) =>
+    `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
 }
 
 function normalizePublicKey(value: string | undefined): string | null {

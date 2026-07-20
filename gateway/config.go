@@ -117,6 +117,9 @@ func normalizeAudienceHostname(hostname string) (string, error) {
 	if strings.Contains(hostname, "%") {
 		return "", fmt.Errorf("PAYGATE_AUDIENCE must contain a valid hostname")
 	}
+	if strings.HasSuffix(hostname, ".") {
+		return "", fmt.Errorf("PAYGATE_AUDIENCE hostname must not end with a dot")
+	}
 	if address, err := netip.ParseAddr(hostname); err == nil {
 		if address.Is4In6() {
 			return "", fmt.Errorf("PAYGATE_AUDIENCE must contain a canonical IP address")
@@ -130,6 +133,12 @@ func normalizeAudienceHostname(hostname string) (string, error) {
 	asciiHostname, err := idna.Lookup.ToASCII(hostname)
 	if err != nil {
 		return "", fmt.Errorf("PAYGATE_AUDIENCE must contain a valid hostname: %w", err)
+	}
+	if address, err := netip.ParseAddr(asciiHostname); err == nil {
+		return address.String(), nil
+	}
+	if endsInIPv4Number(asciiHostname) {
+		return "", fmt.Errorf("PAYGATE_AUDIENCE must contain a canonical IP address")
 	}
 	return strings.ToLower(asciiHostname), nil
 }

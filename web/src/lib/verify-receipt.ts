@@ -8,6 +8,7 @@
  */
 
 import { ethers } from 'ethers';
+import type { PaymentContext } from './types';
 
 // Type definitions matching backend Go structs
 
@@ -18,6 +19,7 @@ export interface PaymentDetails {
   token: string;
   chainId: number;
   nonce: string;
+  timestamp?: number;
 }
 
 export interface ServiceDetails {
@@ -46,6 +48,16 @@ export interface SignedReceipt {
   server_public_key: string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
 function serializeReceiptForGateway(receipt: Receipt): string {
   const service = receipt.version === '1.0'
     ? {
@@ -65,7 +77,7 @@ function serializeReceiptForGateway(receipt: Receipt): string {
         response_hash: receipt.service.response_hash,
       };
 
-  return JSON.stringify({
+  return stringifyLikeGo({
     id: receipt.id,
     version: receipt.version,
     timestamp: receipt.timestamp,
@@ -76,9 +88,44 @@ function serializeReceiptForGateway(receipt: Receipt): string {
       token: receipt.payment.token,
       chainId: receipt.payment.chainId,
       nonce: receipt.payment.nonce,
+      ...(receipt.version === '2.0' && { timestamp: receipt.payment.timestamp }),
     },
     service,
   });
+}
+
+function stringifyLikeGo(value: unknown): string {
+  return JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, (character) =>
+    `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  );
+}
+
+export function receiptMatchesPaymentAuthorization(
+  signedReceipt: SignedReceipt,
+  authorization: PaymentContext,
+  payer: string,
+): boolean {
+  if (authorization.authorizationVersion !== 2) return false;
+  const payment = signedReceipt.receipt.payment;
+  const service = signedReceipt.receipt.service;
+  try {
+    return signedReceipt.receipt.version === '2.0' &&
+      ethers.getAddress(payment.payer) === ethers.getAddress(payer) &&
+      ethers.getAddress(payment.recipient) === ethers.getAddress(authorization.recipient) &&
+      payment.amount === authorization.amount &&
+      payment.token === authorization.token &&
+      payment.chainId === authorization.chainId &&
+      payment.nonce === authorization.nonce &&
+      payment.timestamp === authorization.timestamp &&
+      service.authorization_version === authorization.authorizationVersion &&
+      service.audience === authorization.audience &&
+      service.method === authorization.method &&
+      service.resource === authorization.resource &&
+      service.content_type === authorization.contentType &&
+      service.authorization_request_hash === authorization.requestHash;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -144,12 +191,15 @@ export async function verifyReceipt(signedReceipt: SignedReceipt): Promise<boole
  * @param signedReceipt - The receipt to validate
  * @returns boolean - true if format is valid
  */
-export function validateReceiptFormat(signedReceipt: SignedReceipt): boolean {
-  if (!signedReceipt?.receipt) return false;
-  
+export function validateReceiptFormat(value: unknown): value is SignedReceipt {
+  if (!isRecord(value) || !isRecord(value.receipt)) return false;
+  const signedReceipt = value as unknown as SignedReceipt;
+
   const r = signedReceipt.receipt;
+  if (!isRecord(r.payment) || !isRecord(r.service)) return false;
   
   const validBase = !!(
+    hasExactKeys(r as unknown as Record<string, unknown>, ['id', 'version', 'timestamp', 'payment', 'service']) &&
     r.id?.startsWith('rcpt_') &&
     (r.version === '1.0' || r.version === '2.0') &&
     r.timestamp &&
@@ -175,9 +225,14 @@ export function validateReceiptFormat(signedReceipt: SignedReceipt): boolean {
     r.service.authorization_request_hash,
   ];
   if (r.version === '1.0') {
-    return v2Fields.every((field) => field === undefined);
+    return hasExactKeys(r.payment as unknown as Record<string, unknown>, ['payer', 'recipient', 'amount', 'token', 'chainId', 'nonce']) &&
+      hasExactKeys(r.service as unknown as Record<string, unknown>, ['endpoint', 'request_hash', 'response_hash']) &&
+      v2Fields.every((field) => field === undefined);
   }
-  return r.service.authorization_version === 2 &&
+  return hasExactKeys(r.payment as unknown as Record<string, unknown>, ['payer', 'recipient', 'amount', 'token', 'chainId', 'nonce', 'timestamp']) &&
+    hasExactKeys(r.service as unknown as Record<string, unknown>, ['endpoint', 'authorization_version', 'audience', 'method', 'resource', 'content_type', 'authorization_request_hash', 'request_hash', 'response_hash']) &&
+    typeof r.payment.timestamp === 'number' && Number.isSafeInteger(r.payment.timestamp) && r.payment.timestamp > 0 &&
+    r.service.authorization_version === 2 &&
     [
       r.service.audience,
       r.service.method,

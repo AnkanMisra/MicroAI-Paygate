@@ -32,6 +32,7 @@ type PaymentDetails struct {
 	Token     string `json:"token"`
 	ChainID   int    `json:"chainId"`
 	Nonce     string `json:"nonce"`
+	Timestamp uint64 `json:"timestamp,omitempty"`
 }
 
 // ServiceDetails contains service-related information
@@ -79,6 +80,7 @@ func GenerateReceipt(payment PaymentContext, payer string, endpoint string, reqB
 			Token:     payment.Token,
 			ChainID:   payment.ChainID,
 			Nonce:     payment.Nonce,
+			Timestamp: payment.Timestamp,
 		},
 		Service: ServiceDetails{
 			Endpoint:             endpoint,

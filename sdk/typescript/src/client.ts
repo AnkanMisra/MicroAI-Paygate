@@ -204,6 +204,7 @@ export class PaygateClient {
       payment.token === authorization.token &&
       payment.chainId === authorization.chainId &&
       payment.nonce === authorization.nonce &&
+      payment.timestamp === authorization.timestamp &&
       service.authorization_version === authorization.authorizationVersion &&
       service.audience === authorization.audience &&
       service.method === authorization.method &&

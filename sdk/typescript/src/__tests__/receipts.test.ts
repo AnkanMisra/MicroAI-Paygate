@@ -78,13 +78,14 @@ describe("receipt helpers", () => {
         token: "USDC",
         chainId: 84532,
         nonce: "bound-v2-receipt",
+        timestamp: 1760572800,
       },
       service: {
         endpoint: "/api/ai/summarize",
         authorization_version: 2,
         audience: "https://gateway.example.com",
         method: "POST",
-        resource: "/api/ai/summarize?mode=brief",
+        resource: "/api/ai/summarize?mode=brief&tag=<x>\u2028",
         content_type: "application/json",
         authorization_request_hash:
           "0x8187d0879ad19b46b277e1b761d3f70d51bc9de6459530b686cfaa503ae8d0e9",
@@ -94,7 +95,10 @@ describe("receipt helpers", () => {
           "sha256:8a90fd4352d6e287b3e908e62f802c99c4f5680c9644cb27fb64d638e3fbb9d4",
       },
     };
-    const digest = ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(receipt)));
+    const goJSON = JSON.stringify(receipt).replace(/[<>&\u2028\u2029]/g, (character) =>
+      `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    );
+    const digest = ethers.keccak256(ethers.toUtf8Bytes(goJSON));
     const signature = signingKey.sign(digest);
     const signedReceipt: SignedReceipt = {
       receipt,
@@ -118,6 +122,16 @@ describe("receipt helpers", () => {
     legacyWithV2Metadata.receipt.service.authorization_version = 2;
     legacyWithV2Metadata.receipt.service.audience = "https://gateway.example.com";
     expect(validateReceiptFormat(legacyWithV2Metadata)).toBe(false);
+
+    const extraProperty = cloneFixture() as SignedReceipt & { receipt: { status?: string } };
+    extraProperty.receipt.status = "refunded";
+    expect(validateReceiptFormat(extraProperty)).toBe(false);
+
+    const extraServiceProperty = cloneFixture() as SignedReceipt & {
+      receipt: { service: SignedReceipt["receipt"]["service"] & { status?: string } };
+    };
+    extraServiceProperty.receipt.service.status = "refunded";
+    expect(validateReceiptFormat(extraServiceProperty)).toBe(false);
   });
 
   it("verifyReceipt requires the expected gateway receipt signing key as a trust anchor", async () => {

@@ -50,6 +50,7 @@ export type PaymentDetails = {
   token: string;
   chainId: number;
   nonce: string;
+  timestamp?: number;
 };
 
 export type ServiceDetails = {
