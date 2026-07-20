@@ -87,6 +87,9 @@ async function getChallenge(body: string): Promise<PaymentContext> {
     headers: { "Content-Type": "application/json", Origin: ORIGIN },
     body,
   });
+  const allowOrigin = r.headers.get("access-control-allow-origin");
+  rec("challenge returns 402", r.status === 402, `HTTP ${r.status}`);
+  rec("challenge allows deployed web origin", allowOrigin === ORIGIN, allowOrigin ?? "missing");
   return (await r.json()).paymentContext as PaymentContext;
 }
 

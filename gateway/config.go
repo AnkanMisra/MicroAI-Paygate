@@ -84,6 +84,9 @@ func normalizePaygateAudience() error {
 	}
 
 	hostname := parsed.Hostname()
+	if strings.Contains(hostname, ":") && strings.Contains(hostname, "%") {
+		return fmt.Errorf("PAYGATE_AUDIENCE must contain a valid hostname")
+	}
 	if !strings.Contains(hostname, ":") {
 		hostname, err = idna.Lookup.ToASCII(hostname)
 		if err != nil {

@@ -25,7 +25,7 @@ sequenceDiagram
 
     C->>G: POST /api/ai/summarize
     G-->>C: 402 + paymentContext(recipient, token, amount, chainId, nonce, timestamp)
-    C->>G: Retry with X-402-Signature, nonce, timestamp, payer
+    C->>G: Retry with X-402-Signature, X-402-Nonce, X-402-Timestamp, X-402-Payer
     G->>V: POST /verify with reconstructed context
     V-->>G: valid + recovered wallet or structured error_code
     alt Optional Redis response cache hit
@@ -81,6 +81,8 @@ Required for normal OpenRouter gateway startup:
 | --- | --- |
 | `OPENROUTER_API_KEY` | Required when `AI_PROVIDER` is unset or `openrouter`. |
 | `SERVER_WALLET_PRIVATE_KEY` | Required. Signs receipts. Use an unfunded development key locally. |
+| `VERIFIER_URL` | Required. Where the gateway calls `/verify`. Use `http://127.0.0.1:3002` for `bun run stack`, `http://verifier:3002` in Compose, or the platform's HTTPS URL in production. |
+| `PAYGATE_AUDIENCE` | Required. Trusted public gateway origin included in every v2 authorization. Paths, queries, fragments, credentials, and non-HTTP schemes are rejected at startup. |
 | `REDIS_URL` | Required when `RECEIPT_STORE=redis` or `CACHE_ENABLED=true`. |
 
 Common optional variables:
@@ -93,8 +95,6 @@ Common optional variables:
 | `OPENROUTER_URL` | `https://openrouter.ai/api/v1/chat/completions` provider default | Used by tests and custom OpenRouter-compatible endpoints. |
 | `OLLAMA_URL` | `http://localhost:11434` | Used when `AI_PROVIDER=ollama`. |
 | `OLLAMA_MODEL` | `llama2` provider default | Used when `AI_PROVIDER=ollama`. |
-| `VERIFIER_URL` | **required** (no fallback) | Where the gateway calls `/verify`. Use `http://127.0.0.1:3002` for `bun run stack`, `http://verifier:3002` in Compose, the platform's HTTPS URL in production. The gateway refuses to start if unset. |
-| `PAYGATE_AUDIENCE` | **required** | Trusted public gateway origin included in every v2 authorization. Origins only; paths, queries, fragments, credentials, and non-HTTP schemes are rejected at startup. |
 | `RECIPIENT_ADDRESS` | Development fallback address | Recipient embedded in payment contexts. |
 | `PAYMENT_AMOUNT` | `0.001` | Amount string embedded in payment contexts. |
 | `CHAIN_ID` | `84532` | Base Sepolia by default. Must match verifier `EXPECTED_CHAIN_ID`. |

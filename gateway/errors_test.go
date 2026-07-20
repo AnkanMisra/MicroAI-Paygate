@@ -217,7 +217,7 @@ func TestHandleSummarizeMapsAuthorizationRejections(t *testing.T) {
 }
 
 func TestHandleSummarizeMapsSignerMismatch(t *testing.T) {
-	withVerifierResponse(t, http.StatusOK, `{"is_valid":false,"recovered_address":"0x0000000000000000000000000000000000000001","error":"SENSITIVE_SIGNER_DETAIL","error_code":"signer_mismatch"}`)
+	withVerifierResponse(t, http.StatusForbidden, `{"is_valid":false,"recovered_address":"0x0000000000000000000000000000000000000001","error":"SENSITIVE_SIGNER_DETAIL","error_code":"signer_mismatch"}`)
 
 	router := newSummarizeTestRouter()
 	recorder := httptest.NewRecorder()

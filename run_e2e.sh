@@ -55,7 +55,7 @@ GATEWAY_PID=$!
 # Wait for both services to be ready instead of assuming a fixed build/start time.
 echo "Waiting for services to initialize..."
 SERVICES_READY=false
-for _ in $(seq 1 60); do
+for ((attempt = 1; attempt <= 60; attempt++)); do
     if ! kill -0 "$VERIFIER_PID" 2>/dev/null || ! kill -0 "$GATEWAY_PID" 2>/dev/null; then
         echo "A service exited before becoming ready"
         exit 1
@@ -72,7 +72,7 @@ for _ in $(seq 1 60); do
         fi
     fi
     if curl --fail --silent "http://127.0.0.1:3002/health" >/dev/null 2>&1 && \
-       curl --fail --silent "http://localhost:3000/healthz" >/dev/null 2>&1 && \
+       curl --fail --silent "http://localhost:3000/readyz" >/dev/null 2>&1 && \
        [ "$MOCK_READY" = true ]; then
         SERVICES_READY=true
         break

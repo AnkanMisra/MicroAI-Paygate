@@ -17,7 +17,7 @@ The `tests/` directory contains Bun end-to-end coverage for the gateway and veri
 - Bun
 - Go toolchain
 - Rust toolchain
-- Ports `3000` and `3002` free
+- Ports `3000` and `3002` free, plus `3100` when `OPENROUTER_API_KEY` is unset
 - No external AI key is required; the helper starts a deterministic OpenRouter-compatible mock when `OPENROUTER_API_KEY` is unset.
 
 When these variables are unset, the helper defaults the gateway to:
@@ -81,7 +81,7 @@ Use only unfunded local or test wallet keys for live SDK tests. `PAYGATE_SERVER_
 
 ## Reading Failures
 
-The signed request may return `502 upstream_unavailable` or `504 upstream_timeout` after payment verification succeeds if OpenRouter is unavailable or slow. That usually means the x402 verification path passed and only the upstream AI call failed.
+When a live `OPENROUTER_API_KEY` is supplied, the signed request may return `502 upstream_unavailable` or `504 upstream_timeout` if OpenRouter is unavailable or slow. The default deterministic mock path must return `200`.
 
 Failures that usually indicate payment-flow regressions:
 

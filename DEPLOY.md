@@ -105,7 +105,7 @@ curl https://<verifier-app>.onrender.com/health
 | Dockerfile Path | `gateway/Dockerfile` |
 | Health Check Path | `/healthz` (note the trailing `z` — differs from the verifier) |
 
-3. Environment variables. Use Render's **"Add from .env"** button and paste the block below, then fill in the four `<...>` placeholders with real values:
+3. Environment variables. Use Render's **"Add from .env"** button and paste the block below, then fill in all `<...>` placeholders with real values:
 
 ```env
 OPENROUTER_API_KEY=<your-openrouter-key>
@@ -118,7 +118,7 @@ VERIFIER_URL=https://<verifier-app>.onrender.com
 PAYGATE_AUDIENCE=https://<gateway-app>.onrender.com
 CHAIN_ID=84532
 PAYMENT_AMOUNT=0.001
-ALLOWED_ORIGINS=*
+ALLOWED_ORIGINS=https://<web-app>.vercel.app
 TRUSTED_PROXIES=0.0.0.0/0
 VERIFIER_TIMEOUT_SECONDS=60
 PORT=3000
@@ -126,7 +126,7 @@ PORT=3000
 
 > **Important:** `RECIPIENT_ADDRESS` must be the canonical EIP-55-checksummed form, not lowercased or arbitrary-case. The browser wallet rejects malformed checksums with `bad address checksum` during signing.
 >
-> **CORS:** `ALLOWED_ORIGINS=*` is permissive; tighten it after web deploy in step 5.
+> **CORS:** `ALLOWED_ORIGINS` must be the exact public web origin. Wildcards are rejected, and paths, queries, and fragments are not allowed.
 >
 > **Verifier timeout:** the default `2s` is too short for Render free-tier cold-starts. `60s` lets the verifier wake up during the first signed request.
 

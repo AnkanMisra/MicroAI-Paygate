@@ -4,8 +4,12 @@ Bun.serve({
   hostname: "127.0.0.1",
   port,
   async fetch(request) {
-    if (request.method === "GET" && new URL(request.url).pathname === "/health") {
+    const path = new URL(request.url).pathname;
+    if (request.method === "GET" && path === "/health") {
       return Response.json({ status: "ok" });
+    }
+    if (request.method === "GET" && path === "/api/v1/models") {
+      return Response.json({ data: [] });
     }
     if (request.method !== "POST") {
       return new Response("Not found", { status: 404 });

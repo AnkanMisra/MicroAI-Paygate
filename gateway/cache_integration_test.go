@@ -3,11 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"gateway/internal/ai"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -28,6 +31,8 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 
 	// 3. Setup Dependencies (Environment)
 	// Mock Verifier
+	var verifierMu sync.Mutex
+	var verifierRequestHashes []string
 	verifier := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Mock validation based on signature
 		var req VerifyRequest
@@ -35,6 +40,9 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 			http.Error(w, "Invalid verification request", http.StatusBadRequest)
 			return
 		}
+		verifierMu.Lock()
+		verifierRequestHashes = append(verifierRequestHashes, req.Context.RequestHash)
+		verifierMu.Unlock()
 
 		isValid := req.Signature == "0xValidSig"
 		resp := VerifyResponse{
@@ -99,18 +107,21 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 
 	// 5. Test execution
 	textToSummarize := "This is a unique text for cache integration test " + time.Now().String()
+	compactBody, err := json.Marshal(map[string]string{"text": textToSummarize})
+	if err != nil {
+		t.Fatalf("Failed to marshal compact request body: %v", err)
+	}
+	var spacedBody bytes.Buffer
+	if err := json.Indent(&spacedBody, compactBody, "", "  "); err != nil {
+		t.Fatalf("Failed to format request body: %v", err)
+	}
 	model := "z-ai/glm-4.5-air:free" // Default model
 	cacheKey := getCacheKey(textToSummarize, model)
 
 	// Helper to make request
-	makeRequest := func(sig string) *httptest.ResponseRecorder {
+	makeRequest := func(sig string, rawBody []byte) *httptest.ResponseRecorder {
 		t.Helper()
-		reqBody := map[string]string{"text": textToSummarize}
-		jsonBody, err := json.Marshal(reqBody)
-		if err != nil {
-			t.Fatalf("Failed to marshal request body: %v", err)
-		}
-		req, err := http.NewRequest("POST", "/api/ai/summarize", bytes.NewBuffer(jsonBody))
+		req, err := http.NewRequest("POST", "/api/ai/summarize", bytes.NewReader(rawBody))
 		if err != nil {
 			t.Fatalf("Failed to create request: %v", err)
 		}
@@ -131,7 +142,7 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 
 	// Request 1: Cache Miss (Valid Sig)
 	start := time.Now()
-	w1 := makeRequest("0xValidSig")
+	w1 := makeRequest("0xValidSig", compactBody)
 	duration1 := time.Since(start)
 
 	if w1.Code != 200 {
@@ -160,7 +171,7 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 
 	// Request 2: Cache Hit (Valid Sig)
 	start = time.Now()
-	w2 := makeRequest("0xValidSig")
+	w2 := makeRequest("0xValidSig", spacedBody.Bytes())
 	duration2 := time.Since(start)
 
 	if w2.Code != 200 {
@@ -169,24 +180,30 @@ func TestCacheIntegration_FullFlow(t *testing.T) {
 	if aiCalls.Load() != 1 {
 		t.Errorf("Expected AI calls to stay at 1, got %d (Cache Miss?)", aiCalls.Load())
 	}
+	verifierMu.Lock()
+	gotHashes := append([]string(nil), verifierRequestHashes...)
+	verifierMu.Unlock()
+	if len(gotHashes) < 2 {
+		t.Fatalf("Expected verifier requests for cache miss and hit, got %d", len(gotHashes))
+	}
+	wantCompactHash := fmt.Sprintf("0x%x", sha256.Sum256(compactBody))
+	wantSpacedHash := fmt.Sprintf("0x%x", sha256.Sum256(spacedBody.Bytes()))
+	if gotHashes[0] != wantCompactHash || gotHashes[1] != wantSpacedHash {
+		t.Fatalf("Verifier request hashes = %v, want [%s %s]", gotHashes[:2], wantCompactHash, wantSpacedHash)
+	}
 	// Duration Check (should be significantly faster)
 	if duration2 > 50*time.Millisecond {
 		t.Logf("Warning: Cache hit was slow (%v), but logic verified.", duration2)
 	}
 
 	// Security Check: Cache HIT but INVALID Signature
-	w3 := makeRequest("0xInvalidSig")
+	w3 := makeRequest("0xInvalidSig", compactBody)
 	if w3.Code != 403 {
 		t.Errorf("Expected status 403 for invalid signature on cache hit, got %d", w3.Code)
 	}
 
 	// Security Check: Cache HIT but MISSING Signature
-	reqBody := map[string]string{"text": textToSummarize}
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		t.Fatalf("Failed to marshal request body: %v", err)
-	}
-	reqNoSig, err := http.NewRequest("POST", "/api/ai/summarize", bytes.NewBuffer(jsonBody))
+	reqNoSig, err := http.NewRequest("POST", "/api/ai/summarize", bytes.NewReader(compactBody))
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
 	}
