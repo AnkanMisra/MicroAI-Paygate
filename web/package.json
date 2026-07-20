@@ -21,10 +21,10 @@
     "@types/mdx": "^2.0.14",
     "ethers": "^6.17.0",
     "lenis": "^1.3.25",
-    "lucide-react": "^1.24.0",
+    "lucide-react": "^1.25.0",
     "next": "16.2.10",
     "next-themes": "^0.4.6",
-    "posthog-js": "^1.399.3",
+    "posthog-js": "^1.404.1",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
