@@ -438,8 +438,9 @@ func handleSummarize(c *gin.Context) {
 
 	// Check if body already read by middleware
 	if body, exists := c.Get("request_body"); exists {
-		// Cache middleware always sets this as []byte, safe to assert
-		requestBody = body.([]byte)
+		if b, ok := body.([]byte); ok {
+			requestBody = b
+		}
 	}
 
 	// Read body if not already available
