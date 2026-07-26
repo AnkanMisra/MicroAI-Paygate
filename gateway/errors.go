@@ -73,9 +73,16 @@ func isVerifierBusinessRejection(verifyResp *VerifyResponse) bool {
 		"timestamp_missing",
 		"invalid_signature":
 		return true
-	default:
-		return false
 	}
+
+	// Backward compatibility for older verifier responses without error_code.
+	if strings.HasPrefix(verifyResp.Error, "E007") ||
+		strings.HasPrefix(verifyResp.Error, "E008") ||
+		strings.HasPrefix(verifyResp.Error, "E009") {
+		return true
+	}
+
+	return false
 }
 
 func responseCorrelationID(c *gin.Context) string {

@@ -242,8 +242,8 @@ func (rws *responseWriterShim) WriteString(s string) (int, error) { return rws.b
 func (rws *responseWriterShim) WriteHeader(statusCode int)        { rws.bw.WriteHeader(statusCode) }
 func (rws *responseWriterShim) WriteHeaderNow()                   { rws.bw.WriteHeaderNow() }
 func (rws *responseWriterShim) Status() int                       { return rws.bw.Status() }
-func (rws *responseWriterShim) Written() bool                     { return rws.bw.wrote }
-func (rws *responseWriterShim) Size() int                         { return rws.bw.buf.Len() }
+func (rws *responseWriterShim) Written() bool                     { rws.bw.mu.RLock(); defer rws.bw.mu.RUnlock(); return rws.bw.wrote }
+func (rws *responseWriterShim) Size() int                         { rws.bw.mu.RLock(); defer rws.bw.mu.RUnlock(); return rws.bw.buf.Len() }
 func (rws *responseWriterShim) WriteHeaderNowWithoutLock()        {}
 
 // Flush flushes the response to the client if the underlying writer
