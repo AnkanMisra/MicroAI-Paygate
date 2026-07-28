@@ -68,6 +68,9 @@ async function getChallenge(text = "smoke"): Promise<PaymentContext> {
     headers: { "Content-Type": "application/json", Origin: ORIGIN },
     body: JSON.stringify({ text }),
   });
+  if (!r.ok) {
+    throw new Error(`Failed to get challenge: ${r.status} ${r.statusText}`);
+  }
   return (await r.json()).paymentContext as PaymentContext;
 }
 
