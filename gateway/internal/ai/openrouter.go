@@ -48,12 +48,15 @@ func NewOpenRouterProvider() *OpenRouterProvider {
 func (p *OpenRouterProvider) Generate(ctx context.Context, text string) (string, error) {
 	prompt := fmt.Sprintf("Summarize this text in 2 sentences: %s", text)
 
-	reqBody, _ := json.Marshal(map[string]interface{}{
+	reqBody, err := json.Marshal(map[string]interface{}{
 		"model": p.model,
 		"messages": []map[string]string{
 			{"role": "user", "content": prompt},
 		},
 	})
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", p.url, bytes.NewBuffer(reqBody))
 	if err != nil {
