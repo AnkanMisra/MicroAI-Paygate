@@ -51,7 +51,7 @@ export function ColdStartWarmup() {
       controller.signal,
     );
 
-    Promise.allSettled(probes).then(() => setWarm(true));
+    Promise.allSettled(probes).then(().catch(err => console.error(err))=> setWarm(true));
 
     return () => controller.abort();
   }, []);
