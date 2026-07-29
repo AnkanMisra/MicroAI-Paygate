@@ -44,7 +44,8 @@ describe("MicroAI Paygate E2E Flow", () => {
     });
 
     expect(res.status).toBe(402);
-    const data = await res.json() as any;
+    if (!res.ok) throw new Error("Request failed");
+const data = await res.json() as any;
     expect(data.error).toBe("Payment Required");
     expect(data.paymentContext).toBeDefined();
     expect(data.paymentContext.nonce).toBeDefined();
@@ -86,7 +87,8 @@ describe("MicroAI Paygate E2E Flow", () => {
     }
 
     expect(res.status).toBe(200);
-    const data = await res.json() as any;
+    if (!res.ok) throw new Error("Request failed");
+const data = await res.json() as any;
     expect(data.result).toBeDefined();
   }, 30000);
 
