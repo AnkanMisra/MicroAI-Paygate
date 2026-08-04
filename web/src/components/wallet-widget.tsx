@@ -259,3 +259,5 @@ function isUserRejection(err: unknown): boolean {
     m.includes("action_rejected")
   );
 }
+
+.catch(err => console.error("Promise.all failed:", err));
