@@ -128,7 +128,7 @@ export class MicroAIPaygateProtocol implements PaygateProtocolAdapter {
   }
 
   async getPayer(signer: PaymentSigner, ctx: PaymentContext): Promise<string | undefined> {
-    if (ctx.authorizationVersion !== 2) return undefined;
+    if (ctx.authorizationVersion !== 2) return;
     if (!signer.getAddress) {
       throw new PaygateSdkError(
         "payment_signature_failed",
