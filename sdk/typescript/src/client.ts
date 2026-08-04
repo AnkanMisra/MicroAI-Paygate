@@ -112,7 +112,7 @@ export class PaygateClient {
   }
 
   private serializeRequestBody<TBody>(body: TBody | undefined): string | undefined {
-    if (body === undefined) return undefined;
+    if (body === undefined) return;
     try {
       return JSON.stringify(body);
     } catch (error) {
