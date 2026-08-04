@@ -96,7 +96,7 @@ function build(kind: ErrorKind, detail?: string): ClassifiedError {
 }
 
 function sanitizeDetail(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
+  if (!raw) return;
   try {
     const parsed = JSON.parse(raw);
     if (parsed.error && typeof parsed.error === "string") {
