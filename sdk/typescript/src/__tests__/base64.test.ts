@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { decodeBase64ToUtf8, encodeUtf8ToBase64 } from "../base64";
 
-const originalAtob = globalThis.atob;
-const originalBtoa = globalThis.btoa;
+type Base64Global = "atob" | "btoa";
 
-function setGlobalCapability(name: "atob" | "btoa", value: typeof globalThis.atob | undefined) {
+const originalAtobDescriptor = Object.getOwnPropertyDescriptor(globalThis, "atob");
+const originalBtoaDescriptor = Object.getOwnPropertyDescriptor(globalThis, "btoa");
+
+function setGlobalCapability(name: Base64Global, value: typeof globalThis.atob | undefined) {
   Object.defineProperty(globalThis, name, {
     configurable: true,
     value,
@@ -12,9 +14,18 @@ function setGlobalCapability(name: "atob" | "btoa", value: typeof globalThis.ato
   });
 }
 
+function restoreGlobalCapability(name: Base64Global, descriptor: PropertyDescriptor | undefined) {
+  if (descriptor) {
+    Object.defineProperty(globalThis, name, descriptor);
+    return;
+  }
+
+  Reflect.deleteProperty(globalThis, name);
+}
+
 afterEach(() => {
-  setGlobalCapability("atob", originalAtob);
-  setGlobalCapability("btoa", originalBtoa);
+  restoreGlobalCapability("atob", originalAtobDescriptor);
+  restoreGlobalCapability("btoa", originalBtoaDescriptor);
 });
 
 describe("base64 UTF-8 helpers", () => {
