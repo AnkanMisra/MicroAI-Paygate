@@ -31,7 +31,7 @@ func TestRedisReceiptStore_PersistsAcrossGatewayRestart(t *testing.T) {
 	verifier := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(VerifyResponse{
 			IsValid:          true,
-			RecoveredAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f8fE21",
+			RecoveredAddress: "0x14791697260e4c9a71f18484c9f997b308e59325",
 		})
 	}))
 	defer verifier.Close()
@@ -74,6 +74,7 @@ func TestRedisReceiptStore_PersistsAcrossGatewayRestart(t *testing.T) {
 	createReq := httptest.NewRequest(http.MethodPost, "/api/ai/summarize", bytes.NewBufferString(`{"text":"persist this receipt"}`))
 	createReq.Header.Set("Content-Type", "application/json")
 	createReq.Header.Set("X-402-Signature", "0xValidSig")
+	createReq.Header.Set("X-402-Payer", "0x14791697260E4c9A71f18484C9f997B308e59325")
 	createReq.Header.Set("X-402-Nonce", "restart-test-nonce")
 	createReq.Header.Set("X-402-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
 	createResp := httptest.NewRecorder()

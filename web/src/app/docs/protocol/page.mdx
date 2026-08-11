@@ -9,9 +9,9 @@ It is not official x402-compatible yet because it does not use the official head
 1. Client sends an unsigned request to the gateway.
 2. Gateway returns `402 Payment Required` with a `paymentContext`.
 3. Client signs the payment context with EIP-712.
-4. Client retries with `X-402-Signature`, `X-402-Nonce`, and `X-402-Timestamp`.
+4. Client retries with `X-402-Signature`, `X-402-Nonce`, `X-402-Timestamp`, and `X-402-Payer`.
 5. Gateway sends the signed payload to the Rust verifier.
-6. Verifier recovers the wallet, checks chain ID, timestamp, and nonce.
+6. Verifier recovers the wallet and checks the claimed payer, request binding, chain ID, timestamp, and nonce.
 7. Gateway calls the configured AI provider.
 8. Gateway signs a receipt over the request and response hashes.
 9. Client decodes and verifies the receipt.
@@ -21,7 +21,7 @@ It is not official x402-compatible yet because it does not use the official head
 ```ts
 const domain = {
   name: "MicroAI Paygate",
-  version: "1",
+  version: "2",
   chainId: paymentContext.chainId,
   verifyingContract: ethers.ZeroAddress,
 };
@@ -31,31 +31,46 @@ const domain = {
 
 ```ts
 const types = {
-  Payment: [
+  PaymentAuthorization: [
+    { name: "payer", type: "address" },
     { name: "recipient", type: "address" },
     { name: "token", type: "string" },
     { name: "amount", type: "string" },
     { name: "nonce", type: "string" },
     { name: "timestamp", type: "uint256" },
+    { name: "audience", type: "string" },
+    { name: "method", type: "string" },
+    { name: "resource", type: "string" },
+    { name: "contentType", type: "string" },
+    { name: "requestHash", type: "bytes32" },
   ],
 };
 ```
 
-## Payment Context Fields
+## Authorization Fields
 
+- `authorizationVersion`: current request-bound contract version, `2`.
+- `payer`: signer-derived wallet address sent separately as `X-402-Payer` and covered by the signature.
 - `recipient`: recipient wallet address.
 - `token`: display token symbol, currently `USDC`.
 - `amount`: requested payment amount as a string.
 - `nonce`: one-time replay protection value.
 - `chainId`: EIP-712 chain ID.
 - `timestamp`: signature freshness timestamp.
+- `audience`: trusted public gateway origin.
+- `method`: uppercase HTTP method.
+- `resource`: encoded path plus raw query string.
+- `contentType`: exact request content type.
+- `requestHash`: SHA-256 hash of the exact serialized request body bytes.
 
 ## Receipt Fields
 
 Receipts include:
 
-- payment payer, recipient, amount, token, chain ID, and nonce.
+- `version`: `2.0` for request-bound authorization receipts. Clients may continue to verify stored legacy `1.0` receipts using the v1 serialization.
+- payment payer, recipient, amount, token, chain ID, nonce, and signed authorization timestamp.
 - service endpoint.
+- authorization version, audience, method, resource, content type, and authorization request hash.
 - `request_hash`.
 - `response_hash`.
 - gateway signature.

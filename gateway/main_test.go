@@ -73,6 +73,41 @@ func TestHandleSummarize_NoHeaders(t *testing.T) {
 	}
 }
 
+func TestCORSMiddlewareAllowsSignedRetryPreflight(t *testing.T) {
+	const origin = "https://web.example.com"
+	t.Setenv("ALLOWED_ORIGINS", origin)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	configureCORSMiddleware(router)
+	router.POST("/api/ai/summarize", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	request := httptest.NewRequest(http.MethodOptions, "/api/ai/summarize", nil)
+	request.Header.Set("Origin", origin)
+	request.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	request.Header.Set("Access-Control-Request-Headers", "content-type,x-402-signature,x-402-nonce,x-402-timestamp,x-402-payer")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusNoContent, recorder.Code)
+	require.Equal(t, origin, recorder.Header().Get("Access-Control-Allow-Origin"))
+
+	headerTokens := func(name string) map[string]bool {
+		tokens := make(map[string]bool)
+		for _, token := range strings.Split(recorder.Header().Get(name), ",") {
+			tokens[strings.ToLower(strings.TrimSpace(token))] = true
+		}
+		return tokens
+	}
+	require.True(t, headerTokens("Access-Control-Allow-Methods")["post"])
+	allowedHeaders := headerTokens("Access-Control-Allow-Headers")
+	for _, header := range []string{"content-type", "x-402-signature", "x-402-nonce", "x-402-timestamp", "x-402-payer"} {
+		require.Truef(t, allowedHeaders[header], "preflight response missing %s", header)
+	}
+}
+
 func TestGetChainIDDefaultBaseSepolia(t *testing.T) {
 	t.Setenv("CHAIN_ID", "")
 

@@ -37,6 +37,7 @@ struct AppState {
     nonce_store: Arc<NonceStore>,
     signature_expiry_seconds: u64,
     clock_skew_seconds: u64,
+    minimum_authorization_version: u8,
 }
 
 struct MemoryNonceStore {
@@ -149,6 +150,14 @@ fn get_expected_chain_id() -> u64 {
     }
 
     parse_chain_id_env("CHAIN_ID").unwrap_or(DEFAULT_EXPECTED_CHAIN_ID)
+}
+
+fn get_minimum_authorization_version() -> Result<u8, String> {
+    let raw = env::var("MIN_AUTHORIZATION_VERSION").unwrap_or_else(|_| "2".to_string());
+    match raw.trim().parse::<u8>() {
+        Ok(version @ 1..=2) => Ok(version),
+        _ => Err("MIN_AUTHORIZATION_VERSION must be 1 or 2".to_string()),
+    }
 }
 
 fn get_port() -> u16 {
@@ -304,6 +313,8 @@ async fn main() {
         nonce_store,
         signature_expiry_seconds: get_env_u64("SIGNATURE_EXPIRY_SECONDS", 300),
         clock_skew_seconds: get_env_u64("SIGNATURE_CLOCK_SKEW_SECONDS", 60),
+        minimum_authorization_version: get_minimum_authorization_version()
+            .expect("failed to configure minimum authorization version"),
     };
     let recorder = PrometheusBuilder::new()
         .install_recorder()
@@ -767,7 +778,7 @@ async fn verify_signature(
     };
 
     // 3. Now that we have a safe payload, proceed with your existing logic
-    println!("[CID: {}] Verify nonce={}", cid, payload.context.nonce);
+    println!("[CID: {}] Verify payment authorization", cid);
 
     if payload.context.chain_id != state.expected_chain_id {
         record_verification_failure(&request_start, "chain_id_mismatch");
@@ -816,6 +827,27 @@ async fn verify_signature(
                 recovered_address: None,
                 error: Some(msg),
                 error_code: Some(error_code.to_string()),
+            }),
+        );
+    }
+
+    let authorization_version = match payload.context.authorization.version {
+        AuthorizationVersion::Legacy => 1,
+        AuthorizationVersion::V2 => 2,
+        AuthorizationVersion::Unsupported(version) => version,
+    };
+    if authorization_version < state.minimum_authorization_version {
+        record_verification_failure(&request_start, "authorization_downgrade");
+        return (
+            StatusCode::BAD_REQUEST,
+            res_headers,
+            Json(VerifyResponse {
+                is_valid: false,
+                recovered_address: None,
+                error: Some(format!(
+                    "authorization version {authorization_version} is below the configured minimum"
+                )),
+                error_code: Some("authorization_version_too_old".to_string()),
             }),
         );
     }
@@ -1011,6 +1043,7 @@ mod tests {
             nonce_store,
             signature_expiry_seconds,
             clock_skew_seconds,
+            minimum_authorization_version: 1,
         }
     }
 
@@ -1183,6 +1216,24 @@ mod tests {
         with_chain_env(Some("0"), Some("8453"), || {
             assert_eq!(get_expected_chain_id(), BASE_SEPOLIA_CHAIN_ID);
         });
+    }
+
+    #[test]
+    fn test_minimum_authorization_version_defaults_to_v2_and_rejects_invalid_values() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let old = env::var("MIN_AUTHORIZATION_VERSION").ok();
+
+        env::remove_var("MIN_AUTHORIZATION_VERSION");
+        assert_eq!(get_minimum_authorization_version().unwrap(), 2);
+        env::set_var("MIN_AUTHORIZATION_VERSION", "1");
+        assert_eq!(get_minimum_authorization_version().unwrap(), 1);
+        env::set_var("MIN_AUTHORIZATION_VERSION", "3");
+        assert!(get_minimum_authorization_version().is_err());
+
+        match old {
+            Some(value) => env::set_var("MIN_AUTHORIZATION_VERSION", value),
+            None => env::remove_var("MIN_AUTHORIZATION_VERSION"),
+        }
     }
 
     #[test]
@@ -1415,16 +1466,63 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_verify_signature_rejects_tampered_v2_binding_for_claimed_payer() {
-        let mut request = signed_v2_request(&unique_test_nonce()).await;
-        request.context.authorization.request_hash = Some(format!("0x{}", "00".repeat(32)));
+    async fn test_verify_signature_rejects_legacy_authorization_when_v2_is_required() {
+        let request = signed_request(&unique_test_nonce(), BASE_SEPOLIA_CHAIN_ID, now()).await;
+        let mut state = app_state();
+        state.minimum_authorization_version = 2;
 
         let (status, _, Json(response)) =
-            verify_signature(State(app_state()), HeaderMap::new(), Ok(Json(request))).await;
+            verify_signature(State(state), HeaderMap::new(), Ok(Json(request))).await;
 
-        assert_eq!(status, StatusCode::OK);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(!response.is_valid);
-        assert_eq!(response.error_code.as_deref(), Some("signer_mismatch"));
+        assert_eq!(
+            response.error_code.as_deref(),
+            Some("authorization_version_too_old")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verify_signature_rejects_tampered_v2_binding_for_claimed_payer() {
+        let request = signed_v2_request(&unique_test_nonce()).await;
+        let mut tampered_requests = Vec::new();
+
+        let mut tampered = request.clone();
+        tampered.context.authorization.audience = Some("https://attacker.example".to_string());
+        tampered_requests.push(("audience", tampered));
+
+        let mut tampered = request.clone();
+        tampered.context.authorization.method = Some("GET".to_string());
+        tampered_requests.push(("method", tampered));
+
+        let mut tampered = request.clone();
+        tampered.context.authorization.resource = Some("/api/ai/other".to_string());
+        tampered_requests.push(("resource", tampered));
+
+        let mut tampered = request.clone();
+        tampered.context.authorization.content_type = Some("text/plain".to_string());
+        tampered_requests.push(("content type", tampered));
+
+        let mut tampered = request.clone();
+        tampered.context.authorization.request_hash = Some(format!("0x{}", "00".repeat(32)));
+        tampered_requests.push(("request hash", tampered));
+
+        let mut tampered = request;
+        tampered.payer = Some("0x0000000000000000000000000000000000000001".to_string());
+        tampered_requests.push(("payer", tampered));
+
+        for (field, tampered) in tampered_requests {
+            let (status, _, Json(response)) =
+                verify_signature(State(app_state()), HeaderMap::new(), Ok(Json(tampered))).await;
+
+            assert_eq!(status, StatusCode::OK, "{field}");
+            assert!(!response.is_valid, "{field}");
+            assert_eq!(
+                response.error_code.as_deref(),
+                Some("signer_mismatch"),
+                "{field}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -2117,6 +2215,7 @@ mod tests {
             nonce_store: memory_nonce_store(),
             signature_expiry_seconds: 300,
             clock_skew_seconds: 60,
+            minimum_authorization_version: 1,
         };
         let app = Router::new()
             .route("/verify", post(verify_signature))

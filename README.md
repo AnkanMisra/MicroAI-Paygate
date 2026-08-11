@@ -71,9 +71,7 @@ sequenceDiagram
     G-->>C: 200 result + X-402-Receipt
 ```
 
-The signed context binds the recipient, token, amount, nonce, timestamp, and chain ID. The verifier rejects malformed signatures, wrong chains, stale or future timestamps, and replayed nonces before the gateway calls the AI provider.
-
-Request-bound authorization v2 is being rolled out in stages. The verifier, browser, and TypeScript SDK can already validate the v2 audience, method, encoded resource, content type, exact serialized body hash, and claimed payer; the public gateway continues issuing v1 contexts until the cutover is deployed.
+Authorization v2 binds the payer and payment fields to the configured gateway audience, HTTP method, encoded path and raw query, content type, and SHA-256 hash of the exact request bytes. The verifier rejects malformed signatures, wrong chains, stale or future timestamps, replayed nonces, mismatched request bindings, and legacy authorization before the gateway calls the AI provider.
 
 ## Architecture
 
@@ -181,6 +179,7 @@ Signed retries include:
 X-402-Signature: <wallet signature>
 X-402-Nonce: <nonce from paymentContext>
 X-402-Timestamp: <timestamp from paymentContext>
+X-402-Payer: <wallet address covered by the signature>
 ```
 
 Successful responses return the signed receipt as base64-encoded JSON in `X-402-Receipt`. See [`gateway/openapi.yaml`](gateway/openapi.yaml) for the complete contract.
@@ -231,7 +230,8 @@ The full local template is [`.env.example`](.env.example); production placeholde
 | `RECIPIENT_ADDRESS`, `PAYMENT_AMOUNT` | Values embedded in payment contexts. |
 | `CHAIN_ID`, `EXPECTED_CHAIN_ID` | Gateway and verifier chain IDs; these must match. |
 | `VERIFIER_URL` | Verifier base URL used by the gateway; required at startup. |
-| `PAYGATE_AUDIENCE` | Public gateway origin reserved for request-bound authorization v2; configure it before the gateway cutover. |
+| `PAYGATE_AUDIENCE` | Required trusted public gateway origin used by request-bound authorization. Never derived from forwarded host headers. |
+| `MIN_AUTHORIZATION_VERSION` | Verifier minimum accepted authorization version; defaults to `2`. Set `1` only for an explicit rollback window. |
 | `VERIFIER_NONCE_STORE` | `memory` locally or `redis` for shared replay protection. |
 | `RECEIPT_STORE` | `memory` locally or `redis` for restart-safe receipts. |
 | `REDIS_URL` | Required by Redis nonce, receipt, or response-cache modes. |
@@ -251,7 +251,7 @@ Run the checks for every component you change:
 | Web | `cd web && bun run lint && bun run typecheck && bun run test:unit && bun run build` |
 | SDK | `cd sdk/typescript && bun run typecheck && bun run test` |
 | Unit suite | `bun run test:unit` |
-| E2E | `RECEIPT_STORE=memory VERIFIER_NONCE_STORE=memory CACHE_ENABLED=false bun run test:e2e` — also requires `OPENROUTER_API_KEY` for the default provider |
+| E2E | `RECEIPT_STORE=memory VERIFIER_NONCE_STORE=memory CACHE_ENABLED=false bun run test:e2e` — starts a deterministic OpenRouter-compatible mock when `OPENROUTER_API_KEY` is unset; set the key to exercise the live provider |
 
 > [!TIP]
 > Do not replace `bun run test:e2e` with plain `bun test`; the E2E script builds and starts the gateway and verifier first.

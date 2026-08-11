@@ -26,7 +26,11 @@ import {
 } from "@/lib/wallet";
 import { saveReceipt } from "@/lib/receipt-storage";
 import { classifyError, type ClassifiedError } from "@/lib/errors";
-import type { SignedReceipt } from "@/lib/verify-receipt";
+import {
+  receiptMatchesExchange,
+  receiptMatchesPaymentAuthorization,
+  type SignedReceipt,
+} from "@/lib/verify-receipt";
 import type { X402Step } from "@/lib/types";
 
 type UseX402State = {
@@ -292,7 +296,18 @@ export function useX402() {
       }
 
       update({ step: "receipt" });
-      const { summary, receipt } = await readSummarizeSuccess(retry);
+      const { summary, receipt, responseBodyText } = await readSummarizeSuccess(retry);
+      const receiptMatches = receipt && payer &&
+        receiptMatchesPaymentAuthorization(receipt, context, payer) &&
+        receiptMatchesExchange(
+          receipt,
+          new URL(getSummarizeUrl()).pathname,
+          requestBodyText,
+          responseBodyText,
+        );
+      if (receipt && !receiptMatches) {
+        throw new Error("Receipt does not match the signed payment authorization");
+      }
       if (receipt) saveReceipt(receipt, text);
       track(AnalyticsEvent.SummaryCompleted, {
         ...flowProps,
