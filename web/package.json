@@ -17,16 +17,16 @@
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",
     "@mdx-js/react": "^3.1.1",
-    "@next/mdx": "16.2.10",
+    "@next/mdx": "16.3.1",
     "@types/mdx": "^2.0.14",
     "ethers": "^6.17.0",
-    "lenis": "^1.3.25",
-    "lucide-react": "^1.24.0",
-    "next": "16.2.10",
+    "lenis": "^1.3.26",
+    "lucide-react": "^1.31.0",
+    "next": "16.3.1",
     "next-themes": "^0.4.6",
-    "posthog-js": "^1.399.3",
-    "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "posthog-js": "^1.417.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -38,7 +38,7 @@
     "@types/react-dom": "^19",
     "bun-types": "1.3.14",
     "eslint": "^9",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "16.3.1",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4",
     "typescript": "5.9.3"
