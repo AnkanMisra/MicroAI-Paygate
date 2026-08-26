@@ -4,6 +4,7 @@ import { SummarizeForm } from "@/components/summarize-form";
 import { ReceiptHistory } from "@/components/receipt-history";
 import { HowItWorks } from "@/components/how-it-works";
 import { Footer } from "@/components/footer";
+import ModelSelector from "@/components/ModelSelector";
 
 export default function Home() {
   return (
@@ -20,6 +21,21 @@ export default function Home() {
               titleRight="Pay once."
               caption="Paste any text. The gateway will challenge you with a 402, your wallet signs it once, and a summary comes back with a verifiable receipt."
             />
+            
+            {/* ── Model Selector ────────────────────────────────────────────── */}
+            <div className="mb-6 flex items-center justify-between rounded-lg border border-ink/10 bg-paper-deep p-4">
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-xs uppercase tracking-wider text-ink-soft">
+                  AI Model
+                </span>
+                <span className="h-4 w-px bg-ink/20" />
+                <span className="text-xs text-ink-soft">
+                  Switch the model used for summarization
+                </span>
+              </div>
+              <ModelSelector />
+            </div>
+
             <SummarizeForm />
           </div>
         </section>
