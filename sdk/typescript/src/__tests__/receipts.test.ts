@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { ethers } from "ethers";
 import fixture from "../__fixtures__/gateway-receipt.json";
 import {
   PaygateSdkError,
@@ -60,6 +61,77 @@ describe("receipt helpers", () => {
     expect(
       await verifyReceipt(cloneFixture(), { expectedServerPublicKey: fixtureServerPublicKey }),
     ).toBe(true);
+  });
+
+  it("verifyReceipt preserves request-bound v2 receipt fields in the signed payload", async () => {
+    const signingKey = new ethers.SigningKey(
+      "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    );
+    const receipt: SignedReceipt["receipt"] = {
+      id: "rcpt_boundv2test",
+      version: "2.0",
+      timestamp: "2026-07-16T00:00:00Z",
+      payment: {
+        payer: "0x14791697260E4c9A71f18484C9f997B308e59325",
+        recipient: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219",
+        amount: "0.001",
+        token: "USDC",
+        chainId: 84532,
+        nonce: "bound-v2-receipt",
+        timestamp: 1760572800,
+      },
+      service: {
+        endpoint: "/api/ai/summarize",
+        authorization_version: 2,
+        audience: "https://gateway.example.com",
+        method: "POST",
+        resource: "/api/ai/summarize?mode=brief&tag=<x>\u2028",
+        content_type: "application/json",
+        authorization_request_hash:
+          "0x8187d0879ad19b46b277e1b761d3f70d51bc9de6459530b686cfaa503ae8d0e9",
+        request_hash:
+          "sha256:8187d0879ad19b46b277e1b761d3f70d51bc9de6459530b686cfaa503ae8d0e9",
+        response_hash:
+          "sha256:8a90fd4352d6e287b3e908e62f802c99c4f5680c9644cb27fb64d638e3fbb9d4",
+      },
+    };
+    const goJSON = JSON.stringify(receipt).replace(/[<>&\u2028\u2029]/g, (character) =>
+      `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    );
+    const digest = ethers.keccak256(ethers.toUtf8Bytes(goJSON));
+    const signature = signingKey.sign(digest);
+    const signedReceipt: SignedReceipt = {
+      receipt,
+      signature: ethers.hexlify(
+        ethers.concat([signature.r, signature.s, ethers.toBeHex(signature.yParity, 1)]),
+      ),
+      server_public_key: signingKey.publicKey,
+    };
+
+    expect(
+      await verifyReceipt(signedReceipt, { expectedServerPublicKey: signingKey.publicKey }),
+    ).toBe(true);
+  });
+
+  it("rejects unsupported versions and unsigned v2 metadata on legacy receipts", () => {
+    const unsupported = cloneFixture();
+    unsupported.receipt.version = "3.0";
+    expect(validateReceiptFormat(unsupported)).toBe(false);
+
+    const legacyWithV2Metadata = cloneFixture();
+    legacyWithV2Metadata.receipt.service.authorization_version = 2;
+    legacyWithV2Metadata.receipt.service.audience = "https://gateway.example.com";
+    expect(validateReceiptFormat(legacyWithV2Metadata)).toBe(false);
+
+    const extraProperty = cloneFixture() as SignedReceipt & { receipt: { status?: string } };
+    extraProperty.receipt.status = "refunded";
+    expect(validateReceiptFormat(extraProperty)).toBe(false);
+
+    const extraServiceProperty = cloneFixture() as SignedReceipt & {
+      receipt: { service: SignedReceipt["receipt"]["service"] & { status?: string } };
+    };
+    extraServiceProperty.receipt.service.status = "refunded";
+    expect(validateReceiptFormat(extraServiceProperty)).toBe(false);
   });
 
   it("verifyReceipt requires the expected gateway receipt signing key as a trust anchor", async () => {

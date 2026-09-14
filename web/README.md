@@ -9,7 +9,7 @@ The web app is a Next.js/Bun frontend on port `3001`. It lets users submit text 
 - Detect an injected EVM provider such as MetaMask, Rabby, or Coinbase Wallet.
 - Switch or add the requested chain when the wallet is on the wrong network.
 - Sign the gateway-provided EIP-712 payment context.
-- Retry with `X-402-Signature`, `X-402-Nonce`, and `X-402-Timestamp`.
+- Retry with `X-402-Signature`, `X-402-Nonce`, `X-402-Timestamp`, and `X-402-Payer`.
 - Display summary results or user-facing errors.
 - Serve the in-app MDX documentation experience at `/docs`.
 
@@ -61,16 +61,22 @@ The frontend signs the same EIP-712 domain and type enforced by the verifier:
 ```text
 Domain:
   name: MicroAI Paygate
-  version: 1
+  version: 2
   chainId: paymentContext.chainId
   verifyingContract: 0x0000000000000000000000000000000000000000
 
-Payment:
+PaymentAuthorization:
+  payer address
   recipient address
   token string
   amount string
   nonce string
   timestamp uint256
+  audience string
+  method string
+  resource string
+  contentType string
+  requestHash bytes32
 ```
 
 If this shape changes, update gateway, verifier, web, E2E tests, OpenAPI, and docs together.

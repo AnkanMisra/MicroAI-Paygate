@@ -48,6 +48,12 @@ func verifierFailureResponse(verifyResp *VerifyResponse) (int, string) {
 		return http.StatusBadRequest, "invalid_timestamp"
 	case "invalid_signature":
 		return http.StatusForbidden, "invalid_signature"
+	case "signer_mismatch":
+		return http.StatusForbidden, "signer_mismatch"
+	case "invalid_authorization_context":
+		return http.StatusBadRequest, "invalid_authorization_context"
+	case "authorization_version_too_old":
+		return http.StatusBadRequest, "authorization_version_too_old"
 	}
 
 	// Backward compatibility for older verifier responses without error_code.
@@ -71,7 +77,10 @@ func isVerifierBusinessRejection(verifyResp *VerifyResponse) bool {
 		"timestamp_expired",
 		"timestamp_future",
 		"timestamp_missing",
-		"invalid_signature":
+		"invalid_signature",
+		"signer_mismatch",
+		"invalid_authorization_context",
+		"authorization_version_too_old":
 		return true
 	default:
 		return false

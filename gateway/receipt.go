@@ -13,6 +13,8 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
+const currentReceiptVersion = "2.0"
+
 // Receipt represents a cryptographic payment receipt
 type Receipt struct {
 	ID        string         `json:"id"`
@@ -30,13 +32,20 @@ type PaymentDetails struct {
 	Token     string `json:"token"`
 	ChainID   int    `json:"chainId"`
 	Nonce     string `json:"nonce"`
+	Timestamp uint64 `json:"timestamp,omitempty"`
 }
 
 // ServiceDetails contains service-related information
 type ServiceDetails struct {
-	Endpoint     string `json:"endpoint"`
-	RequestHash  string `json:"request_hash"`
-	ResponseHash string `json:"response_hash"`
+	Endpoint             string `json:"endpoint"`
+	AuthorizationVersion int    `json:"authorization_version,omitempty"`
+	Audience             string `json:"audience,omitempty"`
+	Method               string `json:"method,omitempty"`
+	Resource             string `json:"resource,omitempty"`
+	ContentType          string `json:"content_type,omitempty"`
+	AuthorizationHash    string `json:"authorization_request_hash,omitempty"`
+	RequestHash          string `json:"request_hash"`
+	ResponseHash         string `json:"response_hash"`
 }
 
 // SignedReceipt contains the receipt and its cryptographic signature
@@ -62,7 +71,7 @@ func GenerateReceipt(payment PaymentContext, payer string, endpoint string, reqB
 
 	receipt := Receipt{
 		ID:        receiptID,
-		Version:   "1.0",
+		Version:   currentReceiptVersion,
 		Timestamp: time.Now().UTC(),
 		Payment: PaymentDetails{
 			Payer:     payer,
@@ -71,11 +80,18 @@ func GenerateReceipt(payment PaymentContext, payer string, endpoint string, reqB
 			Token:     payment.Token,
 			ChainID:   payment.ChainID,
 			Nonce:     payment.Nonce,
+			Timestamp: payment.Timestamp,
 		},
 		Service: ServiceDetails{
-			Endpoint:     endpoint,
-			RequestHash:  hashData(reqBody),
-			ResponseHash: hashData(respBody),
+			Endpoint:             endpoint,
+			AuthorizationVersion: payment.AuthorizationVersion,
+			Audience:             payment.Audience,
+			Method:               payment.Method,
+			Resource:             payment.Resource,
+			ContentType:          payment.ContentType,
+			AuthorizationHash:    payment.RequestHash,
+			RequestHash:          hashData(reqBody),
+			ResponseHash:         hashData(respBody),
 		},
 	}
 

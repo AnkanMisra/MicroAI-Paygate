@@ -60,7 +60,7 @@ paths:
     post:
       summary: Summarize text with x402 payment enforcement
       description: |
-        Unsigned requests return HTTP 402 with a payment context. Clients sign that context with EIP-712 typed data and retry with X-402-Signature, X-402-Nonce, and X-402-Timestamp.
+        Unsigned requests return HTTP 402 with a request-bound v2 payment context. Clients sign that context and their payer address with EIP-712 typed data, then retry with X-402-Signature, X-402-Nonce, X-402-Timestamp, and X-402-Payer. The context binds the configured gateway audience, method, encoded resource, content type, and SHA-256 hash of the exact request bytes.
       parameters:
         - name: X-402-Signature
           in: header
@@ -83,6 +83,13 @@ paths:
           schema:
             type: string
             example: "1700000000"
+        - name: X-402-Payer
+          in: header
+          required: false
+          description: Wallet address claimed by and covered by the v2 EIP-712 signature. Required on signed retries.
+          schema:
+            type: string
+            example: "0x14791697260E4c9A71f18484C9f997B308e59325"
         - name: X-Correlation-ID
           in: header
           required: false
@@ -112,7 +119,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/SummarizeResponse"
         "400":
-          description: Invalid timestamp, chain mismatch, or invalid request body.
+          description: Invalid timestamp, chain, payer, authorization version, request binding, or request body.
           content:
             application/json:
               schema:
@@ -127,6 +134,10 @@ paths:
                 invalidBody:
                   value:
                     error: Invalid request body
+                invalidAuthorization:
+                  value:
+                    error: invalid_authorization_context
+                    correlation_id: "550e8400-e29b-41d4-a716-446655440000"
         "402":
           description: Payment required. Sign the returned paymentContext and retry.
           content:
@@ -134,13 +145,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaymentRequiredResponse"
         "403":
-          description: Invalid signature.
+          description: Invalid signature or a signature that does not match the claimed payer/request binding.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicError"
               example:
-                error: invalid_signature
+                error: signer_mismatch
                 correlation_id: "550e8400-e29b-41d4-a716-446655440000"
         "409":
           description: Nonce already used.
@@ -352,8 +363,12 @@ components:
 
     PaymentContext:
       type: object
-      required: [recipient, token, amount, nonce, chainId, timestamp]
+      required: [authorizationVersion, recipient, token, amount, nonce, chainId, timestamp, audience, method, resource, contentType, requestHash]
       properties:
+        authorizationVersion:
+          type: integer
+          const: 2
+          description: Request-bound payment authorization contract version.
         recipient:
           type: string
           description: Ethereum address of payment recipient.
@@ -376,6 +391,28 @@ components:
           format: uint64
           description: Unix timestamp in seconds used in the EIP-712 message.
           example: 1700000000
+        audience:
+          type: string
+          format: uri
+          description: Trusted public gateway origin configured by the server.
+          example: https://gateway.example.com
+        method:
+          type: string
+          description: Uppercase HTTP method covered by the signature.
+          example: POST
+        resource:
+          type: string
+          description: Encoded path plus the unmodified raw query covered by the signature.
+          example: /api/ai/summarize?mode=brief&tag=a&tag=b
+        contentType:
+          type: string
+          description: Request Content-Type covered by the signature.
+          example: application/json
+        requestHash:
+          type: string
+          pattern: '^0x[0-9a-fA-F]{64}$'
+          description: SHA-256 hash of the exact request-body bytes covered by the signature.
+          example: "0x8187d0879ad19b46b277e1b761d3f70d51bc9de6459530b686cfaa503ae8d0e9"
 
     PublicError:
       type: object
@@ -385,6 +422,9 @@ components:
           type: string
           enum:
             - invalid_signature
+            - signer_mismatch
+            - invalid_authorization_context
+            - authorization_version_too_old
             - invalid_timestamp
             - chain_id_mismatch
             - nonce_already_used
@@ -442,7 +482,18 @@ components:
           example: valid
 
     Receipt:
+      oneOf:
+        - $ref: "#/components/schemas/ReceiptV1"
+        - $ref: "#/components/schemas/ReceiptV2"
+      discriminator:
+        propertyName: version
+        mapping:
+          "1.0": "#/components/schemas/ReceiptV1"
+          "2.0": "#/components/schemas/ReceiptV2"
+
+    ReceiptV1:
       type: object
+      additionalProperties: false
       required: [id, version, timestamp, payment, service]
       properties:
         id:
@@ -450,42 +501,134 @@ components:
           example: rcpt_a1b2c3d4e5f6
         version:
           type: string
+          enum: ["1.0"]
           example: "1.0"
         timestamp:
           type: string
           format: date-time
         payment:
-          type: object
-          required: [payer, recipient, amount, token, chainId, nonce]
-          properties:
-            payer:
-              type: string
-              example: "0x..."
-            recipient:
-              type: string
-              example: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219"
-            amount:
-              type: string
-              example: "0.001"
-            token:
-              type: string
-              example: USDC
-            chainId:
-              type: integer
-              example: 84532
-            nonce:
-              type: string
-              example: "550e8400-e29b-41d4-a716-446655440000"
+          $ref: "#/components/schemas/ReceiptPaymentV1"
         service:
-          type: object
-          required: [endpoint, request_hash, response_hash]
-          properties:
-            endpoint:
-              type: string
-              example: /api/ai/summarize
-            request_hash:
-              type: string
-              example: sha256:...
-            response_hash:
-              type: string
-              example: sha256:...
+          $ref: "#/components/schemas/ReceiptServiceV1"
+
+    ReceiptV2:
+      type: object
+      additionalProperties: false
+      required: [id, version, timestamp, payment, service]
+      properties:
+        id:
+          type: string
+          example: rcpt_a1b2c3d4e5f6
+        version:
+          type: string
+          enum: ["2.0"]
+          example: "2.0"
+        timestamp:
+          type: string
+          format: date-time
+        payment:
+          $ref: "#/components/schemas/ReceiptPaymentV2"
+        service:
+          $ref: "#/components/schemas/ReceiptServiceV2"
+
+    ReceiptPaymentV1:
+      type: object
+      additionalProperties: false
+      required: [payer, recipient, amount, token, chainId, nonce]
+      properties:
+        payer:
+          type: string
+          example: "0x..."
+        recipient:
+          type: string
+          example: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219"
+        amount:
+          type: string
+          example: "0.001"
+        token:
+          type: string
+          example: USDC
+        chainId:
+          type: integer
+          example: 84532
+        nonce:
+          type: string
+          example: "550e8400-e29b-41d4-a716-446655440000"
+
+    ReceiptPaymentV2:
+      type: object
+      additionalProperties: false
+      required: [payer, recipient, amount, token, chainId, nonce, timestamp]
+      properties:
+        payer:
+          type: string
+          example: "0x..."
+        recipient:
+          type: string
+          example: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219"
+        amount:
+          type: string
+          example: "0.001"
+        token:
+          type: string
+          example: USDC
+        chainId:
+          type: integer
+          example: 84532
+        nonce:
+          type: string
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        timestamp:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Unix timestamp from the verified payment authorization.
+
+    ReceiptServiceV1:
+      type: object
+      additionalProperties: false
+      required: [endpoint, request_hash, response_hash]
+      properties:
+        endpoint:
+          type: string
+          example: /api/ai/summarize
+        request_hash:
+          type: string
+          example: sha256:...
+        response_hash:
+          type: string
+          example: sha256:...
+
+    ReceiptServiceV2:
+      type: object
+      additionalProperties: false
+      required: [endpoint, authorization_version, audience, method, resource, content_type, authorization_request_hash, request_hash, response_hash]
+      properties:
+        endpoint:
+          type: string
+          example: /api/ai/summarize
+        authorization_version:
+          type: integer
+          enum: [2]
+        audience:
+          type: string
+          example: https://gateway.example.com
+        method:
+          type: string
+          example: POST
+        resource:
+          type: string
+          example: /api/ai/summarize?mode=brief
+        content_type:
+          type: string
+          example: application/json
+        authorization_request_hash:
+          type: string
+          pattern: "^0x[0-9a-fA-F]{64}$"
+          example: "0x8187d0879ad19b46b277e1b761d3f70d51bc9de6459530b686cfaa503ae8d0e9"
+        request_hash:
+          type: string
+          example: sha256:...
+        response_hash:
+          type: string
+          example: sha256:...

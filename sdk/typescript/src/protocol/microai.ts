@@ -43,11 +43,6 @@ function hasBasePaymentFields(value: Record<string, unknown>): boolean {
 function isPaymentContext(value: unknown): value is PaymentContext {
   if (!isRecord(value)) return false;
   if (!hasBasePaymentFields(value)) return false;
-  if (value.authorizationVersion === undefined) {
-    return !["audience", "method", "resource", "contentType", "requestHash"].some(
-      (field) => field in value,
-    );
-  }
   return (
     value.authorizationVersion === 2 &&
     isNonEmptyString(value.audience) &&
@@ -63,7 +58,12 @@ export function validatePaymentContextForRequest(
   ctx: PaymentContext,
   request: PaymentRequestBinding,
 ): void {
-  if (ctx.authorizationVersion !== 2) return;
+  if (ctx.authorizationVersion !== 2) {
+    throw new PaygateSdkError(
+      "payment_binding_mismatch",
+      "Gateway requires request-bound payment authorization v2",
+    );
+  }
 
   const url = new URL(request.url);
   const expected: Pick<

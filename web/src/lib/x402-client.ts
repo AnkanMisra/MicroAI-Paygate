@@ -33,11 +33,6 @@ function isPaymentContext(value: unknown): value is PaymentContext {
   ) {
     return false;
   }
-  if (value.authorizationVersion === undefined) {
-    return !["audience", "method", "resource", "contentType", "requestHash"].some(
-      (field) => field in value,
-    );
-  }
   return (
     value.authorizationVersion === 2 &&
     isNonEmptyString(value.audience) &&
@@ -232,15 +227,17 @@ export function buildSignedHeaders(
 export type SummarizeSuccess = {
   summary: string;
   receipt: SignedReceipt | null;
+  responseBodyText: string;
 };
 
 export async function readSummarizeSuccess(res: Response): Promise<SummarizeSuccess> {
-  const data = (await res.json()) as { result?: string };
+  const responseBodyText = await res.text();
+  const data = JSON.parse(responseBodyText) as { result?: string };
   const summary = data.result ?? "";
 
   const headerVal = res.headers.get("x-402-receipt") ?? res.headers.get("X-402-Receipt");
   const receipt = headerVal ? safeDecodeReceiptHeader(headerVal) : null;
-  return { summary, receipt };
+  return { summary, receipt, responseBodyText };
 }
 
 export function safeDecodeReceiptHeader(b64: string): SignedReceipt | null {

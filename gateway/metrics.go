@@ -82,6 +82,13 @@ var (
 		},
 		[]string{"result"},
 	)
+	paymentAuthorizationTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gateway_payment_authorization_total",
+			Help: "Request-bound payment authorization outcomes",
+		},
+		[]string{"version", "outcome"},
+	)
 	activeRequests = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "gateway_active_requests",

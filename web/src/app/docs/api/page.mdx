@@ -8,7 +8,7 @@ The gateway also serves OpenAPI at `GET /openapi.yaml` and Swagger UI at `GET /d
 
 ### `POST /api/ai/summarize`
 
-Summarizes text after payment authorization. The first unsigned request receives a `402 Payment Required` response with a `paymentContext`. The signed retry includes the EIP-712 signature headers.
+Summarizes text after payment authorization. The first unsigned request receives a `402 Payment Required` response with a request-bound authorization v2 `paymentContext`. The signed retry includes the EIP-712 signature and claimed payer headers.
 
 ### `GET /api/receipts/{id}`
 
@@ -39,6 +39,7 @@ Content-Type: application/json
 X-402-Signature: 0x...
 X-402-Nonce: ...
 X-402-Timestamp: 1766611200
+X-402-Payer: 0x...
 ```
 
 ## Response Headers

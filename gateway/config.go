@@ -3,10 +3,15 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
+	"net/netip"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/idna"
 )
 
 var defaultAllowedOrigins = []string{"http://localhost:3001"}
@@ -53,6 +58,118 @@ func isValidAllowedOrigin(origin string) bool {
 		return false
 	}
 	return parsed.Path == "" && parsed.RawQuery == "" && parsed.Fragment == ""
+}
+
+func normalizePaygateAudience() error {
+	raw := strings.TrimSpace(os.Getenv("PAYGATE_AUDIENCE"))
+	if raw == "" {
+		return fmt.Errorf("PAYGATE_AUDIENCE is required")
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return fmt.Errorf("PAYGATE_AUDIENCE must be an absolute origin")
+	}
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("PAYGATE_AUDIENCE scheme must be http or https")
+	}
+	if parsed.Hostname() == "" {
+		return fmt.Errorf("PAYGATE_AUDIENCE must have a non-empty host")
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("PAYGATE_AUDIENCE must not contain credentials")
+	}
+	if (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("PAYGATE_AUDIENCE must contain an origin only")
+	}
+
+	hostname, err := normalizeAudienceHostname(parsed.Hostname())
+	if err != nil {
+		return err
+	}
+	hostname = strings.ToLower(hostname)
+	port := parsed.Port()
+	if port != "" {
+		portNumber, err := strconv.Atoi(port)
+		if err != nil || portNumber < 1 || portNumber > 65535 {
+			return fmt.Errorf("PAYGATE_AUDIENCE must contain a valid port")
+		}
+		port = strconv.Itoa(portNumber)
+	}
+	if (parsed.Scheme == "https" && port == "443") || (parsed.Scheme == "http" && port == "80") {
+		port = ""
+	}
+	canonicalHost := hostname
+	if port != "" {
+		canonicalHost = net.JoinHostPort(hostname, port)
+	} else if strings.Contains(hostname, ":") {
+		canonicalHost = "[" + hostname + "]"
+	}
+	canonical := parsed.Scheme + "://" + canonicalHost
+	if err := os.Setenv("PAYGATE_AUDIENCE", canonical); err != nil {
+		return fmt.Errorf("failed to normalize PAYGATE_AUDIENCE: %w", err)
+	}
+	return nil
+}
+
+func normalizeAudienceHostname(hostname string) (string, error) {
+	if strings.Contains(hostname, "%") {
+		return "", fmt.Errorf("PAYGATE_AUDIENCE must contain a valid hostname")
+	}
+	if strings.HasSuffix(hostname, ".") {
+		return "", fmt.Errorf("PAYGATE_AUDIENCE hostname must not end with a dot")
+	}
+	if address, err := netip.ParseAddr(hostname); err == nil {
+		if address.Is4In6() {
+			return "", fmt.Errorf("PAYGATE_AUDIENCE must contain a canonical IP address")
+		}
+		return address.String(), nil
+	}
+	if strings.Contains(hostname, ":") || endsInIPv4Number(hostname) {
+		return "", fmt.Errorf("PAYGATE_AUDIENCE must contain a canonical IP address")
+	}
+
+	asciiHostname, err := idna.Lookup.ToASCII(hostname)
+	if err != nil {
+		return "", fmt.Errorf("PAYGATE_AUDIENCE must contain a valid hostname: %w", err)
+	}
+	if address, err := netip.ParseAddr(asciiHostname); err == nil {
+		return address.String(), nil
+	}
+	if endsInIPv4Number(asciiHostname) {
+		return "", fmt.Errorf("PAYGATE_AUDIENCE must contain a canonical IP address")
+	}
+	return strings.ToLower(asciiHostname), nil
+}
+
+func endsInIPv4Number(hostname string) bool {
+	withoutTrailingDot := strings.TrimSuffix(hostname, ".")
+	lastLabel := withoutTrailingDot
+	if index := strings.LastIndexByte(withoutTrailingDot, '.'); index >= 0 {
+		lastLabel = withoutTrailingDot[index+1:]
+	}
+	if lastLabel == "" {
+		return false
+	}
+	if strings.HasPrefix(lastLabel, "0x") || strings.HasPrefix(lastLabel, "0X") {
+		lastLabel = lastLabel[2:]
+		if lastLabel == "" {
+			return false
+		}
+		for _, character := range lastLabel {
+			if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F')) {
+				return false
+			}
+		}
+		return true
+	}
+	for _, character := range lastLabel {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func getReceiptStoreMode() string {
