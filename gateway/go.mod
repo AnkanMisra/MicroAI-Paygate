@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.24.13
 
 require (
-	github.com/alicebob/miniredis/v2 v2.38.0
+	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/ethereum/go-ethereum v1.17.2
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-contrib/gzip v1.2.5
