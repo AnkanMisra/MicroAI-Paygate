@@ -1,0 +1,9 @@
+# deploy/grafana/provisioning/dashboards/microai.yaml
+apiVersion: 1
+providers:
+  - name: MicroAI Paygate
+    type: file
+    updateIntervalSeconds: 10
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
