@@ -26,7 +26,7 @@ And these values in hand:
 
 - `OPENROUTER_API_KEY` from OpenRouter
 - `SERVER_WALLET_PRIVATE_KEY` — any 64-hex private key (demo only, never holds real funds)
-- `RECIPIENT_ADDRESS` — the EIP-55-checksummed address derived from the key above
+- `RECIPIENT_ADDRESS` — the address that should receive payments. It is independent of `SERVER_WALLET_PRIVATE_KEY` (which only signs receipts); any valid address works
 - `REDIS_URL` from Upstash (format: `rediss://default:...@...upstash.io:6379`)
 
 Optional but recommended CLIs:
@@ -123,7 +123,7 @@ VERIFIER_TIMEOUT_SECONDS=60
 PORT=3000
 ```
 
-> **Important:** `RECIPIENT_ADDRESS` must be the canonical EIP-55-checksummed form, not lowercased or arbitrary-case. The browser wallet rejects malformed checksums with `bad address checksum` during signing.
+> **Note:** the gateway validates `RECIPIENT_ADDRESS` at startup and rewrites it to the canonical EIP-55 form (`normalizeRecipientAddress` in `gateway/main.go`), so a lowercased address is fine. Before that normalization existed, a non-canonical address made the browser wallet reject signing with `bad address checksum`. An address that is not valid hex stops the gateway from starting.
 >
 > **CORS:** `ALLOWED_ORIGINS=*` is permissive; tighten it after web deploy in step 5.
 >
