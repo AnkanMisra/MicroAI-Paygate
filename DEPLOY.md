@@ -110,7 +110,7 @@ curl https://<verifier-app>.onrender.com/health
 OPENROUTER_API_KEY=<your-openrouter-key>
 OPENROUTER_MODEL=z-ai/glm-4.5-air:free
 SERVER_WALLET_PRIVATE_KEY=<your-64-hex-key>
-RECIPIENT_ADDRESS=<your-eip55-checksummed-address>
+RECIPIENT_ADDRESS=<your-recipient-address>
 REDIS_URL=<your-upstash-rediss-url>
 RECEIPT_STORE=redis
 VERIFIER_URL=https://<verifier-app>.onrender.com
