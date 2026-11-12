@@ -313,6 +313,9 @@ func main() {
 	if err := initReceiptStore(); err != nil {
 		log.Fatalf("Receipt store initialization failed: %v", err)
 	}
+	if err := initNanoPayment(); err != nil {
+		log.Fatalf("Nano payment initialization failed: %v", err)
+	}
 
 	// Documentation routes are registered before CORS / rate-limit / timeout
 	// middleware so the Swagger UI and raw spec are served without those
@@ -322,7 +325,7 @@ func main() {
 	r.Use(cors.New(cors.Config{
 		AllowOrigins: getAllowedOrigins(),
 		AllowMethods: []string{"GET", "POST", "OPTIONS"},
-		AllowHeaders: []string{
+		AllowHeaders: append([]string{
 			"Origin",
 			"Content-Type",
 			"X-402-Signature",
@@ -330,7 +333,7 @@ func main() {
 			"X-402-Timestamp",
 			"X-402-Payer",
 			"X-Correlation-ID",
-		},
+		}, nanoCORSHeaders()...),
 		ExposeHeaders: []string{
 			"Content-Length",
 			"X-RateLimit-Limit",

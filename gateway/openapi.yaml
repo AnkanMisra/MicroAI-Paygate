@@ -349,6 +349,36 @@ components:
           example: Please sign the payment context
         paymentContext:
           $ref: "#/components/schemas/PaymentContext"
+        nano:
+          $ref: "#/components/schemas/NanoOffer"
+
+    NanoOffer:
+      type: object
+      description: Present only when the gateway is configured with NANO_PAY_TO. Pay it, then retry with X-402-Nano-Block and X-402-Nano-Order.
+      required: [scheme, network, asset, payTo, amount, orderId, representative]
+      properties:
+        scheme:
+          type: string
+          example: exact
+        network:
+          type: string
+          example: "nano:mainnet"
+        asset:
+          type: string
+          example: XNO
+        payTo:
+          type: string
+          description: Checksummed nano_ account that receives the payment.
+        amount:
+          type: string
+          description: Exact amount in raw (1 XNO = 10^30 raw).
+          example: "1000000000000000000000000000"
+        orderId:
+          type: string
+          description: 128-bit random order id; send it back in X-402-Nano-Order.
+        representative:
+          type: string
+          description: Representative the send block must carry; commits the block to this order, payTo and amount.
 
     PaymentContext:
       type: object
