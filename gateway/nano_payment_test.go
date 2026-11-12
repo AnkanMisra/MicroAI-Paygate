@@ -13,6 +13,7 @@ import (
 
 	"gateway/nanopay"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -121,6 +122,19 @@ func TestNanoChallengeAndPaidRequest(t *testing.T) {
 		require.True(t, hasPaymentHeaders(c))
 		v, ok := verifyPaidRequest(c)
 		return v, ok, recorder
+	}
+
+	// A request the handler refuses before the AI call (bad JSON, empty text)
+	// must not spend the block.
+	r := gin.New()
+	r.POST("/api/ai/summarize", handleSummarize)
+	for _, bad := range []string{`{"text":""}`, `not json`} {
+		req := httptest.NewRequest(http.MethodPost, "/api/ai/summarize", strings.NewReader(bad))
+		req.Header.Set("X-402-Nano-Block", nanoTestBlock)
+		req.Header.Set("X-402-Nano-Order", offer.OrderID)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		require.Equal(t, http.StatusBadRequest, w.Code, bad)
 	}
 
 	verified, ok, _ := paid()

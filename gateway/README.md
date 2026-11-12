@@ -114,7 +114,7 @@ Common optional variables:
 | `NANO_PAY_TO` | unset (Nano off) | Optional. A checksummed `nano_` account. When set, 402 responses also carry a `nano` offer (`nano:mainnet`, scheme `exact`) and the other three `NANO_*` variables are required. |
 | `NANO_PRICE_XNO` | unset | Price per request in XNO, for example `0.001`. Converted to raw with integer math (1 XNO = 10^30 raw). |
 | `NANO_RPC_URL` | unset | Nano node RPC used for `block_info` reads. `https`, or plain `http` on loopback only. No key or seed is ever configured. |
-| `NANO_CLAIMS_FILE` | unset | Append-only file of spent `block -> order` claims, fsynced per claim and reloaded at start, so a paid block cannot be replayed after a restart. |
+| `NANO_CLAIMS_FILE` | unset | Append-only file of spent `block -> order` claims, fsynced per claim and reloaded at start, so a paid block cannot be replayed after a restart. One gateway per file: the gateway holds an exclusive lock on it, and a second instance pointed at the same file fails to start. |
 
 ### Optional Nano payments
 

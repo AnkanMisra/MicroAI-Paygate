@@ -1,10 +1,12 @@
 package nanopay
 
 import (
-	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -13,6 +15,10 @@ import (
 // ErrAlreadyClaimed is returned when a block hash or an order id has already
 // paid for a request. One block pays for one order, once.
 var ErrAlreadyClaimed = errors.New("nanopay: payment already claimed")
+
+// ErrClaimsLocked is returned by OpenFileClaimStore when another store, in
+// this process or another one, already holds the claims file.
+var ErrClaimsLocked = errors.New("nanopay: claims file is in use by another instance")
 
 var blockHashPattern = regexp.MustCompile(`^[0-9A-F]{64}$`)
 
@@ -26,46 +32,108 @@ type ClaimStore interface {
 // "<BLOCK_HASH> <order_id>" line each, written and fsynced before Claim
 // returns. The file is read back on open, so a restart does not make an old
 // block spendable again.
+//
+// The store holds an exclusive lock on the file for its lifetime (flock on
+// Unix, LockFileEx on Windows), so a second store on the same file, in this
+// process or another gateway, fails to open with ErrClaimsLocked instead of
+// accepting the same block twice. Run one gateway per claims file.
 type FileClaimStore struct {
 	mu     sync.Mutex
 	f      *os.File
+	size   int64
+	err    error // sticky: set once the file may no longer match memory
+	sync   func() error
 	blocks map[string]struct{}
 	orders map[string]struct{}
 }
 
 // OpenFileClaimStore opens (or creates, mode 0600) the claims file at path and
-// loads every claim already in it. A malformed line is an error, not a skip.
+// loads every claim already in it. A malformed complete line is an error, not
+// a skip. A trailing fragment without a newline is what an interrupted append
+// leaves behind: Claim never reported it as recorded, so it is cut off and the
+// next append starts on a fresh line.
 func OpenFileClaimStore(path string) (*FileClaimStore, error) {
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
+	f, created, err := openClaimsFile(path)
 	if err != nil {
 		return nil, err
 	}
-	s := &FileClaimStore{f: f, blocks: map[string]struct{}{}, orders: map[string]struct{}{}}
-	sc := bufio.NewScanner(f)
-	line := 0
-	for sc.Scan() {
-		line++
-		text := strings.TrimSpace(sc.Text())
-		if text == "" {
-			continue
-		}
-		fields := strings.Fields(text)
-		if len(fields) != 2 || !blockHashPattern.MatchString(fields[0]) || !ValidOrderID(fields[1]) {
-			f.Close()
-			return nil, fmt.Errorf("nanopay: claims file %s line %d is malformed", path, line)
-		}
-		s.blocks[fields[0]] = struct{}{}
-		s.orders[fields[1]] = struct{}{}
+	if err := lockFile(f); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("%w: %s: %v", ErrClaimsLocked, path, err)
 	}
-	if err := sc.Err(); err != nil {
+	if created {
+		// Make the new directory entry durable, not only the file's contents.
+		if err := syncDir(filepath.Dir(path)); err != nil {
+			f.Close()
+			return nil, err
+		}
+	}
+	s := &FileClaimStore{f: f, blocks: map[string]struct{}{}, orders: map[string]struct{}{}}
+	s.sync = f.Sync
+	if err := s.load(path); err != nil {
 		f.Close()
 		return nil, err
 	}
 	return s, nil
 }
 
+func openClaimsFile(path string) (*os.File, bool, error) {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL|os.O_APPEND, 0o600)
+	if err == nil {
+		return f, true, nil
+	}
+	if !errors.Is(err, os.ErrExist) {
+		return nil, false, err
+	}
+	f, err = os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0o600)
+	return f, false, err
+}
+
+func (s *FileClaimStore) load(path string) error {
+	data, err := io.ReadAll(s.f)
+	if err != nil {
+		return err
+	}
+	complete := data
+	if i := bytes.LastIndexByte(data, '\n'); i+1 < len(data) {
+		complete = data[:i+1]
+	}
+	line := 0
+	for _, raw := range strings.SplitAfter(string(complete), "\n") {
+		if raw == "" {
+			continue
+		}
+		line++
+		text := strings.TrimSpace(raw)
+		if text == "" {
+			continue
+		}
+		fields := strings.Fields(text)
+		if len(fields) != 2 || !blockHashPattern.MatchString(fields[0]) || !ValidOrderID(fields[1]) {
+			return fmt.Errorf("nanopay: claims file %s line %d is malformed", path, line)
+		}
+		s.blocks[fields[0]] = struct{}{}
+		s.orders[fields[1]] = struct{}{}
+	}
+	s.size = int64(len(complete))
+	if len(complete) < len(data) {
+		if err := s.f.Truncate(s.size); err != nil {
+			return fmt.Errorf("nanopay: claims file %s: dropping incomplete last record: %w", path, err)
+		}
+		if err := s.f.Sync(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Claim records blockHash -> orderID, refusing a block or an order that was
 // claimed before.
+//
+// If the record was written but the fsync failed, the claim may or may not be
+// on disk. Claim then keeps it as taken in memory, so the block and order
+// cannot be claimed again, returns the error, and refuses every later claim
+// (fail closed) until the store is reopened and the file read back.
 func (s *FileClaimStore) Claim(blockHash, orderID string) error {
 	blockHash = strings.ToUpper(blockHash)
 	if !blockHashPattern.MatchString(blockHash) || !ValidOrderID(orderID) {
@@ -79,18 +147,29 @@ func (s *FileClaimStore) Claim(blockHash, orderID string) error {
 	if _, ok := s.orders[orderID]; ok {
 		return ErrAlreadyClaimed
 	}
-	if _, err := s.f.WriteString(blockHash + " " + orderID + "\n"); err != nil {
+	if s.err != nil {
+		return s.err
+	}
+	n, err := s.f.WriteString(blockHash + " " + orderID + "\n")
+	if err != nil {
+		// Cut any partial record so the file stays line-aligned. If even that
+		// fails, the file no longer matches memory: stop accepting claims.
+		if terr := s.f.Truncate(s.size); terr != nil {
+			s.err = fmt.Errorf("nanopay: claims file unusable after failed write: %w", err)
+		}
 		return err
 	}
-	if err := s.f.Sync(); err != nil {
-		return err
-	}
+	s.size += int64(n)
 	s.blocks[blockHash] = struct{}{}
 	s.orders[orderID] = struct{}{}
+	if err := s.sync(); err != nil {
+		s.err = fmt.Errorf("nanopay: claims file fsync failed: %w", err)
+		return s.err
+	}
 	return nil
 }
 
-// Close closes the claims file.
+// Close releases the lock and closes the claims file.
 func (s *FileClaimStore) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

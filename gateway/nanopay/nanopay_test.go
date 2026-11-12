@@ -170,6 +170,100 @@ func TestFileClaimStoreRefusesMalformedFile(t *testing.T) {
 	if _, err := OpenFileClaimStore(path); err == nil {
 		t.Fatal("malformed claims file accepted")
 	}
+
+	// A bad record in the middle is corruption, even when a good one follows.
+	order, _ := NewOrderID()
+	middle := hashA + " " + order[:10] + "\n" + hashB + " " + order + "\n"
+	if err := os.WriteFile(path, []byte(middle), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenFileClaimStore(path); err == nil {
+		t.Fatal("claims file corrupt in the middle accepted")
+	}
+}
+
+func TestFileClaimStoreDropsIncompleteLastRecord(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "claims")
+	order1, _ := NewOrderID()
+	order2, _ := NewOrderID()
+	// A complete claim, then an append cut off by a crash or a short write.
+	torn := hashA + " " + order1 + "\n" + hashB + " " + order2[:7]
+	if err := os.WriteFile(path, []byte(torn), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenFileClaimStore(path)
+	if err != nil {
+		t.Fatalf("torn tail refused: %v", err)
+	}
+	if err := s.Claim(hashA, order2); !errors.Is(err, ErrAlreadyClaimed) {
+		t.Fatalf("complete claim lost: %v", err)
+	}
+	// The torn claim was never reported as recorded, so it is claimable, and
+	// its record must start on its own line.
+	if err := s.Claim(hashB, order2); err != nil {
+		t.Fatalf("claim after torn tail: %v", err)
+	}
+	s.Close()
+
+	want := hashA + " " + order1 + "\n" + hashB + " " + order2 + "\n"
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Fatalf("claims file = %q, want %q", got, want)
+	}
+	s2, err := OpenFileClaimStore(path)
+	if err != nil {
+		t.Fatalf("reopen after repair: %v", err)
+	}
+	s2.Close()
+}
+
+func TestFileClaimStoreIsSingleInstance(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "claims")
+	s, err := OpenFileClaimStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s2, err := OpenFileClaimStore(path); !errors.Is(err, ErrClaimsLocked) {
+		if s2 != nil {
+			s2.Close()
+		}
+		t.Fatalf("second store on the same file: %v", err)
+	}
+	s.Close()
+	s3, err := OpenFileClaimStore(path)
+	if err != nil {
+		t.Fatalf("reopen after close: %v", err)
+	}
+	s3.Close()
+}
+
+func TestFileClaimStoreFsyncFailureKeepsClaim(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "claims")
+	order1, _ := NewOrderID()
+	order2, _ := NewOrderID()
+	s, err := OpenFileClaimStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	s.sync = func() error { return errors.New("injected fsync failure") }
+	if err := s.Claim(hashA, order1); err == nil {
+		t.Fatal("fsync failure not reported")
+	}
+	// The record may be on disk, so the block and order stay spent.
+	if err := s.Claim(hashA, order2); !errors.Is(err, ErrAlreadyClaimed) {
+		t.Fatalf("block reusable after failed fsync: %v", err)
+	}
+	if err := s.Claim(hashB, order1); !errors.Is(err, ErrAlreadyClaimed) {
+		t.Fatalf("order reusable after failed fsync: %v", err)
+	}
+	// And the store fails closed until it is reopened.
+	if err := s.Claim(hashB, order2); err == nil {
+		t.Fatal("claim accepted after failed fsync")
+	}
 }
 
 // fakeNode answers block_info for the blocks it holds.
@@ -255,6 +349,8 @@ func TestVerifyAcceptsBoundExactPaymentOnce(t *testing.T) {
 	}
 
 	// A restart: a new verifier over the same claims file still refuses it.
+	// The old store must be closed first; it holds the file's lock.
+	f.v.Claims.(*FileClaimStore).Close()
 	claims, err := OpenFileClaimStore(f.path)
 	if err != nil {
 		t.Fatal(err)
