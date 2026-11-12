@@ -111,6 +111,14 @@ Common optional variables:
 | `AI_REQUEST_TIMEOUT_SECONDS` | `30` | AI route timeout. |
 | `VERIFIER_TIMEOUT_SECONDS` | `2` | Verifier call timeout. |
 | `HEALTH_CHECK_TIMEOUT_SECONDS` | `2` | Health/readiness helper timeout. |
+| `NANO_PAY_TO` | unset (Nano off) | Optional. A checksummed `nano_` account. When set, 402 responses also carry a `nano` offer (`nano:mainnet`, scheme `exact`) and the other three `NANO_*` variables are required. |
+| `NANO_PRICE_XNO` | unset | Price per request in XNO, for example `0.001`. Converted to raw with integer math (1 XNO = 10^30 raw). |
+| `NANO_RPC_URL` | unset | Nano node RPC used for `block_info` reads. `https`, or plain `http` on loopback only. No key or seed is ever configured. |
+| `NANO_CLAIMS_FILE` | unset | Append-only file of spent `block -> order` claims, fsynced per claim and reloaded at start, so a paid block cannot be replayed after a restart. One gateway per file: the gateway holds an exclusive lock on it, and a second instance pointed at the same file fails to start. |
+
+### Optional Nano payments
+
+With `NANO_PAY_TO` set, an unpaid request's 402 body adds `nano: {scheme, network, asset, payTo, amount, orderId, representative}` beside `paymentContext`. The payer sends exactly `amount` raw to `payTo` in a state block whose representative is the given `representative`, which is `SHA-256("xno-binding/v1/rep|" + orderId + "|" + payTo + "|" + amount)` encoded as an account, so the signed block names the order it pays. The client retries with `X-402-Nano-Block: <block hash>` and `X-402-Nano-Order: <orderId>`. The gateway reads the block from `NANO_RPC_URL`, requires a confirmed send of the exact amount to `payTo` with that representative (and at most 15 minutes old), then records the block and order in `NANO_CLAIMS_FILE`; a second use of either returns `409 nonce_already_used`. The receipt records `token: XNO`, the raw amount, the payer account and the block hash as `nonce`. The verification code is in `nanopay/` and uses only the Go standard library.
 
 ## Local Development
 

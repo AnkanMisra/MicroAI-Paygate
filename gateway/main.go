@@ -313,6 +313,9 @@ func main() {
 	if err := initReceiptStore(); err != nil {
 		log.Fatalf("Receipt store initialization failed: %v", err)
 	}
+	if err := initNanoPayment(); err != nil {
+		log.Fatalf("Nano payment initialization failed: %v", err)
+	}
 
 	// Documentation routes are registered before CORS / rate-limit / timeout
 	// middleware so the Swagger UI and raw spec are served without those
@@ -322,7 +325,7 @@ func main() {
 	r.Use(cors.New(cors.Config{
 		AllowOrigins: getAllowedOrigins(),
 		AllowMethods: []string{"GET", "POST", "OPTIONS"},
-		AllowHeaders: []string{
+		AllowHeaders: append([]string{
 			"Origin",
 			"Content-Type",
 			"X-402-Signature",
@@ -330,7 +333,7 @@ func main() {
 			"X-402-Timestamp",
 			"X-402-Payer",
 			"X-Correlation-ID",
-		},
+		}, nanoCORSHeaders()...),
 		ExposeHeaders: []string{
 			"Content-Length",
 			"X-RateLimit-Limit",
@@ -459,12 +462,9 @@ func handleSummarize(c *gin.Context) {
 		}
 	}
 
-	payment, ok := verifyPaidRequest(c)
-	if !ok {
-		return
-	}
-
-	// 2. Parse Request
+	// 2. Parse and validate the request before verifying the payment.
+	// Verification spends the payment (the signed nonce or the Nano block), so
+	// everything that can be refused cheaply is refused first.
 	var req SummarizeRequest
 	if err := json.Unmarshal(requestBody, &req); err != nil {
 		c.JSON(400, gin.H{"error": "Invalid request body"})
@@ -474,6 +474,11 @@ func handleSummarize(c *gin.Context) {
 	// Validate text is not empty (also validated in cache middleware, but needed here for non-cached requests)
 	if req.Text == "" {
 		c.JSON(400, gin.H{"error": "Invalid request", "message": "text field cannot be empty"})
+		return
+	}
+
+	payment, ok := verifyPaidRequest(c)
+	if !ok {
 		return
 	}
 

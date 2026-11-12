@@ -16,18 +16,26 @@ type verifiedPayment struct {
 }
 
 func hasPaymentHeaders(c *gin.Context) bool {
-	return c.GetHeader("X-402-Signature") != "" && c.GetHeader("X-402-Nonce") != ""
+	return (c.GetHeader("X-402-Signature") != "" && c.GetHeader("X-402-Nonce") != "") || hasNanoPaymentHeaders(c)
 }
 
 func writePaymentChallenge(c *gin.Context) {
-	c.JSON(http.StatusPaymentRequired, gin.H{
+	body := gin.H{
 		"error":          "Payment Required",
 		"message":        "Please sign the payment context",
 		"paymentContext": createPaymentContext(),
-	})
+	}
+	if offer := nanoChallengeOffer(); offer != nil {
+		body["nano"] = offer
+	}
+	c.JSON(http.StatusPaymentRequired, body)
 }
 
 func verifyPaidRequest(c *gin.Context) (*verifiedPayment, bool) {
+	if hasNanoPaymentHeaders(c) {
+		return verifyNanoPaidRequest(c)
+	}
+
 	signature := c.GetHeader("X-402-Signature")
 	nonce := c.GetHeader("X-402-Nonce")
 

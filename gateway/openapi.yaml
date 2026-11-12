@@ -128,11 +128,35 @@ paths:
                   value:
                     error: Invalid request body
         "402":
-          description: Payment required. Sign the returned paymentContext and retry.
+          description: >-
+            Payment required. Sign the returned paymentContext (or, when Nano
+            payments are enabled, pay the returned nano offer) and retry. A
+            Nano payment that was presented but does not satisfy the offer
+            (not confirmed, wrong destination or amount, not bound to the
+            order, or too old) is rejected with a PublicError body of
+            invalid_nano_payment.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PaymentRequiredResponse"
+                oneOf:
+                  - $ref: "#/components/schemas/PaymentRequiredResponse"
+                  - $ref: "#/components/schemas/PublicError"
+              examples:
+                challenge:
+                  value:
+                    error: Payment Required
+                    message: Please sign the payment context
+                    paymentContext:
+                      recipient: "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219"
+                      token: USDC
+                      amount: "0.001"
+                      nonce: "550e8400-e29b-41d4-a716-446655440000"
+                      chainId: 84532
+                      timestamp: 1700000000
+                invalidNanoPayment:
+                  value:
+                    error: invalid_nano_payment
+                    correlation_id: "550e8400-e29b-41d4-a716-446655440000"
         "403":
           description: Invalid signature.
           content:
@@ -349,6 +373,36 @@ components:
           example: Please sign the payment context
         paymentContext:
           $ref: "#/components/schemas/PaymentContext"
+        nano:
+          $ref: "#/components/schemas/NanoOffer"
+
+    NanoOffer:
+      type: object
+      description: Present only when the gateway is configured with NANO_PAY_TO. Pay it, then retry with X-402-Nano-Block and X-402-Nano-Order.
+      required: [scheme, network, asset, payTo, amount, orderId, representative]
+      properties:
+        scheme:
+          type: string
+          example: exact
+        network:
+          type: string
+          example: "nano:mainnet"
+        asset:
+          type: string
+          example: XNO
+        payTo:
+          type: string
+          description: Checksummed nano_ account that receives the payment.
+        amount:
+          type: string
+          description: Exact amount in raw (1 XNO = 10^30 raw).
+          example: "1000000000000000000000000000"
+        orderId:
+          type: string
+          description: 128-bit random order id; send it back in X-402-Nano-Order.
+        representative:
+          type: string
+          description: Representative the send block must carry; commits the block to this order, payTo and amount.
 
     PaymentContext:
       type: object
@@ -388,6 +442,7 @@ components:
             - invalid_timestamp
             - chain_id_mismatch
             - nonce_already_used
+            - invalid_nano_payment
             - verification_unavailable
             - verifier_timeout
             - upstream_unavailable
